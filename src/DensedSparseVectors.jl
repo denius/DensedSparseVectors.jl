@@ -32,25 +32,33 @@ mutable struct DensedSparseVector{Tv,Ti,Tc<:AbstractDict,Td<:AbstractVector} <: 
     nnz::Int     # number of non-zero elements
     lastkey::Ti  # the last node key in `data` tree
     data::Tc     # tree based Dict data container
-    DensedSparseVector{Tv,Ti,Tc,Td}() where {Tv,Ti,Tc,Td} =
-        new{Tv,Ti,Tc,Td}(0, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
-        DensedSparseVector{Tv,Ti}() where {Tv,Ti} = new{Tv,Ti,SortedDict,Vector}(0, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
-    DensedSparseVector() = new{Float64,Int,SortedDict,Vector}(0, 0, typemin(Ti), SortedDict{Int,Vector{Float64}}())
 end
 
 
+@inline function DensedSparseVector(n::Integer = 0)
+    return DensedSparseVector{Float64,Int,SortedDict,Vector}(n, 0, typemin(Int), SortedDict{Int,Vector{Float64}}())
+end
+@inline function DensedSparseVector{Tv,Ti,Tc,Td}(n::Integer = 0) where {Tv,Ti,Tc,Td}
+    return DensedSparseVector{Tv,Ti,Tc,Td}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
+end
+@inline function DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
+    return DensedSparseVector{Tv,Ti,SortedDict,Vector}(n, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
+end
+
 
 function Base.length(v::DensedSparseVector)
-    if v.nnz == 0
-        return 0
-    else
+    if v.n != 0
+        return v.n
+    elseif !isempty(v.data)
         (ilastfirst, chunk) = last(v.data)
         return ilastfirst + length(chunk) - 1
+    else
+        return 0
     end
 end
 SparseArrays.nnz(v::AbstractDensedSparseVector) = v.nnz
 Base.isempty(v::AbstractDensedSparseVector) = v.nnz == 0
-Base.size(v::AbstractDensedSparseVector) = v.n
+Base.size(v::AbstractDensedSparseVector) = (v.n,)
 
 function SparseArrays.nonzeroinds(v::DensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
     ret = Vector{Ti}()
