@@ -18,26 +18,26 @@ using SparseArrays
 #import Base: getindex, setindex!, unsafe_load, unsafe_store!, nnz, length, isempty
 
 
-abstract type AbstractDensedSparseVector{Tv,Ti,Tc} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractDensedSparseVector{Tv,Ti,Tc,Td} <: AbstractSparseVector{Tv,Ti} end
 
-#mutable struct SpacedVector{Tv,Ti,Tc<:AbstractVector,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc}
+#mutable struct SpacedVector{Tv,Ti,Tc<:AbstractVector,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc,Td}
 #    n::Int            # the vector length
 #    nnz::Int          # number of non-zero elements
 #    nzind::Tc{Tv}     # Vector of chunks first indices
 #    data::Tc{Td{Tv}}  # Vector of Vectors (chunks) with values
 #end
 
-mutable struct DensedSparseVector{Tv,Ti,Tc<:AbstractDict,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc}
-    n::Int               # the vector length
-    nnz::Int             # number of non-zero elements
-    data::Tc  # tree based Dict data container
-    #data::Tc{Ti,Td{Tv}}  # tree based Dict data container
+mutable struct DensedSparseVector{Tv,Ti,Tc<:AbstractDict,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc,Td}
+    n::Int       # the vector length
+    nnz::Int     # number of non-zero elements
+    lastkey::Ti  # the last node key in `data` tree
+    data::Tc     # tree based Dict data container
+    DensedSparseVector{Tv,Ti,Tc,Td}() where {Tv,Ti,Tc,Td} =
+        new{Tv,Ti,Tc,Td}(0, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
+        DensedSparseVector{Tv,Ti}() where {Tv,Ti} = new{Tv,Ti,SortedDict,Vector}(0, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
+    DensedSparseVector() = new{Float64,Int,SortedDict,Vector}(0, 0, typemin(Ti), SortedDict{Int,Vector{Float64}}())
 end
 
-
-function DensedSparseVector{Tv,Ti,Tc,Td}() where {Tv,Ti,Tc,Td}
-    return DensedSparseVector(0, 0, Tc{Ti,Td{Tv}}())
-end
 
 
 function Base.length(v::DensedSparseVector)
@@ -67,10 +67,8 @@ function SparseArrays.nonzeros(v::DensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,
     return ret
 end
 
-#@inline function Base.haskey(v::DensedSparseVector{Tv,Ti,Tc,Td}, i) where {Tv,Ti,Tc<:AbstractDict,Td}
-@inline function Base.haskey(v::DensedSparseVector, i)
+@inline function Base.haskey(v::DensedSparseVector, i::Integer)
 
-    #isempty(v.data) && return false
     v.nnz > 0 || return false
 
     st = searchsortedlast(v.data, i)
@@ -87,8 +85,7 @@ end
 @inline hasindex(v::DensedSparseVector, i) = haskey(v, i)
 
 
-#@inline function Base.getindex(v::DensedSparseVector{Tv,Ti,Tc,Td}, i) where {Tv,Ti,Tc<:AbstractDict,Td}
-@inline function Base.getindex(v::DensedSparseVector, i)
+@inline function Base.getindex(v::DensedSparseVector{Tv,Ti,Tc,Td}, i::Integer) where {Tv,Ti,Tc,Td}
 
     v.nnz > 0 || return Tv(0)
 
@@ -108,25 +105,24 @@ end
     return chunk[i - ifirst + 1]
 end
 
-#@inline function Base.unsafe_load(v::DensedSparseVector{Tv,Ti,Tc,Td}, i) where {Tv,Ti,Tc<:AbstractDict,Td}
-@inline function Base.unsafe_load(v::DensedSparseVector, i)
+@inline function Base.unsafe_load(v::DensedSparseVector, i::Integer)
     (ifirst, chunk) = deref((v.data, searchsortedlast(v.data, i)))
     return chunk[i - ifirst + 1]
 end
 
 
-@inline function Base.setindex!(v::DensedSparseVector{Tv,Ti,Tc,Td}, value, i) where {Tv,Ti,Tc,Td}
+@inline function Base.setindex!(v::DensedSparseVector{Tv,Ti,Tc,Td}, value, i::Integer) where {Tv,Ti,Tc,Td}
     val = convert(Tv, value)
 
     st = searchsortedlast(v.data, i)
 
     sstatus = status((v.data, st))
-    @show sstatus, deref((v.data, st))
     @boundscheck if sstatus == 0 # invalid semitoken
         trow(KeyError(i))
     end
 
-    if v.nnz > 0 && (sstatus == 1 || sstatus == 3)  # the index `i` is not before the first index
+    # check the index exist and update its data
+    if v.nnz > 0 && sstatus != 2  # the index `i` is not before the first index
         (ifirst, chunk) = deref((v.data, st))
         if i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -134,10 +130,11 @@ end
         end
     end
 
-    if isempty(v.data)
+    if v.nnz == 0
         v.data[i] = Td(Fill(val,1))
         v.nnz += 1
-        v.n = i
+        v.n = Int(i)
+        v.lastkey = Ti(i)
         return v
     end
 
@@ -154,21 +151,24 @@ end
         return v
     end
 
-    if sstatus == 3  # the index `i` is after the last index
-        stlast = endof(v.data)
-        (ilastfirst, lastchunk) = deref((v.data, stlast))
-        if ilastfirst + length(lastchunk) != i  # there is will be gap in indices after inserting
+    (ifirst, chunk) = deref((v.data, st))
+
+    #if sstatus == 3  # the index `i` is after the last index
+    # Note: `searchsortedlast` isn't got `status((tree, semitoken)) == 3`, the 2 only.
+    #       The `searchsortedlast` is the same.
+    if i >= v.lastkey # the index `i` is after the last key index
+        if ifirst + length(chunk) != i  # there is will be the gap in indices after inserting
             v.data[i] = Td(Fill(val,1))
+            v.lastkey = Ti(i)
         else  # just append to last chunk
-            v.data[stlast] = push!(lastchunk, val)
+            v.data[st] = push!(chunk, val)
         end
         v.nnz += 1
-        v.n = i
+        v.n = Int(i)
         return v
     end
 
     # the index `i` is somewhere between indices
-    (ifirst, chunk) = deref((v.data, st))
     ilast = ifirst + length(chunk) - 1
     stnext = advance((v.data, st))
     inextfirst = deref_key((v.data, stnext))
@@ -195,5 +195,45 @@ end
     chunk[i - ifirst + 1] = convert(Tv, value)
     return v
 end
+
+@inline function Base.delete!(v::DensedSparseVector, i::Integer)
+
+    v.nnz > 0 || return v
+
+    st = searchsortedlast(v.data, i)
+
+    sstatus = status((v.data, st))
+    if sstatus == 2 || sstatus == 0  # the index `i` is before first index or invalid
+        return v
+    end
+
+    (ifirst, chunk) = deref((v.data, st))
+
+    if i >= ifirst + length(chunk)  # the index `i` is outside of data chunk indices
+        return v
+    end
+
+    if length(chunk) == 1
+        v.data = delete!(v.data, i)
+        i == v.lastkey && (v.lastkey = v.nnz > 0 ? lastindex(v.data) : typemin(Ti))
+    elseif i == ifirst + length(chunk) - 1  # last index in chunk
+        pop!(chunk)
+        v.data[st] = chunk
+    elseif i == ifirst
+        popfirst!(chunk)
+        v.data[i+1] = chunk
+        v.data = delete!(v.data, i)
+        i == v.lastkey && (v.lastkey += 1)
+    else
+        v.data[i+1] = chunk[i-ifirst+1+1:end]
+        #v.data[st] = chunk[1:i-ifirst+1-1]
+        v.data[st] = resize!(chunk, i-ifirst+1 - 1)
+    end
+
+    v.nnz -= 1
+
+    return v
+end
+@inline Base.deleteat!(v::DensedSparseVector, i::Integer) = delete!(v, i)
 
 #end  # of module DensedSparseVectors
