@@ -18,56 +18,171 @@ using SparseArrays
 #import Base: getindex, setindex!, unsafe_load, unsafe_store!, nnz, length, isempty
 
 
-abstract type AbstractDensedSparseVector{Tv,Ti,Tc,Td} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractSpacedDensedSparseVector{Tv,Ti,Tc,Td} <: AbstractSparseVector{Tv,Ti} end
 
-#mutable struct SpacedVector{Tv,Ti,Tc<:AbstractVector,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc,Td}
-#    n::Int            # the vector length
-#    nnz::Int          # number of non-zero elements
-#    nzind::Tc{Tv}     # Vector of chunks first indices
-#    data::Tc{Td{Tv}}  # Vector of Vectors (chunks) with values
-#end
+abstract type AbstractSpacedVector{Tv,Ti,Tx,Td} <: AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Td} end
+abstract type AbstractDensedSparseVector{Tv,Ti,Tc,Td} <: AbstractSpacedDensedSparseVector{Tv,Ti,Tc,Td} end
+
+mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector,Td<:AbstractVector} <: AbstractSpacedVector{Tv,Ti,Tx,Td}
+    n::Int     # the vector length
+    nnz::Int   # number of non-zero elements
+    nzind::Tx  # Vector of chunk's first indices
+    data::Tx   # Tx{Td{Tv}} -- Vector of Vectors (chunks) with values
+end
 
 mutable struct DensedSparseVector{Tv,Ti,Tc<:AbstractDict,Td<:AbstractVector} <: AbstractDensedSparseVector{Tv,Ti,Tc,Td}
     n::Int       # the vector length
     nnz::Int     # number of non-zero elements
     lastkey::Ti  # the last node key in `data` tree
-    data::Tc     # tree based Dict data container
+    data::Tc     # Tc{Ti,Td{Tv}} -- tree based Dict data container
 end
 
+
+@inline function SpacedVector(n::Integer = 0)
+    return SpacedVector{Float64,Int,Vector,Vector}(n, 0, Vector{Int}(), Vector{Float64}())
+end
+@inline function SpacedVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
+    return SpacedVector{Tv,Ti,Vector,Vector}(n, 0, Vector{Ti}(), Vector{Tv}())
+end
+@inline function SpacedVector{Tv,Ti,Tx,Td}(n::Integer = 0) where {Tv,Ti,Tx,Td}
+    return SpacedVector{Tv,Ti,Tx,Td}(n, 0, Tx{Ti}(), Td{Tv}())
+end
 
 @inline function DensedSparseVector(n::Integer = 0)
     return DensedSparseVector{Float64,Int,SortedDict,Vector}(n, 0, typemin(Int), SortedDict{Int,Vector{Float64}}())
 end
-@inline function DensedSparseVector{Tv,Ti,Tc,Td}(n::Integer = 0) where {Tv,Ti,Tc,Td}
-    return DensedSparseVector{Tv,Ti,Tc,Td}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
-end
 @inline function DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
     return DensedSparseVector{Tv,Ti,SortedDict,Vector}(n, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
 end
+@inline function DensedSparseVector{Tv,Ti,Tc,Td}(n::Integer = 0) where {Tv,Ti,Tc,Td}
+    return DensedSparseVector{Tv,Ti,Tc,Td}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
+end
 
+function SpacedVector(dsv::AbstractDensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
+    nzind = Vector{Ti}(undef, length(dsv.data))
+    data = Vector{Td}(undef, length(nzind))
+    i = 1
+    for (k,d) in dsv.data
+        nzind[i] = k
+        data[i] = d
+        i += 1
+    end
+    return SpacedVector{Tv,Ti,Tx,Td}(dsv.n, dsv.nnz, nzind, data)
+end
 
-function Base.length(v::DensedSparseVector)
+function SpacedVector{Tv,Ti,Tx,Td}(dsv::AbstractDensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tx,Tc,Td}
+    nzind = Tx{Ti}(undef, length(dsv.data))
+    data = Tx{Td}(undef, length(nzind))
+    i = 1
+    for (k,d) in dsv.data
+        nzind[i] = k
+        data[i] = d
+        i += 1
+    end
+    return SpacedVector{Tv,Ti,Tx,Td}(dsv.n, dsv.nnz, nzind, data)
+end
+
+function Base.length(v::AbstractDensedSparseVector)
     if v.n != 0
         return v.n
     elseif !isempty(v.data)
         (ilastfirst, chunk) = last(v.data)
-        return ilastfirst + length(chunk) - 1
+        return Int(ilastfirst) + length(chunk) - 1
     else
         return 0
     end
 end
-SparseArrays.nnz(v::AbstractDensedSparseVector) = v.nnz
-Base.isempty(v::AbstractDensedSparseVector) = v.nnz == 0
-Base.size(v::AbstractDensedSparseVector) = (v.n,)
+SparseArrays.nnz(v::AbstractSpacedDensedSparseVector) = v.nnz
+Base.isempty(v::AbstractSpacedDensedSparseVector) = v.nnz == 0
+Base.size(v::AbstractSpacedDensedSparseVector) = (v.n,)
 
-function SparseArrays.nonzeroinds(v::DensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
+struct SVIteratorState{Ti}
+    next::Int          #  index of current chunk
+    nextpos::Int       #  index in current chunk
+    nextindex::Ti      #  global index of current position
+    ref::Base.RefValue #  ref to chunk
+end
+
+function get_init_state(v::AbstractSpacedVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td<:AbstractVector}
+    if nnz(v) > 0
+        return SVIteratorState{Ti}(1, 1, v.nzind[1], Ref(v.data[1]))
+    else
+        return SVIteratorState{Ti}(1, 1, Ti(1), Ref(Td[]))
+    end
+end
+function Base.iterate(v::AbstractSpacedVector{Tv,Ti,Tc,Td}, state = get_init_state(v)) where {Tv,Ti,Tc,Td<:AbstractVector}
+    if state.nextpos < length(state.ref[])
+        return ((state.nextindex, state.ref[][state.nextpos]),
+                SVIteratorState{Ti}(state.next, state.nextpos + 1, state.nextindex + 1, state.ref))
+    elseif state.nextpos == length(state.ref[])
+        if state.next < length(v.nzind)
+            next = state.next + 1
+            return ((state.nextindex, state.ref[][state.nextpos]),
+                    SVIteratorState{Ti}(next, 1, v.nzind[next], Ref(v.data[next])))
+        elseif state.next == length(v.nzind)
+            return ((state.nextindex, state.ref[][state.nextpos]),
+                    SVIteratorState{Ti}(state.next + 1, state.nextpos + 1, state.nextindex + 1, state.ref))
+        else
+            return nothing
+        end
+    else
+        return nothing
+    end
+end
+
+
+
+
+struct NZInds{I}
+    itr::I
+end
+
+nzinds(itr) = NZInds(itr)
+
+@inline function Base.iterate(f::NZInds, state...)
+    y = iterate(f.itr, state...)
+    return y !== nothing ? (y[1][1], y[2]) : nothing
+end
+#@inline Base.iterate(f::NZInds, state...) = iterate(f.itr, state...)[1]
+
+Base.eltype(::Type{NZInds{I}}) where {I} = eltype(I)
+Base.IteratorEltype(::Type{NZInds{I}}) where {I} = IteratorEltype(I)
+Base.IteratorSize(::Type{<:NZInds}) = SizeUnknown()
+
+reverse(f::NZInds) = NZInds(reverse(f.itr))
+
+
+function SparseArrays.nonzeroinds(v::AbstractSpacedVector{Tv,Ti,Tx,Td}) where {Tv,Ti,Tx,Td}
+end
+
+struct DSVIteratorState{Ti}
+    next::Ti
+    nextpos::Int
+    nextindex::Ti
+    ref::Base.RefValue
+end
+
+#function get_init_state(v::AbstractDensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td<:AbstractVector}
+#    (k, d) = deref((v, startof(v)))
+#    return DSVIteratorState{Ti,Td}(k, d, 1)
+#end
+#function Base.iterate(v::AbstractDensedSparseVector{Tv,Ti,Tc,Td}, state = get_init_state(v)) where {Tv,Ti,Tc,Td<:AbstractVector}
+#    if state.pos != length(state.v)
+#    else
+#        st = advance((v.data, state.st))
+#        (k, d) = deref((v, st))
+#        return d[1], DSVIteratorState{Ti,Td}(k, d, 1)
+#    end
+#end
+
+function SparseArrays.nonzeroinds(v::AbstractDensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
     ret = Vector{Ti}()
     for (k,d) in v.data
-        append!(ret, (k:k+length(d)-1))
+        append!(ret, (k:k+size(d)[1]-1))
     end
     return ret
 end
-function SparseArrays.nonzeros(v::DensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
+function SparseArrays.nonzeros(v::AbstractDensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,Tc,Td}
     ret = Vector{Tv}()
     for d in values(v.data)
         append!(ret, d)
@@ -75,7 +190,22 @@ function SparseArrays.nonzeros(v::DensedSparseVector{Tv,Ti,Tc,Td}) where {Tv,Ti,
     return ret
 end
 
-@inline function Base.haskey(v::DensedSparseVector, i::Integer)
+function SparseArrays.nonzeroinds(v::AbstractSpacedVector{Tv,Ti,Tx,Td}) where {Tv,Ti,Tx,Td}
+    ret = Vector{Ti}()
+    for (k,d) in zip(v.nzind, v.data)
+        append!(ret, (k:k+size(d)[1]-1))
+    end
+    return ret
+end
+function SparseArrays.nonzeros(v::AbstractSpacedVector{Tv,Ti,Tx,Td}) where {Tv,Ti,Tx,Td}
+    ret = Vector{Tv}()
+    for d in v.data
+        append!(ret, d)
+    end
+    return ret
+end
+
+@inline function Base.isstored(v::DensedSparseVector, i::Integer)
 
     v.nnz > 0 || return false
 
@@ -90,7 +220,7 @@ end
 
     return true
 end
-@inline hasindex(v::DensedSparseVector, i) = haskey(v, i)
+@inline Base.haskey(v::DensedSparseVector, i) = isstored(v, i)
 
 
 @inline function Base.getindex(v::DensedSparseVector{Tv,Ti,Tc,Td}, i::Integer) where {Tv,Ti,Tc,Td}
@@ -243,5 +373,15 @@ end
     return v
 end
 @inline Base.deleteat!(v::DensedSparseVector, i::Integer) = delete!(v, i)
+
+
+function merge!(v::DensedSparseVector, ifirst::Integer, app::AbstractVector)
+    i = ifirst
+    for d in app
+        v[i] = d
+        i += 1
+    end
+    return v
+end
 
 #end  # of module DensedSparseVectors
