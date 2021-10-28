@@ -309,7 +309,7 @@ end
 end
 
 
-function Base.setindex!(v::SpacedVector{Tv,Ti,Tx,Ts}, value::Number, i::Integer) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+function Base.setindex!(v::SpacedVector{Tv,Ti,Tx,Ts}, value, i::Integer) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
     val = Tv(value)
 
     st = searchsortedlast(v.nzind, i)
@@ -392,7 +392,7 @@ end
 
 
 
-function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value::Number, i::Integer) where {Tv,Ti,Td,Tc}
+function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) where {Tv,Ti,Td,Tc}
     val = Tv(value)
 
     st = searchsortedlast(v.data, i)
@@ -438,7 +438,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value::Number, i::In
     # Note: `searchsortedlast` isn't got `status((tree, semitoken)) == 3`, the 2 only.
     #       The `searchsortedlast` is the same.
     if i >= v.lastkey # the index `i` is after the last key index
-        if ifirst + length(chunk) != i  # there is will be the gap in indices after inserting
+        if ifirst + length(chunk) < i  # there is will be the gap in indices after inserting
             v.data[i] = Td(Fill(val,1))
             v.lastkey = Ti(i)
         else  # just append to last chunk
@@ -487,17 +487,160 @@ function Base.setindex!(v::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}, data::
     end
     return v
 end
-function Base.setindex!(v::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}, data::AbstractVector, i::Integer) where {Tv,Ti,Td,Tc}
-    for d in data
-        v[i] = Tv(d)
-        i += 1
-    end
-    return v
-end
+###function Base.setindex!(v::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}, data::AbstractVector, i::Integer) where {Tv,Ti,Td,Tc}
+###    for d in data
+###        v[i] = Tv(d)
+###        i += 1
+###    end
+###    return v
+###end
 
 @inline function Base.unsafe_store!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) where {Tv,Ti,Td,Tc}
     (ifirst, chunk) = deref((v.data, searchsortedlast(v.data, i)))
     chunk[i - ifirst + 1] = Tv(value)
+    return v
+end
+
+
+function Base.insert!(v::SpacedVector{Tv,Ti,Tx,Ts}, i::Integer, value) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+    val = Tv(value)
+
+    if v.nnz == 0
+        v.nzind = push!(v.nzind, Ti(i))
+        v.data = push!(v.data, Td(Fill(val,1)))
+        v.nnz += 1
+        v.n += 1
+        return v
+    end
+
+    st = searchsortedlast(v.nzind, i)
+
+    if st == 0  # the index `i` is before the first index
+        inextfirst = v.nzind[1]
+        pushfirst!(v.nzind, i)
+        pushfirst!(v.data, Td(Fill(val,1)))
+        for j = 2:length(v.nzind)
+            v.nzind[j] += Ti(1)
+        end
+        v.nnz += 1
+        v.n += 1
+        return v
+    end
+
+    ifirst, chunk = v.nzind[st], v.data[st]
+
+    if i >= v.nzind[end]  # the index `i` is after the last key index
+        if i > ifirst + length(chunk)  # there is will be the gap in indices after inserting
+            push!(v.nzind, i)
+            push!(v.data, Td(Fill(val,1)))
+        else  # or just insert/append to last chunk
+            v.data[st] = insert!(chunk, i - ifirst + 1, val)
+        end
+        v.nnz += 1
+        v.n += 1
+        return v
+    end
+
+    # the index `i` is somewhere between indices
+    ilast = ifirst + length(chunk) - 1
+    stnext = st + 1
+    inextfirst = v.nzind[stnext]
+
+    if i - ilast <= 1  # append or insert inside of left chunk
+        v.data[st] = insert!(chunk, i - ifirst + 1, val)
+        for j = stnext:length(v.nzind)
+            v.nzind[j] += Ti(1)
+        end
+    #elseif i - ilast == 1  # append to left chunk
+    #    v.data[st] = push!(chunk, val)
+    #    for j = stnext:length(v.nzind)
+    #        v.nzind[j] += Ti(1)
+    #    end
+    else  # insert single element chunk
+        v.nzind = insert!(v.nzind, stnext, Ti(i))
+        v.data  = insert!(v.data, stnext, Td(Fill(val,1)))
+        for j = stnext+1:length(v.nzind)
+            v.nzind[j] += Ti(1)
+        end
+    end
+
+    v.nnz += 1
+    v.n += 1
+    return v
+end
+
+function Base.insert!(v::DensedSparseVector{Tv,Ti,Td,Tc}, i::Integer, value) where {Tv,Ti,Td,Tc}
+    val = Tv(value)
+
+    if v.nnz == 0
+        v.data[i] = Td(Fill(val,1))
+        v.nnz += 1
+        v.n += 1
+        v.lastkey = Ti(i)
+        return v
+    end
+
+    st = searchsortedlast(v.data, i)
+
+    sstatus = status((v.data, st))
+    @boundscheck if sstatus == 0 # invalid semitoken
+        trow(KeyError(i))
+    end
+
+    if sstatus == 2  # the index `i` is before the first index
+        st = lastindex(v.data)
+        while st !== beforestartsemitoken(v.data)
+            v.data[deref_key((v.data, st))+1] = deref_value((v.data, st))
+            st0 = regress((v.data, st))
+            delete!((v.data, st))
+            st = st0
+        end
+        v.data[i] = Td(Fill(val,1))
+        v.nnz += 1
+        v.n += 1
+        return v
+    end
+
+    (ifirst, chunk) = deref((v.data, st))
+
+    if i >= v.lastkey  # the index `i` is after the last key index
+        if ifirst + length(chunk) < i  # there is will be the gap in indices after inserting
+            v.data[i] = Td(Fill(val,1))
+            v.lastkey = Ti(i)
+        else  # or just insert/append to last chunk
+            v.data[st] = insert!(chunk, i - ifirst + 1, val)
+        end
+        v.nnz += 1
+        v.n += 1
+        return v
+    end
+
+
+    # the index `i` is somewhere between indices
+    ilast = ifirst + length(chunk) - 1
+
+    if i - ilast <= 1  # append to or insert inside of left chunk
+        v.data[st] = insert!(chunk, i - ifirst + 1, val)
+        sta = lastindex(v.data)
+        while sta !== st
+            v.data[deref_key((v.data, sta))+1] = deref_value((v.data, sta))
+            st0 = regress((v.data, sta))
+            delete!((v.data, sta))
+            sta = st0
+        end
+    else  # insert single element chunk
+        sta = lastindex(v.data)
+        while sta !== st
+            v.data[deref_key((v.data, sta))+1] = deref_value((v.data, sta))
+            st0 = regress((v.data, sta))
+            delete!((v.data, sta))
+            sta = st0
+        end
+        v.data[i] = Td(Fill(val,1))
+    end
+
+    v.nnz += 1
+    v.n += 1
     return v
 end
 
@@ -577,7 +720,8 @@ end
 
     return v
 end
-@inline Base.deleteat!(v::AbstractSpacedDensedSparseVector, i::Integer) = delete!(v, i)
+
+@inline Base.deleteat!(v::AbstractSpacedDensedSparseVector, i::Integer) = deleteat!(v, i)
 
 
 function testfun_create(n = 500_000)
@@ -599,37 +743,66 @@ function testfun_create(n = 500_000)
     (dsv, sv)
 end
 
-function testfun_create_dense()
+function testfun_create_dense(n = 500_000, nchunks = 100)
 
-    dsv = DensedSparseVector(500_000)
+    chunklen = max(1, floor(Int, n / nchunks))
 
-    Random.seed!(1234)
-    dsv[1001]    = rand(100_000)
-    dsv[200_001] = rand(50_000)
-    dsv[400_001] = rand(20_000)
-
-    sv = SpacedVector(500_000)
+    dsv = DensedSparseVector(n)
 
     Random.seed!(1234)
-    sv[1001]    = rand(100_000)
-    sv[200_001] = rand(50_000)
-    sv[400_001] = rand(20_000)
+    for i = 0:nchunks-1
+        len = chunklen - rand(1:nchunks÷2)
+        dsv[1+i*chunklen:len+i*chunklen] .= rand(len)
+    end
+
+
+    sv = SpacedVector(n)
+
+    Random.seed!(1234)
+    for i = 0:nchunks-1
+        len = chunklen - rand(1:nchunks÷2)
+        sv[1+i*chunklen:len+i*chunklen] .= rand(len)
+    end
 
     (dsv, sv)
 end
 
-function testfun_delete(dsv, sv)
+function testfun_insert!(dsv, sv)
+
+    dsvnew = DensedSparseVector(0)
 
     Random.seed!(1234)
     indices = shuffle(SparseArrays.nonzeroinds(dsv))
     for i in indices
-        deleteat!(dsv, i)
+        insert!(dsvnew, i, dsv[i])
+        #dump(dsvnew)
+    end
+
+    svnew = SpacedVector(0)
+
+    Random.seed!(1234)
+    indices = shuffle(SparseArrays.nonzeroinds(sv))
+    for i in indices
+        insert!(svnew, i, sv[i])
+        print("\ni = $i\n")
+        dump(svnew)
+    end
+
+    (dsvnew, svnew)
+end
+
+function testfun_delete!(dsv, sv)
+
+    Random.seed!(1234)
+    indices = shuffle(SparseArrays.nonzeroinds(dsv))
+    for i in indices
+        delete!(dsv, i)
     end
 
     Random.seed!(1234)
     indices = shuffle(SparseArrays.nonzeroinds(sv))
     for i in indices
-        deleteat!(sv, i)
+        delete!(sv, i)
     end
 
     (dsv, sv)
@@ -639,7 +812,7 @@ function testfun1(sv)
     I = 0
     S = 0.0
     for ic in axes(sv.nzind, 1)
-        ind = sv.nzind[ic]-1
+        ind = sv.nzind[ic] - 1
         dat = sv.data[ic]
         for i in axes(dat,1)
             I += ind+i
