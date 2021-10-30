@@ -1,4 +1,9 @@
 
+@inline SparseArrays.sparse(sv::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+    SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
+@inline SparseArrays.SparseVector(sv::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+    SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
+
 @inline SpacedVectorIndex(n::Integer = 0) =
     SpacedVectorIndex{Int,Vector{Int},Vector{Int}}(n, 0, Vector{Int}(), Vector{Int}())
 @inline SpacedVectorIndex{Ti}(n::Integer = 0) where {Ti} =

@@ -3,9 +3,9 @@
 #  DensedSparseVector
 #
 # fast and slow realizations:
-# on couple of vectors: Vector{FirstIndex<:Int} and Vectror{SomeVectorData}
-# and on SortedDict{FirstIndex<:Int, SomeVectorData} respectively.
-# The first one for fast index access, the second one for creating and rebuilding.
+# 1. on two vectors: Vector{FirstIndex<:Int} and Vector{SomeVectorData}
+# 2. on SortedDict{FirstIndex<:Int, SomeVectorData}.
+# The first realization is for fast index access, the second one is for creating and rebuilding.
 # Also on the SortedDict{Index<:Int, value} -- the simples and bug free.
 
 #module DensedSparseVectors
@@ -24,7 +24,7 @@ abstract type AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc} <: AbstractSparseVec
 abstract type AbstractSpacedVector{Tv,Ti,Tx,Ts} <: AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts} end
 abstract type AbstractDensedSparseVector{Tv,Ti,Td,Tc} <: AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc} end
 
-mutable struct SpacedVectorIndex{Ti,Tx<:AbstractVector,Ts<:AbstractVector{Int}} <: AbstractSpacedVector{Bool,Ti,Tx,Ts}
+mutable struct SpacedVectorIndex{Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{Int}} <: AbstractSpacedVector{Bool,Ti,Tx,Ts}
     n::Int     # the vector length
     nnz::Int   # number of non-zero elements
     nzind::Tx  # Vector of chunk's first indices
@@ -38,9 +38,7 @@ mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:Ab
     data::Ts   # Td{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
 end
 
-#const SpacedVectorIndex{Ti,Tx} = SpacedVector{Int,Ti,Tx,Tx}
-
-mutable struct DensedSparseVector{Tv,Ti,Td<:Union{Tv,AbstractVector{Tv}},Tc<:AbstractDict{Ti,Td}} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
+mutable struct DensedSparseVector{Tv,Ti,Td<:AbstractVector{Tv},Tc<:AbstractDict{Ti,Td}} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
     n::Int       # the vector length
     nnz::Int     # number of non-zero elements
     lastkey::Ti  # the last node key in `data` tree
@@ -91,6 +89,16 @@ function SparseArrays.nonzeros(v::AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts})
     return ret
 end
 
+
+#Base.@propagate_inbounds @inline function nziterate(v::SparseVector, state = (1, length(v.nzind)))
+Base.@propagate_inbounds @inline function nziterate(v::SparseVector{Tv,Ti}, state = (Ti(1), length(v.nzind))) where {Tv,Ti}
+    i, len = state
+    if i <= len
+        return ((v.nzind[i], v.nzval[i]), (i+1, len))
+    else
+        return nothing
+    end
+end
 
 struct SVIIteratorState
     next::Int          #  index of current chunk
@@ -238,10 +246,6 @@ Base.IteratorEltype(::Type{NZVals{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZVals}) = Base.SizeUnknown()
 Base.reverse(f::NZVals) = NZVals(reverse(f.itr))
 
-# TODO:
-# julia> collect(nzpairs(dsv))
-# ERROR: MethodError: no method matching length(::NZPairs{DensedSparseVector{Float64, Int64, Vector{Float64}, SortedDict{Int64, Vector{Float64}}}})
-
 struct NZPairs{It}
     itr::It
 end
@@ -262,7 +266,8 @@ Base.IteratorSize(::Type{<:NZPairs}) = Base.SizeUnknown()
 Base.reverse(f::NZPairs) = NZPairs(reverse(f.itr))
 
 
-SparseArrays.findnz(v::AbstractSpacedDensedSparseVector) = (SparseArrays.nonzeroinds(v), SparseArrays.nonzeros(v))
+SparseArrays.findnz(v::AbstractSpacedDensedSparseVector) = (nzinds(v), nzvals(v))
+#SparseArrays.findnz(v::AbstractSpacedDensedSparseVector) = (SparseArrays.nonzeroinds(v), SparseArrays.nonzeros(v))
 
 
 @inline function Base.isstored(v::AbstractSpacedVector, i::Integer)
@@ -511,8 +516,6 @@ end
 
 
 
-
-
 function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) where {Tv,Ti,Td,Tc}
     val = value
 
@@ -740,6 +743,11 @@ end
 
 Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = SparseArrays.HigherOrderFns.SparseVecStyle()
 
+
+#
+#  Testing
+#
+
 function testfun_create(T::Type, n = 500_000)
 
     dsv = T(n)
@@ -824,6 +832,16 @@ function testfun_nzvals(sv)
         S += v
     end
     (0, S)
+end
+
+function testfun_findnz(sv)
+    I = 0
+    S = 0.0
+    for (k,v) in zip(SparseArrays.findnz(sv)...)
+        I += k
+        S += v
+    end
+    (I, S)
 end
 
 
