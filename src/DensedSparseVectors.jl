@@ -11,6 +11,8 @@
 #module DensedSparseVectors
 #export DensedSparseVector
 
+import Base.Broadcast: BroadcastStyle
+using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DataStructures
 using FillArrays
 using SparseArrays
@@ -31,7 +33,8 @@ mutable struct SpacedVectorIndex{Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{In
     data::Ts   # Vector{Int} -- Vector of chunks lengths
 end
 
-mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:AbstractVector{Tv}}} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
+#mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:AbstractVector{Tv}}} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
+mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:AbstractVector}} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
     n::Int     # the vector length
     nnz::Int   # number of non-zero elements
     nzind::Tx  # Vector of chunk's first indices
@@ -60,7 +63,41 @@ end
 SparseArrays.nnz(v::AbstractSpacedDensedSparseVector) = v.nnz
 Base.isempty(v::AbstractSpacedDensedSparseVector) = v.nnz == 0
 Base.size(v::AbstractSpacedDensedSparseVector) = (v.n,)
+Base.axes(v::AbstractSpacedDensedSparseVector) = (Base.OneTo(v.n),)
+Base.ndims(::AbstractSpacedDensedSparseVector) = 1
+Base.ndims(::Type{AbstractSpacedDensedSparseVector}) = 1
+Base.strides(v::AbstractSpacedDensedSparseVector) = (1,)
 Base.eltype(v::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Pair{Ti,Tv}
+Base.IndexStyle(::AbstractSpacedDensedSparseVector) = IndexLinear()
+
+function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
+    nzind = similar(v.nzind)
+    data = similar(v.data)
+    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+        nzind[i] = k
+        data[i] = similar(d)
+    end
+    return SpacedVector{Tv,Ti,Tx,Ts}(v.n, v.nnz, nzind, data)
+end
+function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
+    nzind = similar(v.nzind, Tin)
+    data = similar(v.data)
+    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+        nzind[i] = k
+        data[i] = similar(d, Tvn)
+    end
+    return SpacedVector{Tvn,Tin,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
+end
+function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType}
+    nzind = similar(v.nzind)
+    data = similar(v.data)
+    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+        nzind[i] = k
+        data[i] = similar(d, ElType)
+    end
+    @debug "in similar(SpacedVector): ElType = $ElType"
+    return SpacedVector{ElType,Ti,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
+end
 
 @inline get_chunk_length(v::SpacedVectorIndex, chunk) = chunk
 @inline get_chunk_length(v::SpacedVector, chunk) = size(chunk)[1]
@@ -90,8 +127,7 @@ function SparseArrays.nonzeros(v::AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts})
 end
 
 
-#Base.@propagate_inbounds @inline function nziterate(v::SparseVector, state = (1, length(v.nzind)))
-Base.@propagate_inbounds @inline function nziterate(v::SparseVector{Tv,Ti}, state = (Ti(1), length(v.nzind))) where {Tv,Ti}
+Base.@propagate_inbounds @inline function nziterate(v::SparseVector, state = (1, length(v.nzind)))
     i, len = state
     if i <= len
         return ((v.nzind[i], v.nzval[i]), (i+1, len))
@@ -161,6 +197,43 @@ Base.@propagate_inbounds @inline function nziterate(v::AbstractSpacedVector{Tv,T
         if next < length(v.nzind)
             return ((i, d), SVIteratorState{Td}(next + 1, 1, v.nzind[next+1], v.data[next+1]))
         elseif next == length(v.nzind)
+            return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
+        else
+            return nothing
+        end
+    else
+        return nothing
+    end
+end
+
+function get_init_state(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts}}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+    if nnz(v.parent) == 0
+        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
+    else
+        i = first(v.indices[1])
+        key = searchsortedlast(v.parent.nzind, i)
+        if key == 0
+            return SVIteratorState{Td}(1, 1, v.parent.nzind[1], v.parent.data[1])
+        else
+            return SVIteratorState{Td}(key, i - v.parent.nzind[key] + 1, v.parent.nzind[key], v.parent.data[key])
+        end
+    end
+end
+Base.@propagate_inbounds @inline function nziterate(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts},<:Tuple{UnitRange{<:Any}}}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+
+    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+    i = convert(Ti, key + nextpos-1)
+
+    if i > last(v.indices[1])
+        return nothing
+    elseif nextpos < length(chunk)
+        d = chunk[nextpos]
+        return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
+    elseif nextpos == length(chunk)
+        d = chunk[nextpos]
+        if next < length(v.parent.nzind)
+            return ((i, d), SVIteratorState{Td}(next + 1, 1, v.parent.nzind[next+1], v.parent.data[next+1]))
+        elseif next == length(v.parent.nzind)
             return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
         else
             return nothing
@@ -741,8 +814,122 @@ end
 #Base.getindex(A::ArrayAndChar{T,N}, inds::Vararg{Int,N}) where {T,N} = A.data[inds...]
 #Base.setindex!(A::ArrayAndChar{T,N}, val, inds::Vararg{Int,N}) where {T,N} = A.data[inds...] = val
 
-Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = SparseArrays.HigherOrderFns.SparseVecStyle()
+###Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = SparseArrays.HigherOrderFns.SparseVecStyle()
 
+struct DensedSparseVectorStyle <: AbstractArrayStyle{1} end
+
+const DSpVecStyle = DensedSparseVectorStyle
+
+DSpVecStyle(::Val{0}) = DSpVecStyle()
+DSpVecStyle(::Val{1}) = DSpVecStyle()
+DSpVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
+
+###Base.Broadcast.BroadcastStyle(s::DSpVecStyle, ::DefaultArrayStyle{0}) = s
+###Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::DSpVecStyle) = s
+###Base.Broadcast.BroadcastStyle(s::DSpVecStyle, ::DefaultArrayStyle{M}) where {M} = s
+###Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{M}, s::DSpVecStyle) where {M} = s
+###Base.Broadcast.BroadcastStyle(s::DSpVecStyle, ::AbstractArrayStyle{M}) where {M} = s
+###Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::DSpVecStyle) where {M} = s
+
+Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = DSpVecStyle()
+
+###Base.Broadcast.BroadcastStyle(::DSpVecStyle, ::BroadcastStyle) = DSpVecStyle()
+###Base.Broadcast.BroadcastStyle(::BroadcastStyle, ::DSpVecStyle) = DSpVecStyle()
+###Base.Broadcast.BroadcastStyle(::DSpVecStyle, ::DSpVecStyle) = DSpVecStyle()
+
+###function Base.Broadcast.instantiate(bc::Broadcasted{DSpVecStyle})
+###    if bc.axes isa Nothing
+###        bcaxes = Broadcast.combine_axes(bc.args...)
+###    else
+###        bcaxes = bc.axes
+###        # FortranString is flexible in assignment in any direction thus any sizes are allowed
+###        #check_broadcast_axes(axes, bc.args...)
+###    end
+###    return Broadcasted{DSpVecStyle}(bc.f, bc.args, bcaxes)
+###end
+
+function Base.similar(bc::Broadcasted{DSpVecStyle})
+    #@debug "in similar(): bc = $bc"
+    ##@debug "in similar(): flatten(bc) = $(Broadcast.flatten(bc))"
+    v = find_dsv(bc)
+    #@debug "in similar(): v = $v"
+    similar(v)
+end
+function Base.similar(bc::Broadcasted{DSpVecStyle}, ::Type{ElType}) where ElType
+    #@debug "in similar(ElType): bc = $bc"
+    ##@debug "in similar(ElType): flatten(bc) = $(Broadcast.flatten(bc))"
+    v = find_dsv(bc)
+    #@debug "in similar(ElType): v = $v"
+    similar(v, ElType)
+end
+
+"`A = find_dsv(As)` returns the first of any AbstractSpacedDensedSparseVector in `bc::Broadcasted`"
+find_dsv(bc::Base.Broadcast.Broadcasted) = find_dsv(bc.args)
+find_dsv(args::Tuple) = find_dsv(find_dsv(args[1]), Base.tail(args))
+find_dsv(x::Base.Broadcast.Extruded) = x.x
+find_dsv(x) = x
+find_dsv(::Tuple{}) = nothing
+find_dsv(v::AbstractSpacedDensedSparseVector, rest) = v
+find_dsv(v::SpacedVector, rest) = v
+find_dsv(::Any, rest) = find_dsv(rest)
+
+function Base.copy(bc::Broadcasted{<:DSpVecStyle})
+    #@show bc
+    fbc = Broadcast.flatten(bc)
+    @show fbc
+    #dest = similar(bc)
+    if length(fbc.args) == 1
+        dest = copy_wfun(fbc.f, fbc.args[1])
+    else #if is_same_indices()
+        for i in fbc.args
+            @show i, typeof(i)
+        end
+        dest = nzbroadcast(fbc.f, fbc.args)
+    end
+
+    dest
+end
+
+struct ItWrapper{T}
+    x::T
+end
+@inline getindex(v::ItWrapper, i::Integer) = v.x
+@inline nziterate(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
+
+function nzbroadcast(f, args)
+    vs = ()
+    for a in args
+        vs = ndims(a) == 0 ? (vs..., ItWrapper{typeof(a)}(a)) : (vs..., a)
+    end
+    while true
+        ss0 = ss
+        ss = ()
+        vals = ()
+        for (i,v) in enumerate(vs)
+            (idx, val), s = nziterate(v, ss0[i])
+            #@boundscheck
+            vals = (vals..., val)
+            ss = (ss..., s)
+            @show i, v, val, s
+        end
+        if any(isnothing, val)
+            return dest
+        end
+        destRef = nziterateRef(dest, deststate)[2]
+        destRef = f(val...)
+    end
+end
+
+function copy_wfun(f, v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
+    nzind = similar(v.nzind)
+    data = similar(v.data)
+    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+        nzind[i] = k
+        data[i] = similar(d)
+        data[i] .= f.(d)
+    end
+    return SpacedVector{Tv,Ti,Tx,Ts}(v.n, v.nnz, nzind, data)
+end
 
 #
 #  Testing
