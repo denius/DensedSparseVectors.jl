@@ -143,8 +143,13 @@ struct SVIIteratorState
     chunklen::Int
 end
 
-get_init_state(v::SpacedVectorIndex) =
-    SVIIteratorState(1, 1, (nnz(v) == 0 ? (1,0) : (v.nzind[1],v.data[1]) )...)
+function get_init_state(v::SpacedVectorIndex)
+    if nnz(v) == 0
+        return SVIIteratorState(1, 1, Ti(1), 0)
+    else
+        return SVIIteratorState(1, 1, v.nzind[1], v.data[1])
+    end
+end
 
 Base.@propagate_inbounds function iteratenzpairs(v::SpacedVectorIndex{Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts}
 
@@ -173,8 +178,13 @@ struct SVIteratorState{Td}
     chunk::Td
 end
 
-get_init_state(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
-    SVIteratorState{Td}(1, 1, (nnz(v) == 0 ? (1,Td[]) : (v.nzind[1],v.data[1]) )...)
+function get_init_state(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+    if nnz(v) == 0
+        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
+    else
+        return SVIteratorState{Td}(1, 1, v.nzind[1], v.data[1])
+    end
+end
 
 function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
 #Base.@propagate_inbounds function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
@@ -269,7 +279,11 @@ end
 
 function get_init_state(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc}
     st = startof(v.data)
-    DSVIteratorState{Td}(st, 1, (nnz(v) == 0 ? (1,Td[]) : (deref_key((v.data, st)), deref_value((v.data, st))) )...)
+    if nnz(v) == 0
+        return DSVIteratorState{Td}(st, 1, 1, Td[])
+    else
+        return DSVIteratorState{Td}(st, 1, deref_key((v.data, st)), deref_value((v.data, st)))
+    end
 end
 Base.@propagate_inbounds function iteratenzpairs(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
     st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
