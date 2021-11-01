@@ -127,7 +127,7 @@ function SparseArrays.nonzeros(v::AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts})
 end
 
 
-Base.@propagate_inbounds @inline function nziteratepairs(v::SparseVector, state = (1, length(v.nzind)))
+Base.@propagate_inbounds function iteratenzpairs(v::SparseVector, state = (1, length(v.nzind)))
     i, len = state
     if i <= len
         return ((v.nzind[i], v.nzval[i]), (i+1, len))
@@ -146,7 +146,7 @@ end
 get_init_state(v::SpacedVectorIndex) =
     SVIIteratorState(1, 1, (nnz(v) == 0 ? (1,0) : (v.nzind[1],v.data[1]) )...)
 
-Base.@propagate_inbounds @inline function nziteratepairs(v::SpacedVectorIndex{Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts}
+Base.@propagate_inbounds function iteratenzpairs(v::SpacedVectorIndex{Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts}
 
     next, nextpos, key, chunklen = state.next, state.nextpos, state.currentkey, state.chunklen
     i = convert(Ti, key + nextpos-1)
@@ -176,7 +176,8 @@ end
 get_init_state(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
     SVIteratorState{Td}(1, 1, (nnz(v) == 0 ? (1,Td[]) : (v.nzind[1],v.data[1]) )...)
 
-Base.@propagate_inbounds @inline function nziteratepairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+#Base.@propagate_inbounds function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
     i = convert(Ti, key + nextpos-1)
     if nextpos < length(chunk)
@@ -196,7 +197,7 @@ Base.@propagate_inbounds @inline function nziteratepairs(v::AbstractSpacedVector
     end
 end
 
-Base.@propagate_inbounds @inline function nziteratepairsRef(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
     i = convert(Ti, key + nextpos-1)
     if nextpos < length(chunk)
@@ -230,12 +231,12 @@ function get_init_state(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,
     end
 end
 
-# TODO: replace nziteratepairs(v::SubArray) with Iterator
-struct NZIterateSubArray{T}
+# TODO: replace iteratenzpairs(v::SubArray) with Iterator which call iteratenzpairs(v.parent)
+struct NZIteratePairsSubArray{T}
     p::T
 end
 
-Base.@propagate_inbounds @inline function nziteratepairs(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts},<:Tuple{UnitRange{<:Any}}}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+Base.@propagate_inbounds function iteratenzpairs(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts},<:Tuple{UnitRange{<:Any}}}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
 
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
     i = convert(Ti, key + nextpos-1)
@@ -270,7 +271,7 @@ function get_init_state(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti
     st = startof(v.data)
     DSVIteratorState{Td}(st, 1, (nnz(v) == 0 ? (1,Td[]) : (deref_key((v.data, st)), deref_value((v.data, st))) )...)
 end
-Base.@propagate_inbounds @inline function nziteratepairs(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
+Base.@propagate_inbounds function iteratenzpairs(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
     st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
     i = convert(Ti, key + nextpos-1)
     if nextpos < length(chunk)
@@ -291,7 +292,7 @@ Base.@propagate_inbounds @inline function nziteratepairs(v::AbstractDensedSparse
     end
 end
 
-Base.@propagate_inbounds @inline function nziteratepairsRef(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
+Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
     st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
     i = convert(Ti, key + nextpos-1)
     if nextpos < length(chunk)
@@ -313,7 +314,7 @@ Base.@propagate_inbounds @inline function nziteratepairsRef(v::AbstractDensedSpa
 end
 
 
-Base.@propagate_inbounds @inline function nziteratepairs(v::Vector, state = 1)
+Base.@propagate_inbounds function iteratenzpairs(v::Vector, state = 1)
     if state-1 < length(v)
         return (Pair(state, @inbounds v[state]), state + 1)
     else
@@ -322,13 +323,34 @@ Base.@propagate_inbounds @inline function nziteratepairs(v::Vector, state = 1)
 end
 
 
+Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
+    st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
+    i = convert(Ti, key + nextpos-1)
+    if nextpos < length(chunk)
+        d = Ref(chunk, nextpos)
+        return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
+    elseif nextpos == length(chunk)
+        d = Ref(chunk, nextpos)
+        if key < Int(v.lastkey)
+            stnext = advance((v.data,st))
+            return ((i, d), DSVIteratorState{Td}(stnext, 1, deref_key((v.data, stnext)), deref_value((v.data, stnext))))
+        elseif key == Int(v.lastkey)
+            return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
+        else
+            return nothing
+        end
+    else
+        return nothing
+    end
+end
+
 
 struct NZInds{It}
     itr::It
 end
 nzinds(itr) = NZInds(itr)
 @inline function Base.iterate(it::NZInds, state...)
-    y = nziteratepairs(it.itr, state...)
+    y = iteratenzpairs(it.itr, state...)
     if y !== nothing
         return (y[1][1], y[2])
     else
@@ -347,7 +369,7 @@ struct NZVals{It}
 end
 nzvals(itr) = NZVals(itr)
 @inline function Base.iterate(it::NZVals, state...)
-    y = nziteratepairs(it.itr, state...)
+    y = iteratenzpairs(it.itr, state...)
     if y !== nothing
         return (y[1][2], y[2])
     else
@@ -364,7 +386,7 @@ struct NZValsRef{It}
 end
 nzvalsRef(itr) = NZValsRef(itr)
 @inline function Base.iterate(it::NZValsRef, state...)
-    y = nziteratepairsRef(it.itr, state...)
+    y = iteratenzpairsRef(it.itr, state...)
     if y !== nothing
         return (y[1][2], y[2])
     else
@@ -379,9 +401,9 @@ Base.reverse(it::NZValsRef) = NZValsRef(reverse(it.itr))
 struct NZPairs{It}
     itr::It
 end
-nzpairs(itr) = NZPairs(itr)
+@inline nzpairs(itr) = NZPairs(itr)
 @inline function Base.iterate(it::NZPairs, state...)
-    y = nziteratepairs(it.itr, state...)
+    y = iteratenzpairs(it.itr, state...)
     if y !== nothing
         #return (y[1], y[2])
         return (Pair(y[1]...), y[2])
@@ -866,13 +888,6 @@ end
 #
 #  Broadcasting
 #
-## https://docs.julialang.org/en/v1/manual/interfaces/#Selecting-an-appropriate-output-array
-#
-#Base.getindex(A::ArrayAndChar{T,N}, inds::Vararg{Int,N}) where {T,N} = A.data[inds...]
-#Base.setindex!(A::ArrayAndChar{T,N}, val, inds::Vararg{Int,N}) where {T,N} = A.data[inds...] = val
-
-###Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = SparseArrays.HigherOrderFns.SparseVecStyle()
-
 struct DensedSparseVectorStyle <: AbstractArrayStyle{1} end
 
 const DSpVecStyle = DensedSparseVectorStyle
@@ -890,25 +905,10 @@ Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::DSpVecStyle) where {M}
 
 Base.Broadcast.BroadcastStyle(::Type{<:AbstractSpacedDensedSparseVector}) = DSpVecStyle()
 
-###Base.Broadcast.BroadcastStyle(::DSpVecStyle, ::BroadcastStyle) = DSpVecStyle()
-###Base.Broadcast.BroadcastStyle(::BroadcastStyle, ::DSpVecStyle) = DSpVecStyle()
-###Base.Broadcast.BroadcastStyle(::DSpVecStyle, ::DSpVecStyle) = DSpVecStyle()
-
-###function Base.Broadcast.instantiate(bc::Broadcasted{DSpVecStyle})
-###    if bc.axes isa Nothing
-###        bcaxes = Broadcast.combine_axes(bc.args...)
-###    else
-###        bcaxes = bc.axes
-###        # FortranString is flexible in assignment in any direction thus any sizes are allowed
-###        #check_broadcast_axes(axes, bc.args...)
-###    end
-###    return Broadcasted{DSpVecStyle}(bc.f, bc.args, bcaxes)
-###end
-
 Base.similar(bc::Broadcasted{DSpVecStyle}) = similar(find_dsv(bc))
 Base.similar(bc::Broadcasted{DSpVecStyle}, ::Type{ElType}) where ElType = similar(find_dsv(bc), ElType)
 
-"`A = find_dsv(As)` returns the first of any AbstractSpacedDensedSparseVector in `bc::Broadcasted`"
+"`find_dsv(bc::Broadcasted)` returns the first of any `AbstractSpacedDensedSparseVector` in `bc`"
 find_dsv(bc::Base.Broadcast.Broadcasted) = find_dsv(bc.args)
 find_dsv(args::Tuple) = find_dsv(find_dsv(args[1]), Base.tail(args))
 find_dsv(x::Base.Broadcast.Extruded) = x.x
@@ -931,20 +931,23 @@ function Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DSpVecStyle})
 end
 
 struct ItWrapper{T} x::T end
-ItWrapper(x::T) where T = ItWrapper{T}(x)
+ItWrapper(v::T) where T = ItWrapper{T}(v)
 @inline Base.getindex(v::ItWrapper, i::Integer) = v.x
-@inline nziteratepairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
+@inline iteratenzpairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
 @inline Base.ndims(v::ItWrapper) = 1
 
 function nzbroadcast!(f, dest, args)
     # replace scalars with iterable wrapper
-    vs = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
+    args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
     # replace single-value DenseArray's with iterable wrapper
-    vs = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, vs)
-    @debug vs
+    args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
+    @debug args
 
-    # create list of iterators for all args's vectors
-    iters = map(nzvals, vs)
+    # check indices are the same
+    # issimilar()
+
+    # create `nzvals` iterator for each item in args
+    iters = map(nzvals, args)
     iters = (nzvalsRef(dest), iters...)
 
     for res in zip(iters...)
@@ -954,16 +957,6 @@ function nzbroadcast!(f, dest, args)
     return dest
 end
 
-#function copy_wfun(f, v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
-#    nzind = similar(v.nzind)
-#    data = similar(v.data)
-#    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
-#        nzind[i] = k
-#        data[i] = similar(d)
-#        data[i] .= f.(d)
-#    end
-#    return SpacedVector{Tv,Ti,Tx,Ts}(v.n, v.nnz, nzind, data)
-#end
 
 #
 #  Testing
