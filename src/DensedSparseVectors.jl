@@ -159,6 +159,7 @@ Base.@propagate_inbounds function iteratenzpairs(v::Vector, state = 1)
         return nothing
     end
 end
+Base.@propagate_inbounds iteratenzpairs(v::Number, state = 1) = ((state, v), state+1)
 
 Base.@propagate_inbounds function iteratenzvals(v::SparseVector, state = (1, length(v.nzind)))
     i, len = state
@@ -168,17 +169,20 @@ Base.@propagate_inbounds function iteratenzvals(v::SparseVector, state = (1, len
         return nothing
     end
 end
-Base.@propagate_inbounds function iteratenzpairs(v::Vector, state = 1)
+Base.@propagate_inbounds function iteratenzvals(v::Vector, state = 1)
     if state-1 < length(v)
         return (@inbounds v[state], state + 1)
+    elseif length(v) == 1
+        return (@inbounds v[1], state + 1)
     else
         return nothing
     end
 end
+Base.@propagate_inbounds iteratenzvals(v::Number, state = 1) = (v, state+1)
 
 
-struct ASDSVIteratorState{Te,Td}
-    next::Te           #  index (Int or Semitoken) of next chunk
+struct ASDSVIteratorState{Tn,Td}
+    next::Tn           #  index (Int or Semitoken) of next chunk
     nextpos::Int       #  index in the current chunk of item will be get
     currentkey::Int
     chunk::Td
@@ -511,7 +515,7 @@ end
     #    end
     #end
     #return zero(Tv)
-    return getindex_helper(v, i, v.data)
+    return getindex_helper(v, i)
 end
 
 @inline function getindex_helper(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer, data=v.data) where {Tv,Ti,Td,Tc}
@@ -940,18 +944,18 @@ function Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DSpVecStyle})
     nzbroadcast!(bcf.f, dest, bcf.args)
 end
 
-struct ItWrapper{T} x::T end
-ItWrapper(v::T) where T = ItWrapper{T}(v)
-@inline Base.getindex(v::ItWrapper, i::Integer) = v.x
-@inline iteratenzvals(v::ItWrapper, state = 1) = (v.x, state + 1)
-@inline iteratenzpairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
-@inline Base.ndims(v::ItWrapper) = 1
+###struct ItWrapper{T} x::T end
+###ItWrapper(v::T) where T = ItWrapper{T}(v)
+###@inline Base.getindex(v::ItWrapper, i::Integer) = v.x
+###@inline iteratenzvals(v::ItWrapper, state = 1) = (v.x, state + 1)
+###@inline iteratenzpairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
+###@inline Base.ndims(v::ItWrapper) = 1
 
 function nzbroadcast!(f, dest, args)
-    # replace scalars with iterable wrapper
-    args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
-    # replace single-value DenseArray's with iterable wrapper
-    args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
+    ## replace scalars with iterable wrapper
+    #args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
+    ## replace single-value DenseArray's with iterable wrapper
+    #args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
     @debug args
 
     # check indices are the same
@@ -963,7 +967,8 @@ function nzbroadcast!(f, dest, args)
 
     for res in zip(iters...)
         @debug foreach(x->println(x), enumerate(res))
-        first(res)[] = f(Base.tail(res)...)
+        res[1][] = f(Base.tail(res)...)
+        #first(res)[] = f(Base.tail(res)...)
     end
     return dest
 end
