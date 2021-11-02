@@ -126,7 +126,7 @@ function SparseArrays.nonzeros(v::AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts})
     return ret
 end
 
-
+"`iteratenzpairs(v::AbstractVector)` iterates over nonzeros and returns pair of index and value"
 Base.@propagate_inbounds function iteratenzpairs(v::SparseVector, state = (1, length(v.nzind)))
     i, len = state
     if i <= len
@@ -172,58 +172,77 @@ Base.@propagate_inbounds function iteratenzpairs(v::SpacedVectorIndex{Ti,Tx,Ts},
 end
 
 struct SVIteratorState{Td}
-    next::Int          #  index of current chunk
-    nextpos::Int       #  index in the current chunk
+    next::Int          #  index of next chunk
+    nextpos::Int       #  index in the current chunk of item will be get
     currentkey::Int
     chunk::Td
 end
 
+#function get_init_state(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+#    if nnz(v) == 0
+#        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
+#    else
+#        return SVIteratorState{Td}(2, 1, v.nzind[1], v.data[1])
+#    end
+#end
+#
+#Base.@propagate_inbounds function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= length(chunk)
+#        i = convert(Ti, key + nextpos-1)
+#        d = chunk[nextpos]
+#        return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
+#    else
+#        if next <= length(v.nzind)
+#            key = v.nzind[next]
+#            chunk = v.data[next]
+#            return ((key, chunk[1]), SVIteratorState{Td}(next+1, 2, key, chunk))
+#        else
+#            return nothing
+#        end
+#    end
+#end
+
 function get_init_state(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
-    if nnz(v) == 0
-        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
+    if (ret = iteratenzchunks(v)) !== nothing
+        i, next = ret
+        return SVIteratorState{Td}(next, 1, v.nzind[i], v.data[i])
     else
-        return SVIteratorState{Td}(1, 1, v.nzind[1], v.data[1])
+        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
     end
 end
-
-function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
-#Base.@propagate_inbounds function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+Base.@propagate_inbounds function iteratenzpairs(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-    if nextpos < length(chunk)
+    if nextpos <= length(chunk)
+        i = convert(Ti, key + nextpos-1)
         d = chunk[nextpos]
         return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = chunk[nextpos]
-        if next < length(v.nzind)
-            return ((i, d), SVIteratorState{Td}(next + 1, 1, v.nzind[next+1], v.data[next+1]))
-        elseif next == length(v.nzind)
-            return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
-        else
-            return nothing
-        end
+    elseif (ret = iteratenzchunks(v, next)) !== nothing
+        i, next = ret
+        key = v.nzind[i]; chunk = v.data[i]
+        return ((key, chunk[1]), SVIteratorState{Td}(next, 2, key, chunk))
     else
         return nothing
     end
 end
 
+
+"`iteratenzpairs(v::AbstractVector)` iterates over nonzeros and returns pair of index and `Ref` of value"
 Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = get_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-    if nextpos < length(chunk)
+    if nextpos <= length(chunk)
+        i = convert(Ti, key + nextpos-1)
         d = Ref(chunk, nextpos)
         return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = Ref(chunk, nextpos)
-        if next < length(v.nzind)
-            return ((i, d), SVIteratorState{Td}(next + 1, 1, v.nzind[next+1], v.data[next+1]))
-        elseif next == length(v.nzind)
-            return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
+    else
+        if next <= length(v.nzind)
+            key = v.nzind[next]
+            chunk = v.data[next]
+            d = Ref(chunk, 1)
+            return ((key, d), SVIteratorState{Td}(next+1, 2, key, chunk))
         else
             return nothing
         end
-    else
-        return nothing
     end
 end
 
@@ -282,48 +301,39 @@ function get_init_state(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti
     if nnz(v) == 0
         return DSVIteratorState{Td}(st, 1, 1, Td[])
     else
-        return DSVIteratorState{Td}(st, 1, deref_key((v.data, st)), deref_value((v.data, st)))
+        return DSVIteratorState{Td}(advance((v.data,st)), 1, deref_key((v.data, st)), deref_value((v.data, st)))
     end
 end
 Base.@propagate_inbounds function iteratenzpairs(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
-    st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-    if nextpos < length(chunk)
+    next, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
+    if nextpos <= length(chunk)
+        i = convert(Ti, key + nextpos-1)
         d = chunk[nextpos]
-        return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = chunk[nextpos]
-        if key < Int(v.lastkey)
-            stnext = advance((v.data,st))
-            return ((i, d), DSVIteratorState{Td}(stnext, 1, deref_key((v.data, stnext)), deref_value((v.data, stnext))))
-        elseif key == Int(v.lastkey)
-            return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
+        return ((i, d), DSVIteratorState{Td}(next, nextpos + 1, key, chunk))
+    else
+        if next != pastendsemitoken(v.data)
+            key, chunk = deref((v.data, next))
+            return ((key, chunk[1]), DSVIteratorState{Td}(advance((v.data,next)), 2, key, chunk))
         else
             return nothing
         end
-    else
-        return nothing
     end
 end
 
 Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
-    st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-    if nextpos < length(chunk)
+    next, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
+    if nextpos <= length(chunk)
+        i = convert(Ti, key + nextpos-1)
         d = Ref(chunk, nextpos)
-        return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = Ref(chunk, nextpos)
-        if key < Int(v.lastkey)
-            stnext = advance((v.data,st))
-            return ((i, d), DSVIteratorState{Td}(stnext, 1, deref_key((v.data, stnext)), deref_value((v.data, stnext))))
-        elseif key == Int(v.lastkey)
-            return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
+        return ((i, d), DSVIteratorState{Td}(next, nextpos + 1, key, chunk))
+    else
+        if next != pastendsemitoken(v.data)
+            key, chunk = deref((v.data, next))
+            d = Ref(chunk, 1)
+            return ((key, d), DSVIteratorState{Td}(advance((v.data,next)), 2, key, chunk))
         else
             return nothing
         end
-    else
-        return nothing
     end
 end
 
@@ -337,22 +347,21 @@ Base.@propagate_inbounds function iteratenzpairs(v::Vector, state = 1)
 end
 
 
-Base.@propagate_inbounds function iteratenzpairsRef(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = get_init_state(v)) where {Tv,Ti,Td,Tc}
-    st, nextpos, key, chunk = state.semitoken, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-    if nextpos < length(chunk)
-        d = Ref(chunk, nextpos)
-        return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = Ref(chunk, nextpos)
-        if key < Int(v.lastkey)
-            stnext = advance((v.data,st))
-            return ((i, d), DSVIteratorState{Td}(stnext, 1, deref_key((v.data, stnext)), deref_value((v.data, stnext))))
-        elseif key == Int(v.lastkey)
-            return ((i, d), DSVIteratorState{Td}(st, nextpos + 1, key, chunk))
-        else
-            return nothing
-        end
+
+"`iteratenzchunks(v::AbstractVector)` iterates over nonzero chunks and returns start index of chunk and chunk"
+Base.@propagate_inbounds function iteratenzchunks(v::AbstractSpacedVector{Tv,Ti,Tx,Ts}, state = 1) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
+    if state <= length(v.nzind)
+        return (state, state + 1)
+    else
+        return nothing
+    end
+end
+
+Base.@propagate_inbounds function iteratenzchunks(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, state = startof(v)) where {Tv,Ti,Td,Tc}
+    if state != pastendsemitoken(v)
+        key, chunk = deref((v, state))
+        stnext = advance((v.data, state))
+        return ((key, chunk), stnext)
     else
         return nothing
     end
@@ -362,6 +371,7 @@ end
 struct NZInds{It}
     itr::It
 end
+"`nzinds(v::AbstractVector)` is the `Iterator` over nonzero indices of vector `v`"
 nzinds(itr) = NZInds(itr)
 @inline function Base.iterate(it::NZInds, state...)
     y = iteratenzpairs(it.itr, state...)
@@ -373,7 +383,6 @@ nzinds(itr) = NZInds(itr)
 end
 Base.eltype(::Type{NZInds{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZInds{It}}) where {It} = Base.EltypeUnknown()
-#!!! Base.IteratorEltype(::Type{NZInds{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZInds}) = Base.SizeUnknown()
 Base.reverse(it::NZInds) = NZInds(reverse(it.itr))
 @inline Base.keys(v::AbstractSpacedDensedSparseVector) = nzinds(v)
@@ -381,6 +390,7 @@ Base.reverse(it::NZInds) = NZInds(reverse(it.itr))
 struct NZVals{It}
     itr::It
 end
+"`nzvals(v::AbstractVector)` is the `Iterator` over nonzero values of `v`"
 nzvals(itr) = NZVals(itr)
 @inline function Base.iterate(it::NZVals, state...)
     y = iteratenzpairs(it.itr, state...)
@@ -398,6 +408,10 @@ Base.reverse(it::NZVals) = NZVals(reverse(it.itr))
 struct NZValsRef{It}
     itr::It
 end
+"""
+`nzvalsRef(v::AbstractVector)` is the `Iterator` over nonzero values of `v`,
+returns the reference `Ref` of iterated values
+"""
 nzvalsRef(itr) = NZValsRef(itr)
 @inline function Base.iterate(it::NZValsRef, state...)
     y = iteratenzpairsRef(it.itr, state...)
@@ -415,6 +429,7 @@ Base.reverse(it::NZValsRef) = NZValsRef(reverse(it.itr))
 struct NZPairs{It}
     itr::It
 end
+"`nzpairs(v::AbstractVector)` is the `Iterator` over nonzeros of `v` and returns pair of index and value"
 @inline nzpairs(itr) = NZPairs(itr)
 @inline function Base.iterate(it::NZPairs, state...)
     y = iteratenzpairs(it.itr, state...)
