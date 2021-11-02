@@ -33,7 +33,6 @@ mutable struct SpacedVectorIndex{Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{In
     data::Ts   # Vector{Int} -- Vector of chunks lengths
 end
 
-#mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:AbstractVector{Tv}}} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
 mutable struct SpacedVector{Tv,Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{<:AbstractVector}} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
     n::Int     # the vector length
     nnz::Int   # number of non-zero elements
@@ -70,10 +69,14 @@ Base.strides(v::AbstractSpacedDensedSparseVector) = (1,)
 Base.eltype(v::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Pair{Ti,Tv}
 Base.IndexStyle(::AbstractSpacedDensedSparseVector) = IndexLinear()
 
+Base.similar(v::SpacedVectorIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
+    return SpacedVectorIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data))
+Base.similar(v::SpacedVectorIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
+
 function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
     nzind = similar(v.nzind)
     data = similar(v.data)
-    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+    for (i, (k,d)) in enumerate(nzchunks(v))
         nzind[i] = k
         data[i] = similar(d)
     end
@@ -82,7 +85,7 @@ end
 function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     nzind = similar(v.nzind, Tin)
     data = similar(v.data)
-    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+    for (i, (k,d)) in enumerate(nzchunks(v))
         nzind[i] = k
         data[i] = similar(d, Tvn)
     end
@@ -91,11 +94,10 @@ end
 function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType}
     nzind = similar(v.nzind)
     data = similar(v.data)
-    for (i, (k,d)) in enumerate(zip(v.nzind, v.data))
+    for (i, (k,d)) in enumerate(nzchunks(v))
         nzind[i] = k
         data[i] = similar(d, ElType)
     end
-    #@debug "in similar(SpacedVector): ElType = $ElType"
     return SpacedVector{ElType,Ti,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
 end
 
@@ -119,9 +121,9 @@ end
 @inline get_key_and_chunk(v::SpacedVectorIndex) = (valtype(v.nzind)(1), valtype(v.data)(0))
 @inline get_key_and_chunk(v::SpacedVector) = (valtype(v.nzind)(1), valtype(v.data)())
 @inline get_key_and_chunk(v::DensedSparseVector) = (keytype(v.data)(1), valtype(v.data)())
-@inline get_chunk_value(v::SpacedVectorIndex, chunk, i) = 1 <= i <= chunk
-@inline get_chunk_value(v::SpacedVector, chunk, i) = chunk[i]
-@inline get_chunk_value(v::DensedSparseVector, chunk, i) = chunk[i]
+@inline getindex_chunk(v::SpacedVectorIndex, chunk, i) = 1 <= i <= chunk
+@inline getindex_chunk(v::SpacedVector, chunk, i) = chunk[i]
+@inline getindex_chunk(v::DensedSparseVector, chunk, i) = chunk[i]
 @inline pairschunks(v::AbstractSpacedVector) = zip(v.nzind, v.data)
 @inline pairschunks(v::AbstractDensedSparseVector) = pairs(v.data)
 
@@ -466,20 +468,14 @@ end
 
 
 @inline function Base.getindex(v::AbstractSpacedVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
-
-    v.nnz == 0 && return zero(Tv)
-
     st = searchsortedlast(v.nzind, i)
-
-    # the index `i` is before first index
-    st == 0 && return zero(Tv)
-
-    ifirst, chunk = v.nzind[st], v.data[st]
-
-    # the index `i` is outside of data chunk indices
-    i >= ifirst + get_chunk_length(v, chunk) && return zero(Tv)
-
-    return get_chunk_value(v, chunk, i - ifirst + 1)
+    if st !== 0  # the index `i` is not before first index
+        (ifirst, chunk) = get_key_and_chunk(v, st)
+        if i < ifirst + get_chunk_length(v, chunk)  # the index `i` is inside of data chunk indices range
+            return getindex_chunk(v, chunk, i - ifirst + 1)
+        end
+    end
+    return zero(Tv)
 end
 
 #@inline function Base.getindex(v::SpacedVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
@@ -507,23 +503,26 @@ end
 
 
 @inline function Base.getindex(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
+    #st = searchsortedlast(v.data, i)
+    #if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
+    #    (ifirst, chunk) = get_key_and_chunk(v, st)
+    #    if i < ifirst + get_chunk_length(v, chunk)  # the index `i` is inside of data chunk indices range
+    #        return getindex_chunk(v, chunk, i - ifirst + 1)
+    #    end
+    #end
+    #return zero(Tv)
+    return getindex_helper(v, i, v.data)
+end
 
-    v.nnz == 0 && return zero(Tv)
-
-    st = searchsortedlast(v.data, i)
-
-    sstatus = status((v.data, st))
-    if sstatus == 2 || sstatus == 0  # the index `i` is before first index or invalid
-        return zero(Tv)
+@inline function getindex_helper(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer, data=v.data) where {Tv,Ti,Td,Tc}
+    st = searchsortedlast(data, i)
+    if st !== beforestartsemitoken(data)  # the index `i` is not before first index
+        (ifirst, chunk) = get_key_and_chunk(v, st)
+        if i < ifirst + get_chunk_length(v, chunk)  # the index `i` is inside of data chunk indices range
+            return getindex_chunk(v, chunk, i - ifirst + 1)
+        end
     end
-
-    (ifirst, chunk) = deref((v.data, st))
-
-    if i >= ifirst + get_chunk_length(v, chunk)  # the index `i` is outside of data chunk indices
-        return zero(Tv)
-    end
-
-    return get_chunk_value(v, chunk, i - ifirst + 1)
+    return zero(Tv)
 end
 
 
