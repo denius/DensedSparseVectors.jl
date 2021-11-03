@@ -951,43 +951,60 @@ end
 ###@inline iteratenzpairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
 ###@inline Base.ndims(v::ItWrapper) = 1
 
-tuple_len(::NTuple{N, Any}) where {N} = Val{N}()
-# derived from https://github.com/JuliaArrays/StaticArrays.jl/issues/361#issuecomment-523138862
-@generated function static_splat(f::Function, v::NTuple{N,Any}) where N
-#@generated function static_splat(f::Function, v::Tuple, ::Val{N}) where N
-    expr = Expr(:call, :f)
-    for i in 1:N
-        push!(expr.args, :(v[$i]))
+###tuple_len(::NTuple{N, Any}) where {N} = Val{N}()
+#### derived from https://github.com/JuliaArrays/StaticArrays.jl/issues/361#issuecomment-523138862
+###@generated function static_splat(f::Function, v::NTuple{N,Any}) where N
+###    expr = Expr(:call, :f)
+###    for i in 1:N
+###        push!(expr.args, :(v[$i]))
+###    end
+###    return expr
+###end
+
+@generated function nzbroadcast!(f, dest, args)
+    codeInit = quote
+        # create `nzvals` iterator for each item in args
+        iters = map(nzvals, args)
+        iters = (nzvalsview(dest), iters...)
     end
-    return expr
+    code = quote
+        for (dst, rest...) in zip(iters...)
+            dst[1] = f(rest...)
+        end
+    end
+    return quote
+        $codeInit
+        @inbounds $code
+        return dest
+    end
 end
 
-function nzbroadcast!(f, dest, args)
-    ## replace scalars with iterable wrapper
-    #args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
-    ## replace single-value DenseArray's with iterable wrapper
-    #args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
-    #@debug args
-    #dump(f)
-    #@show args
-
-    # check indices are the same
-    # issimilar()
-
-    # create `nzvals` iterator for each item in args
-    iters = map(nzvals, args)
-    iters = (nzvalsview(dest), iters...)
-
-    g = Base.splat(f)
-
-    @inbounds for (dst, rest...) in zip(iters...)
-        dst[1] = static_splat(f, rest)
-        #dst[1] = f(rest...)
-        #dst[1] = g(rest)
-        #dst[1] = f(rest[1], rest[2], rest[3], rest[4])
-    end
-    return dest
-end
+###function nzbroadcast!(f, dest, args)
+###    ## replace scalars with iterable wrapper
+###    #args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
+###    ## replace single-value DenseArray's with iterable wrapper
+###    #args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
+###    #@debug args
+###    #dump(f)
+###    #@show args
+###
+###    # check indices are the same
+###    # issimilar()
+###
+###    # create `nzvals` iterator for each item in args
+###    iters = map(nzvals, args)
+###    iters = (nzvalsview(dest), iters...)
+###
+###    g = Base.splat(f)
+###
+###    @inbounds for (dst, rest...) in zip(iters...)
+###        dst[1] = static_splat(f, rest)
+###        #dst[1] = f(rest...)
+###        #dst[1] = g(rest)
+###        #dst[1] = f(rest[1], rest[2], rest[3], rest[4])
+###    end
+###    return dest
+###end
 
 
 #
