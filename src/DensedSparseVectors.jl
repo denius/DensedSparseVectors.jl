@@ -218,15 +218,15 @@ Base.@propagate_inbounds function iteratenzpairs(v::T, state = get_iterator_init
     end
 end
 
-"`iteratenzpairsRef(v::AbstractVector)` iterates over nonzeros and returns pair of index and `Ref` of value"
-Base.@propagate_inbounds function iteratenzpairsRef(v::T, state = get_iterator_init_state(v)) where {T<:AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+"`iteratenzpairsview(v::AbstractVector)` iterates over nonzeros and returns pair of index and `view` of value"
+Base.@propagate_inbounds function iteratenzpairsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
     if nextpos <= length(chunk)
-        return ((Ti(key+nextpos-1), Ref(chunk, nextpos)), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+        return ((Ti(key+nextpos-1), view(chunk, nextpos:nextpos)), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
     elseif (ret = iteratenzchunks(v, next)) !== nothing
         i, next = ret
         key, chunk = get_key_and_chunk(v, i)
-        return ((key, Ref(chunk, 1)), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+        return ((key, view(chunk, 1:1)), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
     else
         return nothing
     end
@@ -246,15 +246,15 @@ Base.@propagate_inbounds function iteratenzvals(v::T, state = get_iterator_init_
     end
 end
 
-"`iteratenzvalsRef(v::AbstractVector)` iterates over nonzeros and returns pair of index and `Ref` of value"
-Base.@propagate_inbounds function iteratenzvalsRef(v::T, state = get_iterator_init_state(v)) where {T<:AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+"`iteratenzvalsview(v::AbstractVector)` iterates over nonzeros and returns pair of index and `view` of value"
+Base.@propagate_inbounds function iteratenzvalsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractSpacedDensedSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
     if nextpos <= length(chunk)
-        return (Ref(chunk, nextpos), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+        return (view(chunk, nextpos:nextpos), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
     elseif (ret = iteratenzchunks(v, next)) !== nothing
         i, next = ret
         key, chunk = get_key_and_chunk(v, i)
-        return (Ref(chunk, 1), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+        return (view(chunk, 1:1), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
     else
         return nothing
     end
@@ -375,26 +375,26 @@ Base.IteratorEltype(::Type{NZVals{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZVals}) = Base.SizeUnknown()
 Base.reverse(it::NZVals) = NZVals(reverse(it.itr))
 
-struct NZValsRef{It}
+struct NZValsView{It}
     itr::It
 end
 """
-`nzvalsRef(v::AbstractVector)` is the `Iterator` over nonzero values of `v`,
-returns the reference `Ref` of iterated values
+`NZValsView(v::AbstractVector)` is the `Iterator` over nonzero values of `v`,
+returns the `view(v, idx:idx)` of iterated values
 """
-nzvalsRef(itr) = NZValsRef(itr)
-@inline function Base.iterate(it::NZValsRef, state...)
-    y = iteratenzvalsRef(it.itr, state...)
+nzvalsview(itr) = NZValsView(itr)
+@inline function Base.iterate(it::NZValsView, state...)
+    y = iteratenzvalsview(it.itr, state...)
     if y !== nothing
         return (y[1], y[2])
     else
         return nothing
     end
 end
-Base.eltype(::Type{NZValsRef{It}}) where {It} = eltype(It)
-Base.IteratorEltype(::Type{NZValsRef{It}}) where {It} = Base.IteratorEltype(It)
-Base.IteratorSize(::Type{<:NZValsRef}) = Base.SizeUnknown()
-Base.reverse(it::NZValsRef) = NZValsRef(reverse(it.itr))
+Base.eltype(::Type{NZValsView{It}}) where {It} = eltype(It)
+Base.IteratorEltype(::Type{NZValsView{It}}) where {It} = Base.IteratorEltype(It)
+Base.IteratorSize(::Type{<:NZValsView}) = Base.SizeUnknown()
+Base.reverse(it::NZValsView) = NZValsView(reverse(it.itr))
 
 struct NZPairs{It}
     itr::It
@@ -951,24 +951,40 @@ end
 ###@inline iteratenzpairs(v::ItWrapper, state = 1) = ((state, v.x), state + 1)
 ###@inline Base.ndims(v::ItWrapper) = 1
 
+tuple_len(::NTuple{N, Any}) where {N} = Val{N}()
+# derived from https://github.com/JuliaArrays/StaticArrays.jl/issues/361#issuecomment-523138862
+@generated function static_splat(f::Function, v::NTuple{N,Any}) where N
+#@generated function static_splat(f::Function, v::Tuple, ::Val{N}) where N
+    expr = Expr(:call, :f)
+    for i in 1:N
+        push!(expr.args, :(v[$i]))
+    end
+    return expr
+end
+
 function nzbroadcast!(f, dest, args)
     ## replace scalars with iterable wrapper
     #args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
     ## replace single-value DenseArray's with iterable wrapper
     #args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
-    @debug args
+    #@debug args
+    #dump(f)
+    #@show args
 
     # check indices are the same
     # issimilar()
 
     # create `nzvals` iterator for each item in args
     iters = map(nzvals, args)
-    iters = (nzvalsRef(dest), iters...)
+    iters = (nzvalsview(dest), iters...)
 
-    for res in zip(iters...)
-        @debug foreach(x->println(x), enumerate(res))
-        res[1][] = f(Base.tail(res)...)
-        #first(res)[] = f(Base.tail(res)...)
+    g = Base.splat(f)
+
+    @inbounds for (dst, rest...) in zip(iters...)
+        dst[1] = static_splat(f, rest)
+        #dst[1] = f(rest...)
+        #dst[1] = g(rest)
+        #dst[1] = f(rest[1], rest[2], rest[3], rest[4])
     end
     return dest
 end
@@ -1065,8 +1081,8 @@ end
 
 function testfun_nzvalsRef(sv)
     S = 0.0
-    for v in nzvalsRef(sv)
-        S += v[]
+    for v in nzvalsview(sv)
+        S += v[1]
     end
     (0, S)
 end
