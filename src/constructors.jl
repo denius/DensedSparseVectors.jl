@@ -1,7 +1,7 @@
 
-@inline SparseArrays.sparse(sv::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+@inline SparseArrays.sparse(sv::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
     SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
-@inline SparseArrays.SparseVector(sv::AbstractSpacedDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+@inline SparseArrays.SparseVector(sv::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
     SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
 
 @inline SpacedVectorIndex(n::Integer = 0) =
