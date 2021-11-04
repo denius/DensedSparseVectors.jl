@@ -158,8 +158,8 @@ function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti
 end
 
 @inline get_chunk_length(v::SpacedVectorIndex, chunk) = chunk
-@inline get_chunk_length(v::SpacedVector, chunk) = size(chunk)[1]
-@inline get_chunk_length(v::DensedSparseVector, chunk) = size(chunk)[1]
+@inline get_chunk_length(v::SpacedVector, chunk) = length(chunk)
+@inline get_chunk_length(v::DensedSparseVector, chunk) = length(chunk)
 @inline get_chunkbyindex_length(v::SpacedVectorIndex, i) = v.data[i]
 @inline get_chunkbyindex_length(v::SpacedVector, i) = size(v.data[i])[1]
 @inline get_chunkbyindex_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
@@ -331,77 +331,101 @@ function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostS
     end
 end
 
+#"`iteratenzpairs(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and value"
+#"`iteratenzpairsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
+#"`iteratenzvals(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns value"
+#"`iteratenzvalsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
+#"`iteratenzinds(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns indices"
+for (fn, ret1, ret2) in
+        ((:iteratenzpairs    , :((Ti(key+nextpos-1), chunk[nextpos]))              , :((key, chunk[1]))         ),
+         (:iteratenzpairsview, :((Ti(key+nextpos-1), view(chunk, nextpos:nextpos))), :((key, view(chunk, 1:1))) ),
+         (:iteratenzvals     , :(chunk[nextpos])                                   , :(chunk[1])                ),
+         (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
+         (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
-
-"`iteratenzpairs(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and value"
-Base.@propagate_inbounds function iteratenzpairs(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    if nextpos <= length(chunk)
-        return ((Ti(key+nextpos-1), chunk[nextpos]), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
-    elseif (ret = iteratenzchunks(v, next)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return ((key, chunk[1]), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
-    else
-        return nothing
+    @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+        next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+        if nextpos <= get_chunk_length(v, chunk)
+            return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+        elseif (ret = iteratenzchunks(v, next)) !== nothing
+            i, next = ret
+            key, chunk = get_key_and_chunk(v, i)
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+        else
+            return nothing
+        end
     end
 end
 
-"`iteratenzpairsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
-Base.@propagate_inbounds function iteratenzpairsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    if nextpos <= length(chunk)
-        return ((Ti(key+nextpos-1), view(chunk, nextpos:nextpos)), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
-    elseif (ret = iteratenzchunks(v, next)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return ((key, view(chunk, 1:1)), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
-    else
-        return nothing
-    end
-end
-
-"`iteratenzvals(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns value"
-Base.@propagate_inbounds function iteratenzvals(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    if nextpos <= length(chunk)
-        return (chunk[nextpos], ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
-    elseif (ret = iteratenzchunks(v, next)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return (chunk[1], ASDSVIteratorState{T}(next, 2, Int(key), chunk))
-    else
-        return nothing
-    end
-end
-
-"`iteratenzvalsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
-Base.@propagate_inbounds function iteratenzvalsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    if nextpos <= length(chunk)
-        return (view(chunk, nextpos:nextpos), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
-    elseif (ret = iteratenzchunks(v, next)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return (view(chunk, 1:1), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
-    else
-        return nothing
-    end
-end
-
-"`iteratenzinds(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns indices"
-Base.@propagate_inbounds function iteratenzinds(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    if nextpos <= get_chunk_length(v, chunk)
-        return (Ti(key+nextpos-1), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
-    elseif (ret = iteratenzchunks(v, next)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return (key, ASDSVIteratorState{T}(next, 2, Int(key), chunk))
-    else
-        return nothing
-    end
-end
+#"`iteratenzpairs(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and value"
+#Base.@propagate_inbounds function iteratenzpairs(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= get_chunk_length(v, chunk)
+#        return ((Ti(key+nextpos-1), chunk[nextpos]), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+#    elseif (ret = iteratenzchunks(v, next)) !== nothing
+#        i, next = ret
+#        key, chunk = get_key_and_chunk(v, i)
+#        return ((key, chunk[1]), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+#    else
+#        return nothing
+#    end
+#end
+#
+#"`iteratenzpairsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
+#Base.@propagate_inbounds function iteratenzpairsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= get_chunk_length(v, chunk)
+#        return ((Ti(key+nextpos-1), view(chunk, nextpos:nextpos)), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+#    elseif (ret = iteratenzchunks(v, next)) !== nothing
+#        i, next = ret
+#        key, chunk = get_key_and_chunk(v, i)
+#        return ((key, view(chunk, 1:1)), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+#    else
+#        return nothing
+#    end
+#end
+#
+#"`iteratenzvals(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns value"
+#Base.@propagate_inbounds function iteratenzvals(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= get_chunk_length(v, chunk)
+#        return (chunk[nextpos], ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+#    elseif (ret = iteratenzchunks(v, next)) !== nothing
+#        i, next = ret
+#        key, chunk = get_key_and_chunk(v, i)
+#        return (chunk[1], ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+#    else
+#        return nothing
+#    end
+#end
+#
+#"`iteratenzvalsview(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and `view` of value"
+#Base.@propagate_inbounds function iteratenzvalsview(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= get_chunk_length(v, chunk)
+#        return (view(chunk, nextpos:nextpos), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+#    elseif (ret = iteratenzchunks(v, next)) !== nothing
+#        i, next = ret
+#        key, chunk = get_key_and_chunk(v, i)
+#        return (view(chunk, 1:1), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+#    else
+#        return nothing
+#    end
+#end
+#
+#"`iteratenzinds(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns indices"
+#Base.@propagate_inbounds function iteratenzinds(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+#    next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+#    if nextpos <= get_chunk_length(v, chunk)
+#        return (Ti(key+nextpos-1), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+#    elseif (ret = iteratenzchunks(v, next)) !== nothing
+#        i, next = ret
+#        key, chunk = get_key_and_chunk(v, i)
+#        return (key, ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+#    else
+#        return nothing
+#    end
+#end
 
 
 
