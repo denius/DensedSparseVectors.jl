@@ -114,6 +114,7 @@ function Base.length(v::AbstractDensedSparseVector)
         return 0
     end
 end
+#Base.@propagate_inbounds SparseArrays.nnz(v::AbstractAlmostSparseVector) = foldl((s,(i,c))->(s+length(c)), nzchunks(sv); init=0)
 SparseArrays.nnz(v::AbstractAlmostSparseVector) = v.nnz
 Base.isempty(v::AbstractAlmostSparseVector) = v.nnz == 0
 Base.size(v::AbstractAlmostSparseVector) = (v.n,)
@@ -163,14 +164,18 @@ end
 @inline get_chunkbyindex_length(v::SpacedVectorIndex, i) = v.data[i]
 @inline get_chunkbyindex_length(v::SpacedVector, i) = size(v.data[i])[1]
 @inline get_chunkbyindex_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
-@inline get_chunk(v::SpacedVectorIndex, i) = trues(v.data[i])
+@inline get_chunk(v::Vector, i) = view(v, i:i)
+@inline get_chunk(v::SparseVector, i) = view(v.nzval, i:i)
+@inline get_chunk(v::SpacedVectorIndex, i) = Fill(true, v.data[i])
 @inline get_chunk(v::SpacedVector, i) = v.data[i]
 @inline get_chunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
+@inline get_chunks_key(v::Vector, i) = i
+@inline get_chunks_key(v::SparseVector, i) = v.nzind[i]
 @inline get_chunks_key(v::SpacedVectorIndex, i) = v.nzind[i]
 @inline get_chunks_key(v::SpacedVector, i) = v.nzind[i]
 @inline get_chunks_key(v::DensedSparseVector, i) = deref_key((v.data, i))
-#@inline get_collectchunk(v::SpacedVectorIndex, chunk) = Iterators.repeated(true, chunk)
-@inline get_collectchunk(v::SpacedVectorIndex, chunk) = trues(chunk)
+@inline get_collectchunk(v::SpacedVectorIndex, chunk) = Fill(true, chunk)
+#@inline get_collectchunk(v::SpacedVectorIndex, chunk) = trues(chunk)
 @inline get_collectchunk(v::SpacedVector, chunk) = chunk
 @inline get_collectchunk(v::DensedSparseVector, chunk) = chunk
 #@inline get_key_and_chunk(v::SpacedVectorIndex, i) = (v.nzind[i], Iterators.repeated(true, v.data[i]))
@@ -253,6 +258,14 @@ Base.@propagate_inbounds function iteratenzchunks(v::AbstractDensedSparseVector,
     if state != pastendsemitoken(v.data)
         stnext = advance((v.data, state))
         return (state, stnext)
+    else
+        return nothing
+    end
+end
+Base.@propagate_inbounds function iteratenzchunks(v::Union{Vector,SparseVector}, state = (1, nnz(v)))
+    i, len = state
+    if i <= len
+        return (i, (i+1, len))
     else
         return nothing
     end
@@ -386,8 +399,9 @@ for (fn, ret1, ret2) in
     end
 end
 
-
-
+#
+#  Iterators
+#
 
 struct NZChunks{It}
     itr::It
@@ -1049,6 +1063,7 @@ Base.@propagate_inbounds function issamenzlengths(dest, bcf)
            isa(a, AbstractSparseVector)             ||
            isa(a, AbstractVector) && length(a) > 1  ||
            isa(a, SubArray) && length(a) > 1
+
             nnz(a) == nz ? (s && true) : (s && false)
         else
             s && true
@@ -1056,38 +1071,10 @@ Base.@propagate_inbounds function issamenzlengths(dest, bcf)
     end
 end
 
-#Base.@propagate_inbounds countnonzeros(v::AbstractAlmostSparseVector) = foldl((s,(i,c))->(s+length(c)), nzchunks(sv); init=0)
-
-###function nzbroadcast!(f, dest, args)
-###    ## replace scalars with iterable wrapper
-###    #args = map(a -> ndims(a) == 0 ? ItWrapper(a) : a, args)
-###    ## replace single-value DenseArray's with iterable wrapper
-###    #args = map(a -> isa(a, DenseArray) && length(a) == 1 ? ItWrapper(a[1]) : a, args)
-###    #@debug args
-###    #dump(f)
-###    #@show args
-###
-###    # check indices are the same
-###    # issimilar()
-###
-###    # create `nzvals` iterator for each item in args
-###    iters = map(nzvals, args)
-###    iters = (nzvalsview(dest), iters...)
-###
-###    g = Base.splat(f)
-###
-###    @inbounds for (dst, rest...) in zip(iters...)
-###        dst[1] = static_splat(f, rest)
-###        #dst[1] = f(rest...)
-###        #dst[1] = g(rest)
-###        #dst[1] = f(rest[1], rest[2], rest[3], rest[4])
-###    end
-###    return dest
-###end
 
 
 #
-#  Testing
+#  Testing functions
 #
 
 function testfun_create(T::Type, n = 500_000)
@@ -1136,7 +1123,7 @@ function testfun_getindex(sv)
 end
 
 
-function testfun1(sv)
+function testfun_nzchunks(sv)
     I = 0
     S = 0.0
     for (startindex,chunk) in nzchunks(sv)
