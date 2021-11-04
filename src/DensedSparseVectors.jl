@@ -160,6 +160,9 @@ end
 @inline get_chunk_length(v::SpacedVectorIndex, chunk) = chunk
 @inline get_chunk_length(v::SpacedVector, chunk) = size(chunk)[1]
 @inline get_chunk_length(v::DensedSparseVector, chunk) = size(chunk)[1]
+@inline get_chunkbyindex_length(v::SpacedVectorIndex, i) = v.data[i]
+@inline get_chunkbyindex_length(v::SpacedVector, i) = size(v.data[i])[1]
+@inline get_chunkbyindex_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
 @inline get_chunk(v::SpacedVectorIndex, i) = trues(v.data[i])
 @inline get_chunk(v::SpacedVector, i) = v.data[i]
 @inline get_chunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
@@ -183,6 +186,43 @@ end
 @inline pairschunks(v::AbstractSpacedVector) = zip(v.nzind, v.data)
 @inline pairschunks(v::AbstractDensedSparseVector) = pairs(v.data)
 
+@inline function search_nzchunk(v::AbstractSpacedVector, i::Integer)
+    if i == 1
+        return nnz(v) == 0 ? 0 : 1
+    else
+        st = searchsortedlast(v.nzind, i)
+        if st === 0
+            return 1
+        else
+            key = get_chunks_key(v, st)
+            len = get_chunkbyindex_length(v, st)
+            if key + len - 1 >= i
+                return st
+            else
+                return min(st+1, length(v.nzind))
+            end
+        end
+    end
+end
+@inline function search_nzchunk(v::AbstractDensedSparseVector, i::Integer)
+    if i == 1
+        return nnz(v) == 0 ? beforestartsemitoken(v.data) : startof(v.data)
+    else
+        st = searchsortedlast(v.data, i)
+        if st === beforestartsemitoken(v.data)
+            return startof(v.data)
+        else
+            key = get_chunks_key(v, st)
+            len = get_chunkbyindex_length(v, st)
+            if key + len - 1 >= i
+                return st
+            else
+                return advance((v.data, st))
+            end
+        end
+    end
+end
+
 function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
     ret = Vector{Ti}()
     for (k,d) in pairschunks(v)
@@ -198,7 +238,7 @@ function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where
     return ret
 end
 
-# Type piracy!!!
+# TODO: Type piracy!!!
 Base.@propagate_inbounds SparseArrays.nnz(v::Vector) = length(v)
 
 "`iteratenzchunks(v::AbstractVector)` iterates over nonzero chunks and returns start index of chunk and chunk"
@@ -278,16 +318,20 @@ end
 @inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk) where {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk)
 
-function get_iterator_init_state(v::T) where {T<:AbstractAlmostSparseVector}
-    if (ret = iteratenzchunks(v)) !== nothing
-        i, next = ret
-        key, chunk = get_key_and_chunk(v, i)
-        return ASDSVIteratorState{T}(next, 1, key, chunk)
+function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostSparseVector}
+    # start iterations from `i` index
+    st = search_nzchunk(v, i)
+    if (ret = iteratenzchunks(v, st)) !== nothing
+        idxchunk, next = ret
+        key, chunk = get_key_and_chunk(v, idxchunk)
+        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk)
     else
         key, chunk = get_key_and_chunk(v)
         return ASDSVIteratorState{T}(1, 1, key, chunk)
     end
 end
+
+
 
 "`iteratenzpairs(v::AbstractAlmostSparseVector)` iterates over nonzeros and returns pair of index and value"
 Base.@propagate_inbounds function iteratenzpairs(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
@@ -361,43 +405,16 @@ end
 
 
 
-# TODO: replace iteratenzpairs(v::SubArray) with Iterator which call iteratenzpairs(v.parent)
-struct NZIteratePairsSubArray{T}
-    p::T
-end
-
-function get_iterator_init_state(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts}}) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
-    if nnz(v.parent) == 0
-        return SVIteratorState{Td}(1, 1, Ti(1), Td[])
-    else
-        i = first(v.indices[1])
-        key = searchsortedlast(v.parent.nzind, i)
-        if key == 0
-            return SVIteratorState{Td}(1, 1, v.parent.nzind[1], v.parent.data[1])
-        else
-            return SVIteratorState{Td}(key, i - v.parent.nzind[key] + 1, v.parent.nzind[key], v.parent.data[key])
-        end
-    end
-end
-Base.@propagate_inbounds function iteratenzpairs(v::SubArray{<:Any,<:Any,<:AbstractSpacedVector{Tv,Ti,Tx,Ts},<:Tuple{UnitRange{<:Any}}}, state = get_iterator_init_state(v)) where {Ti,Tx,Ts<:AbstractVector{Td}} where {Td<:AbstractVector{Tv}} where Tv
-
+Base.@propagate_inbounds function iteratenzpairs(v::SubArray{<:Any,<:Any,<:T,<:Tuple{UnitRange{<:Any}}}, state = get_iterator_init_state(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
     next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-    i = convert(Ti, key + nextpos-1)
-
-    if i > last(v.indices[1])
+    if key+nextpos-1 > last(v.indices[1])
         return nothing
-    elseif nextpos < length(chunk)
-        d = chunk[nextpos]
-        return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
-    elseif nextpos == length(chunk)
-        d = chunk[nextpos]
-        if next < length(v.parent.nzind)
-            return ((i, d), SVIteratorState{Td}(next + 1, 1, v.parent.nzind[next+1], v.parent.data[next+1]))
-        elseif next == length(v.parent.nzind)
-            return ((i, d), SVIteratorState{Td}(next, nextpos + 1, key, chunk))
-        else
-            return nothing
-        end
+    elseif nextpos <= length(chunk)
+        return ((Ti(key+nextpos-1), chunk[nextpos]), ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+    elseif (ret = iteratenzchunks(v.parent, next)) !== nothing
+        i, next = ret
+        key, chunk = get_key_and_chunk(v.parent, i)
+        return ((key, chunk[1]), ASDSVIteratorState{T}(next, 2, Int(key), chunk))
     else
         return nothing
     end
