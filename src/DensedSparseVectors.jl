@@ -417,12 +417,13 @@ struct ASDSVIteratorState{Tn,Td}
     nextpos::Int     # index in the current chunk of item will be get
     currentkey::Int  # the start index of current chunk
     chunk::Td        # current chunk
+    chunklen::Int    # current chunk length
 end
 
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk) where {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
-    ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk)
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
+    ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk, chunklen)
 @inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk) where {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
-    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk)
+    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk, chunklen)
 
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostSparseVector}
     # start iterations from `i` index
@@ -430,10 +431,10 @@ function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostS
     if (ret = iteratenzchunks(v, st)) !== nothing
         idxchunk, next = ret
         key, chunk = get_key_and_chunk(v, idxchunk)
-        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk)
+        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_chunk(v, chunk))
     else
         key, chunk = get_key_and_chunk(v)
-        return ASDSVIteratorState{T}(1, 1, key, chunk)
+        return ASDSVIteratorState{T}(1, 1, key, chunk, 0)
     end
 end
 
@@ -445,13 +446,13 @@ for (fn, ret1, ret2) in
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
     @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-        next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
-        if nextpos <= length_of_chunk(v, chunk)
-            return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+        next, nextpos, key, chunk, chunklen = state.next, state.nextpos, state.currentkey, state.chunk, state.chunklen
+        if nextpos <= chunklen
+            return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
         elseif (ret = iteratenzchunks(v, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_chunk(v, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_chunk(v, chunk)))
         else
             return nothing
         end
@@ -466,17 +467,16 @@ for (fn, ret1, ret2) in
          (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
-    #@eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T,<:Tuple{UnitRange{<:Any}}}, state = get_iterator_init_state(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
     @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T}, state = get_iterator_init_state(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-        next, nextpos, key, chunk = state.next, state.nextpos, state.currentkey, state.chunk
+        next, nextpos, key, chunk, chunklen = state.next, state.nextpos, state.currentkey, state.chunk, state.chunklen
         if key+nextpos-1 > last(v.indices[1])
             return nothing
-        elseif nextpos <= length_of_chunk(v.parent, chunk)
-            return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk))
+        elseif nextpos <= chunklen
+            return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
         elseif (ret = iteratenzchunks(v.parent, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_chunk(v.parent, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_chunk(v.parent, chunk)))
         else
             return nothing
         end
@@ -1157,7 +1157,7 @@ end
     end
 end
 
-#Base.@propagate_inbounds function issamenzlengths(dest, bcf)
+##Base.@propagate_inbounds function issamenzlengths(dest, args)
 #function issamenzlengths(dest, args)
 #    nz = nnz(dest)
 #    foldl(args, init=true) do s, a
