@@ -422,7 +422,7 @@ end
 
 @inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
     ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk, chunklen)
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk) where {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk, chunklen)
 
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostSparseVector}
