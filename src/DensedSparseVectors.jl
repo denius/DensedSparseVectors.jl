@@ -169,15 +169,28 @@ end
 @inline get_chunk(v::SpacedVectorIndex, i) = Fill(true, v.data[i])
 @inline get_chunk(v::SpacedVector, i) = v.data[i]
 @inline get_chunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
-#@inline function get_chunk(v::SubArray{<:Any,<:Any,<:T,<:Tuple{UnitRange{<:Any}}}, i) where {T<:AbstractSpacedVector}
 @inline function get_chunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
     idx1 = first(v.indices[1])
-    if v.parent.nzind[i] <= idx1 < v.parent.nzind[i] + length(v.parent.data[i])
+    key = v.parent.nzind[i]
+    len = length(v.parent.data[i])
+    if key <= idx1 < key + len
         return @view(v.parent.data[i][idx1:end])
-    elseif v.parent.nzind[i] <= last(v.indices[1]) < v.parent.nzind[i] + length(v.parent.data[i])
-        return view(v.parent.data[i], 1:(last(v.indices[1])-v.parent.nzind[i]+1))
+    elseif key <= last(v.indices[1]) < key + len
+        return view(v.parent.data[i], 1:(last(v.indices[1])-key+1))
     else
         return @view(v.parent.data[i][1:end])
+    end
+end
+@inline function get_chunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
+    idx1 = first(v.indices[1])
+    key, chunk = deref((v.parent.data, i))
+    len = length(chunk)
+    if key <= idx1 < key + len
+        return @view(chunk[idx1:end])
+    elseif key <= last(v.indices[1]) < key + len
+        return view(chunk, 1:(last(v.indices[1])-key+1))
+    else
+        return @view(chunk[1:end])
     end
 end
 @inline get_chunks_key(v::Vector, i) = i
@@ -185,12 +198,20 @@ end
 @inline get_chunks_key(v::SpacedVectorIndex, i) = v.nzind[i]
 @inline get_chunks_key(v::SpacedVector, i) = v.nzind[i]
 @inline get_chunks_key(v::DensedSparseVector, i) = deref_key((v.data, i))
-#@inline function get_chunks_key(v::SubArray{<:Any,<:Any,<:T,<:Tuple{UnitRange{<:Any}}}, i) where {T<:AbstractSpacedVector}
 @inline function get_chunks_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
     if v.parent.nzind[i] <= first(v.indices[1]) < v.parent.nzind[i] + length(v.parent.data[i])
         return first(v.indices[1])
     else
         return v.parent.nzind[i]
+    end
+end
+@inline function get_chunks_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
+    key, chunk = deref((v.parent.data, i))
+    len = length(chunk)
+    if key <= first(v.indices[1]) < key + len
+        return first(v.indices[1])
+    else
+        return key
     end
 end
 @inline get_collectchunk(v::SpacedVectorIndex, chunk) = Fill(true, chunk)
@@ -285,13 +306,27 @@ Base.@propagate_inbounds function iteratenzchunks(v::AbstractDensedSparseVector,
         return nothing
     end
 end
-#Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T,<:Tuple{UnitRange{<:Any}}}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector}
-Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector}
+Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractSpacedVector}
     if state <= length(v.parent.nzind)
         if last(v.indices[1]) >= v.parent.nzind[state] + length(v.parent.data[state])
             return (state, state + 1)
         elseif v.parent.nzind[state] <= last(v.indices[1]) < v.parent.nzind[state] + length(v.parent.data[state])
             return (state, state + 1)
+        else
+            return nothing
+        end
+    else
+        return nothing
+    end
+end
+Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractDensedSparseVector}
+    if state !== pastendsemitoken(v.parent.data)
+        key = get_chunks_key(v.parent, state)
+        len = get_chunkbyindex_length(v.parent, state)
+        if last(v.indices[1]) >= key + len
+            return (state, advance((v.parent.data, state)))
+        elseif key <= last(v.indices[1]) < key + len
+            return (state, advance((v.parent.data, state)))
         else
             return nothing
         end
@@ -1076,22 +1111,20 @@ function Base.copy(bc::Broadcasted{<:AlSpVecStyle})
     nzbroadcast!(bcf.f, dest, bcf.args)
 end
 
-Base.@propagate_inbounds function Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}})
-    bcf = Broadcast.flatten(bc)
-    if length(bcf.args) == 1 && isa(bcf.args[1], Number)
-        foreach(i -> fill!(i[2], bcf.args[1]), nzchunks(dest))
-    else
-        nzbroadcast!(bcf.f, dest, bcf.args)
-    end
-    return dest
-end
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 
-Base.@propagate_inbounds function Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}})
+function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
     @boundscheck if !issamenzlengths(dest, bcf)
         throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"))
     end
-    if length(bcf.args) == 1 && isa(bcf.args[1], DenseArray) && length(bcf.args[1]) == 1
+    if length(bcf.args) == 1 && isa(bcf.args[1], Number)
+        foreach(i -> fill!(i[2], bcf.args[1]), nzchunks(dest))
+    elseif length(bcf.args) == 1 && isa(bcf.args[1], DenseArray) && length(bcf.args[1]) == 1
         foreach(i -> fill!(i[2], bcf.args[1][1]), nzchunks(dest))
     else
         nzbroadcast!(bcf.f, dest, bcf.args)
@@ -1099,20 +1132,6 @@ Base.@propagate_inbounds function Base.copyto!(dest::AbstractAlmostSparseVector,
     return dest
 end
 
-Base.@propagate_inbounds function Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle})
-    bcf = Broadcast.flatten(bc)
-    @boundscheck if !issamenzlengths(dest, bcf)
-        throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"))
-    end
-    nzbroadcast!(bcf.f, dest, bcf.args)
-end
-Base.@propagate_inbounds function Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle})
-    bcf = Broadcast.flatten(bc)
-    @boundscheck if !issamenzlengths(dest, bcf)
-        throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"))
-    end
-    nzbroadcast!(bcf.f, dest, bcf.args)
-end
 
 @generated function nzbroadcast!(f, dest, args)
     # This function is generated because the `f(rest...)` was created via `Broadcast.flatten(bc)`,
@@ -1168,14 +1187,15 @@ function testfun_create(T::Type, n = 500_000)
     dsv
 end
 
-function testfun_create_dense(T::Type, n = 500_000, nchunks = 100)
+function testfun_create_dense(T::Type, n = 500_000, nchunks = 100, density = 0.95)
 
     dsv = T(n)
     chunklen = max(1, floor(Int, n / nchunks))
 
     Random.seed!(1234)
     for i = 0:nchunks-1
-        len = chunklen - rand(1:nchunks÷2)
+        len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
+        len = max(1, min(chunklen-2, len))
         dsv[1+i*chunklen:len+i*chunklen] .= rand(len)
     end
 
