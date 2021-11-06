@@ -16,6 +16,7 @@ using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DocStringExtensions
 using DataStructures
 using FillArrays
+using IterTools
 using SparseArrays
 using Random
 
@@ -69,8 +70,11 @@ end
 
 """
 The `DensedSparseVector` is alike the `SparseVector` but should have the almost all indices are consecuitive stored.
-The speed of `Broadcasting` on `DensedSparseVector`
-is almost the same as on the `Vector` excluding the cases where the indices are wide broaded and there is no consecuitive ranges of indices. The speed by direct index access is ten or more times slower then the for `Vector`'s one. The main purpose of this type is the construction of the `AbstractAlmostSparseVector` vectors with further convertion to `SpacedVector`.
+The speed of `Broadcasting` on `DensedSparseVector` is almost the same as
+on the `Vector` excluding the cases where the indices are wide broaded and
+there is no consecuitive ranges of indices. The speed by direct index access is ten or
+more times slower then the for `Vector`'s one. The main purpose of this type is
+the construction of the `AbstractAlmostSparseVector` vectors with further convertion to `SpacedVector`.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
@@ -95,25 +99,7 @@ include("constructors.jl")
 
 
 
-function Base.length(v::AbstractSpacedVector)
-    if v.n != 0
-        return v.n
-    elseif !isempty(v.nzind)
-        return Int(last(v.nzind)) + length(last(v.data)) - 1
-    else
-        return 0
-    end
-end
-function Base.length(v::AbstractDensedSparseVector)
-    if v.n != 0
-        return v.n
-    elseif !isempty(v.data)
-        (ilastfirst, chunk) = last(v.data)
-        return Int(ilastfirst) + length(chunk) - 1
-    else
-        return 0
-    end
-end
+Base.length(v::AbstractAlmostSparseVector) = v.n
 Base.@propagate_inbounds SparseArrays.nnz(v::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAlmostSparseVector} = foldl((s,c)->(s+length(c)), nzchunks(v); init=0)
 SparseArrays.nnz(v::AbstractAlmostSparseVector) = v.nnz
 Base.isempty(v::AbstractAlmostSparseVector) = v.nnz == 0
@@ -122,7 +108,6 @@ Base.axes(v::AbstractAlmostSparseVector) = (Base.OneTo(v.n),)
 Base.ndims(::AbstractAlmostSparseVector) = 1
 Base.ndims(::Type{AbstractAlmostSparseVector}) = 1
 Base.strides(v::AbstractAlmostSparseVector) = (1,)
-#Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Pair{Ti,Tv}
 Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Tv
 Base.IndexStyle(::AbstractAlmostSparseVector) = IndexLinear()
 
@@ -238,7 +223,6 @@ end
 @inline pastendindex(v::AbstractDensedSparseVector) = pastendsemitoken(v.data)
 @inline DataStructures.advance(v::AbstractSpacedVector, state) = state + 1
 @inline DataStructures.advance(v::AbstractDensedSparseVector, state) = advance((v.data, state))
-#@inline DataStructures.advance(v::SubArray{<:Any,<:Any,<:T}, state) where {T<:AbstractDensedSparseVector} = advance((v.parent.data, state))
 @inline searchsortedlastchunk(v::AbstractSpacedVector, i) = searchsortedlast(v.nzind, i)
 @inline searchsortedlastchunk(v::AbstractDensedSparseVector, i) = searchsortedlast(v.data, i)
 
@@ -276,7 +260,7 @@ function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where
     return ret
 end
 
-# TODO: Type piracy!!!
+# FIXME: Type piracy!!!
 Base.@propagate_inbounds SparseArrays.nnz(v::DenseArray) = length(v)
 
 "`iteratenzchunks(v::AbstractVector)` iterates over nonzero chunks and returns start index of chunk and chunk"
@@ -295,19 +279,6 @@ Base.@propagate_inbounds function iteratenzchunks(v::AbstractDensedSparseVector,
         return nothing
     end
 end
-#Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractSpacedVector}
-#    if state <= length(v.parent.nzind)
-#        if last(v.indices[1]) >= v.parent.nzind[state] + length(v.parent.data[state])
-#            return (state, state + 1)
-#        elseif v.parent.nzind[state] <= last(v.indices[1]) < v.parent.nzind[state] + length(v.parent.data[state])
-#            return (state, state + 1)
-#        else
-#            return nothing
-#        end
-#    else
-#        return nothing
-#    end
-#end
 Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector}
     if state !== pastendindex(v.parent)
         key = get_chunk_key(v.parent, state)
@@ -429,12 +400,11 @@ for (fn, ret1, ret2) in
          (:iteratenzpairsview, :((Ti(key+nextpos-1), view(chunk, nextpos:nextpos))), :((key, view(chunk, 1:1))) ),
          (:(Base.iterate)    , :(chunk[nextpos])                                   , :(chunk[1])                ),
          (:iteratenzvals     , :(chunk[nextpos])                                   , :(chunk[1])                ),
-         (:iteratenzvals     , :(chunk[nextpos])                                   , :(chunk[1])                ),
          (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
     @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-        next, nextpos, key, chunk, chunklen = state.next, state.nextpos, state.currentkey, state.chunk, state.chunklen
+        next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
         elseif (ret = iteratenzchunks(v, next)) !== nothing
@@ -457,7 +427,7 @@ for (fn, ret1, ret2) in
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
     @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T}, state = get_iterator_init_state(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
-        next, nextpos, key, chunk, chunklen = state.next, state.nextpos, state.currentkey, state.chunk, state.chunklen
+        next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(v.indices[1])
             return nothing
         elseif nextpos <= chunklen
@@ -612,7 +582,7 @@ SparseArrays.findnz(v::AbstractAlmostSparseVector) = (nzinds(v), nzvals(v))
     return true
 end
 
-@inline Base.haskey(v::AbstractAlmostSparseVector, i) = isstored(v, i)
+@inline Base.haskey(v::AbstractAlmostSparseVector, i) = Base.isstored(v, i)
 
 
 @inline function Base.getindex(v::AbstractSpacedVector, i::Integer)
@@ -626,23 +596,6 @@ end
     return zero(eltype(v))
 end
 
-#@inline function Base.getindex(v::SpacedVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
-#
-#    v.nnz == 0 && return zero(Tv)
-#
-#    st = searchsortedlast(v.nzind, i)
-#
-#    # the index `i` is before first index
-#    st == 0 && return zero(Tv)
-#
-#    ifirst, chunk = v.nzind[st], v.data[st]
-#
-#    # the index `i` is outside of data chunk indices
-#    i >= ifirst + length(chunk) && return zero(Tv)
-#
-#    return chunk[i - ifirst + 1]
-#end
-
 @inline function Base.unsafe_load(v::SpacedVector, i::Integer)
     st = searchsortedlast(v.nzind, i)
     ifirst, chunk = v.nzind[st], v.data[st]
@@ -651,29 +604,18 @@ end
 
 
 @inline function Base.getindex(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
-    #st = searchsortedlast(v.data, i)
-    #if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
-    #    (ifirst, chunk) = get_key_and_chunk(v, st)
-    #    if i < ifirst + length_of_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
-    #        return getindex_chunk(v, chunk, i - ifirst + 1)
-    #    end
-    #end
-    #return zero(Tv)
-    return getindex_helper(v, i, v.data)
-end
-
-@inline function getindex_helper(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer, data) where {Tv,Ti,Td,Tc}
-    st = searchsortedlast(data, i)
-    if st !== beforestartsemitoken(data)  # the index `i` is not before first index
+    st = searchsortedlast(v.data, i)
+    if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
         (ifirst, chunk) = get_key_and_chunk(v, st)
         if i < ifirst + length_of_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
             return getindex_chunk(v, chunk, i - ifirst + 1)
         end
     end
-    return zero(eltype(v))
+    return zero(Tv)
 end
 
 
+# FIXME: complete me
 function Base.setindex!(v::SpacedVectorIndex{Ti,Tx,Ts}, value, i::Integer) where {Ti,Tx,Ts}
 
     st = searchsortedlast(v.nzind, i)
@@ -1067,23 +1009,24 @@ Base.Broadcast.BroadcastStyle(s::AlSpVecStyle, ::AbstractArrayStyle{M}) where {M
 Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::AlSpVecStyle) where {M} = s
 
 Base.Broadcast.BroadcastStyle(::Type{<:AbstractAlmostSparseVector}) = AlSpVecStyle()
+Base.Broadcast.BroadcastStyle(::Type{<:SubArray{<:Any,<:Any,<:T}}) where {T<:AbstractAlmostSparseVector} = AlSpVecStyle()
 
-Base.similar(bc::Broadcasted{AlSpVecStyle}) = similar(find_asv(bc))
-Base.similar(bc::Broadcasted{AlSpVecStyle}, ::Type{ElType}) where ElType = similar(find_asv(bc), ElType)
+Base.similar(bc::Broadcasted{AlSpVecStyle}) = similar(find_AASV(bc))
+Base.similar(bc::Broadcasted{AlSpVecStyle}, ::Type{ElType}) where ElType = similar(find_AASV(bc), ElType)
 
-"`find_asv(bc::Broadcasted)` returns the first of any `AbstractAlmostSparseVector` in `bc`"
-find_asv(bc::Base.Broadcast.Broadcasted) = find_asv(bc.args)
-find_asv(args::Tuple) = find_asv(find_asv(args[1]), Base.tail(args))
-find_asv(x::Base.Broadcast.Extruded) = x.x
-find_asv(x) = x
-find_asv(::Tuple{}) = nothing
-find_asv(v::AbstractAlmostSparseVector, rest) = v
-find_asv(v::SpacedVector, rest) = v
-find_asv(::Any, rest) = find_asv(rest)
+"`find_AASV(bc::Broadcasted)` returns the first of any `AbstractAlmostSparseVector` in `bc`"
+find_AASV(bc::Base.Broadcast.Broadcasted) = find_AASV(bc.args)
+find_AASV(args::Tuple) = find_AASV(find_AASV(args[1]), Base.tail(args))
+find_AASV(x::Base.Broadcast.Extruded) = x.x  # expose internals of Broadcast but else don't work
+find_AASV(x) = x
+find_AASV(::Tuple{}) = nothing
+find_AASV(v::AbstractAlmostSparseVector, rest) = v
+#find_AASV(v::SpacedVector, rest) = v
+find_AASV(::Any, rest) = find_AASV(rest)
 
 function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
     if bc.axes isa Nothing
-        v1 = find_asv(bc)
+        v1 = find_AASV(bc)
         bcf = Broadcast.flatten(bc)
         if !issamenzlengths(v1, bcf.args)
             throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), bcf.args)))"))
@@ -1107,8 +1050,12 @@ end
 Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
 Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
 Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
+Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
+Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
+Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
 Base.@propagate_inbounds Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 
 Base.@propagate_inbounds function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
@@ -1119,8 +1066,8 @@ Base.@propagate_inbounds function nzcopyto!(dest, bc)
         foreach(c -> fill!(c, bcf.args[1]), nzchunks(dest))
     elseif length(bcf.args) == 1 && isa(bcf.args[1], DenseArray) && length(bcf.args[1]) == 1
         foreach(c -> fill!(c, bcf.args[1][1]), nzchunks(dest))
-    elseif isbynzchunks((dest, bcf.args...)) && issimilar_asv(dest, bcf.args)
-        args1 = map(a -> isa_asv(a) ? a : ItWrapper(a[]), bcf.args)
+    elseif isbynzchunks((dest, bcf.args...)) && issimilar_AASV(dest, bcf.args)
+        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a[]), bcf.args)
         nzbroadcastchunks!(bcf.f, dest, args1)
     else
         nzbroadcast!(bcf.f, dest, bcf.args)
@@ -1155,6 +1102,9 @@ ItWrapper(v::T) where T = ItWrapper{T}(v)
     end
 end
 
+"`nzbroadcast!(f, dest, args)` perform broadcasting over non-zero values of vectors in `args`.
+Note 1: `f` and `args` should be `flatten` `bc.f` and `bc.args` respectively.
+Note 2: The coincidence of vectors indices should be checked and provided by caller."
 @generated function nzbroadcast!(f, dest, args)
     # This function is generated because the `f(rest...)` was created via `Broadcast.flatten(bc)`,
     # is allocates the heap memory when apply with splatted tuple.
@@ -1166,7 +1116,7 @@ end
     end
     code = quote
         for (dst, rest...) in zip(iters...)
-            dst[1] = f(rest...)
+            dst[] = f(rest...)
         end
     end
     return quote
@@ -1180,7 +1130,7 @@ end
     return quote
         nz = nnz(dest)
         @inbounds for a in args
-            if isa_asv(a)                               ||
+            if isa_AASV(a)                              ||
                isa(a, AbstractSparseVector)             ||
                isa(a, DenseArray) && length(a) > 1      ||
                isa(a, SubArray) && length(a) > 1
@@ -1191,13 +1141,13 @@ end
     end
 end
 
-@inline isa_asv(a) = isa(a, AbstractAlmostSparseVector) ||
+@inline isa_AASV(a) = isa(a, AbstractAlmostSparseVector) ||
                      (isa(a, SubArray) && isa(a.parent, AbstractAlmostSparseVector))
 
 "Is vectors are similar by non-zero chunks"
-function issimilar_asv(dest, args)
+function issimilar_AASV(dest, args::Tuple)
 
-    args1 = filter(a->isa_asv(a), args)
+    args1 = filter(a->isa_AASV(a), args)
 
     iters = map(nzchunkpairs, (dest, args1...))
     for (dst, rest...) in zip(iters...)
@@ -1206,10 +1156,11 @@ function issimilar_asv(dest, args)
     end
     return true
 end
+issimilar_AASV(dest, args) = issimilar_AASV(dest, (args,))
 
 "Is all vectors are iterable by non-zero chunks"
 @inline function isbynzchunks(args)
-    return !any(a -> !(isa_asv(a)                           ||
+    return !any(a -> !(isa_AASV(a)                          ||
                        isa(a, Number)                       ||
                        isa(a, DenseArray) && length(a) == 1 ||
                        isa(a, SubArray)   && length(a) == 1    ), args)
@@ -1240,7 +1191,10 @@ function testfun_create_dense(T::Type, n = 500_000, nchunks = 100, density = 0.9
     for i = 0:nchunks-1
         len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
         len = max(1, min(chunklen-2, len))
-        dsv[1+i*chunklen:len+i*chunklen] .= rand(len)
+        for j = 1:len
+            dsv[i*chunklen + j] = rand()
+        end
+        #dsv[1+i*chunklen:len+i*chunklen] .= rand(len)
     end
 
     dsv
