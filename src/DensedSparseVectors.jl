@@ -1135,15 +1135,8 @@ ItWrapper(v::T) where T = ItWrapper{T}(v)
 @inline Base.iterate(v::ItWrapper, state = 1) = (v.x, state)
 @inline iteratenzchunks(v::ItWrapper, state = 1) = (state, state)
 @inline get_chunk(v::ItWrapper, i) = v
+##alternative##@inline get_chunk(v::ItWrapper, i) = v.x
 @inline Base.ndims(v::ItWrapper) = 1
-
-
-@inline tuples_conv(i1, t1, i2, t2) =
-    i1[1] < i2[1] ? (t1[1], tuples_conv(Iterators.tail(i1), Iterators.tail(t1), i2, t2)...) :
-                    (t2[1], tuples_conv(i1, t1, Iterators.tail(i2), Iterators.tail(t2))...)
-@inline tuples_conv(::Tuple{}, ::Tuple{}, i2, t2) = (t2[1], tuples_conv((), (), Iterators.tail(i2), Iterators.tail(t2))...)
-@inline tuples_conv(i1, t1, ::Tuple{}, ::Tuple{}) = (t1[1], tuples_conv(Iterators.tail(i1), Iterators.tail(t1), (), ())...)
-@inline tuples_conv(::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 
 
 @generated function nzbroadcastchunks!(f, dest, args)
@@ -1152,6 +1145,7 @@ ItWrapper(v::T) where T = ItWrapper{T}(v)
         nzchunksiters = map(nzchunks, args)
         nzchunksiters = (nzchunks(dest), nzchunksiters...)
         for (dst, rest...) in zip(nzchunksiters...)
+            ##alternative##broadcast!(f, dst, rest...)
             i = 0
             @inbounds for res in zip(rest...)
                 dst[i+=1] = f(res...)
