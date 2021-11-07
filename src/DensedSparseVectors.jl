@@ -29,13 +29,13 @@ abstract type AbstractSpacedVector{Tv,Ti,Tx,Ts} <: AbstractAlmostSparseVector{Tv
 abstract type AbstractDensedSparseVector{Tv,Ti,Td,Tc} <: AbstractAlmostSparseVector{Tv,Ti,Td,Tc} end
 
 
-"""The `SpacedVectorIndex` is for fast indices creating and saving for `SpacedVector`.
+"""The `SpacedIndex` is for fast indices creating and saving for `SpacedVector`.
 It is almost the same as the `SpacedVector` but without data storing.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct SpacedVectorIndex{Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{Int}} <: AbstractSpacedVector{Bool,Ti,Tx,Ts}
+mutable struct SpacedIndex{Ti,Tx<:AbstractVector{Ti},Ts<:AbstractVector{Int}} <: AbstractSpacedVector{Bool,Ti,Tx,Ts}
     "`n` is the vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
@@ -111,9 +111,9 @@ Base.strides(v::AbstractAlmostSparseVector) = (1,)
 Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Tv
 Base.IndexStyle(::AbstractAlmostSparseVector) = IndexLinear()
 
-Base.similar(v::SpacedVectorIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
-    return SpacedVectorIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data))
-Base.similar(v::SpacedVectorIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
+Base.similar(v::SpacedIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
+    return SpacedIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data))
+Base.similar(v::SpacedIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
 
 function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
     nzind = similar(v.nzind)
@@ -143,16 +143,16 @@ function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti
     return SpacedVector{ElType,Ti,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
 end
 
-Base.@propagate_inbounds length_of_chunk(v::SpacedVectorIndex, chunk) = chunk
+Base.@propagate_inbounds length_of_chunk(v::SpacedIndex, chunk) = chunk
 Base.@propagate_inbounds length_of_chunk(v::SpacedVector, chunk) = length(chunk)
 Base.@propagate_inbounds length_of_chunk(v::DensedSparseVector, chunk) = length(chunk)
-@inline get_chunk_length(v::SpacedVectorIndex, i) = v.data[i]
+@inline get_chunk_length(v::SpacedIndex, i) = v.data[i]
 @inline get_chunk_length(v::SpacedVector, i) = size(v.data[i])[1]
 @inline get_chunk_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
 @inline get_chunk(v::Number, i) = v
 @inline get_chunk(v::Vector, i) = v
 @inline get_chunk(v::SparseVector, i) = view(v.nzval, i:i)
-@inline get_chunk(v::SpacedVectorIndex, i) = Fill(true, v.data[i])
+@inline get_chunk(v::SpacedIndex, i) = Fill(true, v.data[i])
 @inline get_chunk(v::SpacedVector, i) = v.data[i]
 @inline get_chunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
 @inline function get_chunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
@@ -181,7 +181,7 @@ end
 end
 @inline get_chunk_key(v::Vector, i) = i
 @inline get_chunk_key(v::SparseVector, i) = v.nzind[i]
-@inline get_chunk_key(v::SpacedVectorIndex, i) = v.nzind[i]
+@inline get_chunk_key(v::SpacedIndex, i) = v.nzind[i]
 @inline get_chunk_key(v::SpacedVector, i) = v.nzind[i]
 @inline get_chunk_key(v::DensedSparseVector, i) = deref_key((v.data, i))
 @inline function get_chunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
@@ -202,15 +202,15 @@ end
 end
 @inline get_key_and_chunk(v::Vector, i) = (i, v)
 @inline get_key_and_chunk(v::SparseVector, i) = (v.nzind[i], view(v.data, i:i))
-@inline get_key_and_chunk(v::SpacedVectorIndex, i) = (v.nzind[i], v.data[i])
+@inline get_key_and_chunk(v::SpacedIndex, i) = (v.nzind[i], v.data[i])
 @inline get_key_and_chunk(v::SpacedVector, i) = (v.nzind[i], v.data[i])
 @inline get_key_and_chunk(v::DensedSparseVector, i) = deref((v.data, i))
 @inline get_key_and_chunk(v::Vector) = (1, eltype(v)[])
 @inline get_key_and_chunk(v::SparseVector, i) = (eltype(v.nzind)(1), view(v.data, 1:0))
-@inline get_key_and_chunk(v::SpacedVectorIndex) = (valtype(v.nzind)(1), valtype(v.data)(0))
+@inline get_key_and_chunk(v::SpacedIndex) = (valtype(v.nzind)(1), valtype(v.data)(0))
 @inline get_key_and_chunk(v::SpacedVector) = (valtype(v.nzind)(1), valtype(v.data)())
 @inline get_key_and_chunk(v::DensedSparseVector) = (keytype(v.data)(1), valtype(v.data)())
-@inline getindex_chunk(v::SpacedVectorIndex, chunk, i) = 1 <= i <= chunk
+@inline getindex_chunk(v::SpacedIndex, chunk, i) = 1 <= i <= chunk
 @inline getindex_chunk(v::SpacedVector, chunk, i) = chunk[i]
 @inline getindex_chunk(v::DensedSparseVector, chunk, i) = chunk[i]
 @inline Base.firstindex(v::AbstractSpacedVector) = firstindex(v.nzind)
@@ -377,9 +377,11 @@ struct ASDSVIteratorState{Tn,Td}
     chunklen::Int    # current chunk length
 end
 
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
+                              {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
     ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk, chunklen)
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
+                              {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk, chunklen)
 
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostSparseVector}
@@ -403,7 +405,8 @@ for (fn, ret1, ret2) in
          (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
-    @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+    @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
@@ -419,14 +422,22 @@ end
 
 
 for (fn, ret1, ret2) in
-        ((:iteratenzpairs    , :((Ti(key+nextpos-1), chunk[nextpos]))              , :((key, chunk[1]))         ),
-         (:iteratenzpairsview, :((Ti(key+nextpos-1), view(chunk, nextpos:nextpos))), :((key, view(chunk, 1:1))) ),
-         (:(Base.iterate)    , :(chunk[nextpos])                                   , :(chunk[1])                ),
-         (:iteratenzvals     , :(chunk[nextpos])                                   , :(chunk[1])                ),
-         (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
-         (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
+        ((:iteratenzpairs    , :((Ti(key+nextpos-1-first(v.indices[1])+1), chunk[nextpos]))              ,
+                               :((Ti(key-first(v.indices[1])+1), chunk[1]))                                 ),
+         (:iteratenzpairsview, :((Ti(key+nextpos-1-first(v.indices[1])+1), view(chunk, nextpos:nextpos))),
+                               :((Ti(key-first(v.indices[1])+1), view(chunk, 1:1)))                         ),
+         (:(Base.iterate)    , :(chunk[nextpos])                                                         ,
+                               :(chunk[1])                                                                  ),
+         (:iteratenzvals     , :(chunk[nextpos])                                                         ,
+                               :(chunk[1])                                                                  ),
+         (:iteratenzvalsview , :(view(chunk, nextpos:nextpos))                                           ,
+                               :(view(chunk, 1:1))                                                          ),
+         (:iteratenzinds     , :(Ti(key+nextpos-1)-first(v.indices[1])+1)                                ,
+                               :(Ti(key-first(v.indices[1])+1))                                             ))
 
-    @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T}, state = get_iterator_init_state(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+    @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T},
+                                                state = get_iterator_init_state(v.parent, first(v.indices[1]))) where
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(v.indices[1])
             return nothing
@@ -616,7 +627,7 @@ end
 
 
 # FIXME: complete me
-function Base.setindex!(v::SpacedVectorIndex{Ti,Tx,Ts}, value, i::Integer) where {Ti,Tx,Ts}
+function Base.setindex!(v::SpacedIndex{Ti,Tx,Ts}, value, i::Integer) where {Ti,Tx,Ts}
 
     st = searchsortedlast(v.nzind, i)
 
@@ -878,7 +889,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
 
 
 
-@inline function Base.delete!(v::SpacedVectorIndex{Ti,Tx,Ts}, i::Integer) where {Tv,Ti,Tx,Ts}
+@inline function Base.delete!(v::SpacedIndex{Ti,Tx,Ts}, i::Integer) where {Tv,Ti,Tx,Ts}
 
     v.nnz == 0 && return v
 
@@ -1060,14 +1071,14 @@ Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmos
 Base.@propagate_inbounds function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
     @boundscheck if !issamenzlengths(dest, bcf.args)
-        throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"))
+        throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf)))
     end
     if length(bcf.args) == 1 && isa(bcf.args[1], Number)
         foreach(c -> fill!(c, bcf.args[1]), nzchunks(dest))
     elseif length(bcf.args) == 1 && isa(bcf.args[1], DenseArray) && length(bcf.args[1]) == 1
         foreach(c -> fill!(c, bcf.args[1][1]), nzchunks(dest))
     elseif isbynzchunks((dest, bcf.args...)) && issimilar_AASV(dest, bcf.args)
-        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a[]), bcf.args)
+        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), bcf.args)
         nzbroadcastchunks!(bcf.f, dest, args1)
     else
         nzbroadcast!(bcf.f, dest, bcf.args)
@@ -1075,9 +1086,14 @@ Base.@propagate_inbounds function nzcopyto!(dest, bc)
     return dest
 end
 
+nzcopytoDimensionMismatch(dest, bcf)::String =
+    "Number of nonzeros of vectors must be equal, but have nnz's:" *
+    "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"
 
-struct ItWrapper{T} x::T end
-ItWrapper(v::T) where T = ItWrapper{T}(v)
+struct ItWrapper{T}
+    x::T
+end
+ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
 @inline Base.getindex(v::ItWrapper, i::Integer) = v.x
 @inline Base.iterate(v::ItWrapper, state = 1) = (v.x, state)
 @inline iteratenzchunks(v::ItWrapper, state = 1) = (state, state)
@@ -1104,7 +1120,7 @@ end
 
 "`nzbroadcast!(f, dest, args)` perform broadcasting over non-zero values of vectors in `args`.
 Note 1: `f` and `args` should be `flatten` `bc.f` and `bc.args` respectively.
-Note 2: The coincidence of vectors indices should be checked and provided by caller."
+Note 2: The coincidence of vectors indices should be checked and provided by the user."
 @generated function nzbroadcast!(f, dest, args)
     # This function is generated because the `f(rest...)` was created via `Broadcast.flatten(bc)`,
     # is allocates the heap memory when apply with splatted tuple.
