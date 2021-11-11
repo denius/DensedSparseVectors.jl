@@ -115,15 +115,8 @@ Base.similar(v::SpacedIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
     return SpacedIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data))
 Base.similar(v::SpacedIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
 
-function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
-    nzind = similar(v.nzind)
-    data = similar(v.data)
-    for (i, (k,d)) in enumerate(nzchunkpairs(v))
-        nzind[i] = k
-        data[i] = similar(d)
-    end
-    return SpacedVector{Tv,Ti,Tx,Ts}(v.n, v.nnz, nzind, data)
-end
+Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts} = similar(v, Tv)
+Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType} = similar(v, Pair{Ti,ElType})
 function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     nzind = similar(v.nzind, Tin)
     data = similar(v.data)
@@ -133,24 +126,21 @@ function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti
     end
     return SpacedVector{Tvn,Tin,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
 end
-function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType}
-    nzind = similar(v.nzind)
-    data = similar(v.data)
-    for (i, (k,d)) in enumerate(nzchunkpairs(v))
-        nzind[i] = k
-        data[i] = similar(d, ElType)
-    end
-    return SpacedVector{ElType,Ti,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
-end
 
-Base.@propagate_inbounds length_of_chunk(v::SpacedIndex, chunk) = chunk
-Base.@propagate_inbounds length_of_chunk(v::SpacedVector, chunk) = length(chunk)
-Base.@propagate_inbounds length_of_chunk(v::DensedSparseVector, chunk) = length(chunk)
+Base.@propagate_inbounds length_of_that_chunk(v::SpacedIndex, chunk) = chunk
+Base.@propagate_inbounds length_of_that_chunk(v::SpacedVector, chunk) = length(chunk)
+Base.@propagate_inbounds length_of_that_chunk(v::DensedSparseVector, chunk) = length(chunk)
 @inline get_chunk_length(v::SpacedIndex, i) = v.data[i]
 @inline get_chunk_length(v::SpacedVector, i) = size(v.data[i])[1]
 @inline get_chunk_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
 @inline get_chunk(v::Number, i) = v
-@inline get_chunk(v::Vector, i) = v
+@inline function get_chunk(v::Vector, i)
+    if length(v) == 1
+        return v[]
+    else
+        return v
+    end
+end
 @inline get_chunk(v::SparseVector, i) = view(v.nzval, i:i)
 @inline get_chunk(v::SpacedIndex, i) = Fill(true, v.data[i])
 @inline get_chunk(v::SpacedVector, i) = v.data[i]
@@ -302,9 +292,12 @@ Base.@propagate_inbounds function iteratenzchunks(v::SparseVector, state = (1, n
         return nothing
     end
 end
-Base.@propagate_inbounds function iteratenzchunks(v::Vector, state = 1)
-    if state == 1
-        return (state, state + 1)
+Base.@propagate_inbounds function iteratenzchunks(v::Vector, state = (1, length(v)))
+    i, len = state
+    if len == 1
+        return (1, state)
+    elseif i == 1
+        return (i, (i + 1, len))
     else
         return nothing
     end
@@ -390,7 +383,7 @@ function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostS
     if (ret = iteratenzchunks(v, st)) !== nothing
         idxchunk, next = ret
         key, chunk = get_key_and_chunk(v, idxchunk)
-        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_chunk(v, chunk))
+        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_that_chunk(v, chunk))
     else
         key, chunk = get_key_and_chunk(v)
         return ASDSVIteratorState{T}(1, 1, key, chunk, 0)
@@ -413,7 +406,7 @@ for (fn, ret1, ret2) in
         elseif (ret = iteratenzchunks(v, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_chunk(v, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_chunk(v, chunk)))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_chunk(v, chunk)))
         else
             return nothing
         end
@@ -446,7 +439,7 @@ for (fn, ret1, ret2) in
         elseif (ret = iteratenzchunks(v.parent, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_chunk(v.parent, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_chunk(v.parent, chunk)))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_chunk(v.parent, chunk)))
         else
             return nothing
         end
@@ -600,7 +593,7 @@ end
     st = searchsortedlast(v.nzind, i)
     if st !== 0  # the index `i` is not before the first index
         (ifirst, chunk) = get_key_and_chunk(v, st)
-        if i < ifirst + length_of_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
+        if i < ifirst + length_of_that_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
             return getindex_chunk(v, chunk, i - ifirst + 1)
         end
     end
@@ -618,7 +611,7 @@ end
     st = searchsortedlast(v.data, i)
     if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
         (ifirst, chunk) = get_key_and_chunk(v, st)
-        if i < ifirst + length_of_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
+        if i < ifirst + length_of_that_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
             return getindex_chunk(v, chunk, i - ifirst + 1)
         end
     end
@@ -1039,7 +1032,8 @@ function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
     if bc.axes isa Nothing
         v1 = find_AASV(bc)
         bcf = Broadcast.flatten(bc)
-        if !issamenzlengths(v1, bcf.args)
+        if !(iterablealike_AASV(v1, args) && similarlength(nnz(v1), args))
+        #if !similarlength(nnz(v1), bcf.args)
             throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), bcf.args)))"))
         end
         bcaxes = axes(v1)
@@ -1058,37 +1052,43 @@ function Base.copy(bc::Broadcasted{<:AlSpVecStyle})
     nzbroadcast!(bcf.f, dest, bcf.args)
 end
 
-Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
-Base.@propagate_inbounds Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 
-Base.@propagate_inbounds function nzcopyto!(dest, bc)
-    bcf = Broadcast.flatten(bc)
-    @boundscheck if !issamenzlengths(dest, bcf.args)
-        throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf)))
+@generated function nzcopyto!(dest, bc)
+    return quote
+        bcf = Broadcast.flatten(bc)
+        nzcopyto!(bcf.f, dest, bcf.args)
     end
-    if length(bcf.args) == 1 && isa(bcf.args[1], Number)
-        foreach(c -> fill!(c, bcf.args[1]), nzchunks(dest))
-    elseif length(bcf.args) == 1 && isa(bcf.args[1], DenseArray) && length(bcf.args[1]) == 1
-        foreach(c -> fill!(c, bcf.args[1][1]), nzchunks(dest))
-    elseif isbynzchunks((dest, bcf.args...)) && issimilar_AASV(dest, bcf.args)
-        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), bcf.args)
-        nzbroadcastchunks!(bcf.f, dest, args1)
+end
+
+function nzcopyto!(f, dest, args)
+    if !(iterablealike_AASV(dest, args...) && similarlength(nnz(dest), args))
+        throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, args)))
+    end
+    if length(args) == 1 && isa(args[1], Number)
+        foreach(c -> fill!(c, args[1]), nzchunks(dest))
+    elseif length(args) == 1 && isa(args[1], DenseArray) && length(args[1]) == 1
+        foreach(c -> fill!(c, args[1][1]), nzchunks(dest))
+    elseif iterablenzchunks((dest, args...)) && issimilar_AASV(dest, args)
+        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), args)
+        nzbroadcastchunks!(f, dest, args1)
     else
-        nzbroadcast!(bcf.f, dest, bcf.args)
+        nzbroadcast!(f, dest, args)
     end
     return dest
 end
 
-nzcopytoDimensionMismatch(dest, bcf)::String =
+nzcopytoDimensionMismatch(dest, args)::String =
     "Number of nonzeros of vectors must be equal, but have nnz's:" *
-    "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, bcf.args...))))"
+    "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, args...))))"
 
 struct ItWrapper{T}
     x::T
@@ -1101,6 +1101,8 @@ ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
 ##alternative##@inline get_chunk(v::ItWrapper, i) = v.x
 @inline Base.ndims(v::ItWrapper) = 1
 
+@inline iteratenzchunks(v::Base.RefValue, state = 1) = (state, state)
+@inline get_chunk(v::Base.RefValue, i) = v[]
 
 @generated function nzbroadcastchunks!(f, dest, args)
     return quote
@@ -1109,10 +1111,11 @@ ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
         nzchunksiters = (nzchunks(dest), nzchunksiters...)
         for (dst, rest...) in zip(nzchunksiters...)
             ##alternative##broadcast!(f, dst, rest...)
-            i = 0
-            @inbounds for res in zip(rest...)
-                dst[i+=1] = f(res...)
-            end
+            broadcast!(f, dst, rest...)
+            #i = 0
+            #@inbounds for res in zip(rest...)
+            #    dst[i+=1] = f(res...)
+            #end
         end
         return dest
     end
@@ -1142,25 +1145,24 @@ Note 2: The coincidence of vectors indices should be checked and provided by the
     end
 end
 
-@inline @generated function issamenzlengths(dest, args)
-    return quote
-        nz = nnz(dest)
-        @inbounds for a in args
-            if isa_AASV(a)                              ||
-               isa(a, AbstractSparseVector)             ||
-               isa(a, DenseArray) && length(a) > 1      ||
-               isa(a, SubArray) && length(a) > 1
-                nnz(a) != nz && return false
-            end
-        end
-        return true
-    end
+iterablealike_AASV(a, args...) = iterablealike_AASV(a) || iterablealike_AASV(args...)
+iterablealike_AASV(a, b) = iterablealike_AASV(a) || iterablealike_AASV(b)
+function iterablealike_AASV(a)
+        return (isa_AASV(a)                              ||
+                isa(a, AbstractSparseVector)             ||
+                isa(a, DenseArray) && length(a) > 1      ||
+                isa(a, SubArray) && length(a) > 1           )
 end
+
+similarlength(n, args::Tuple) = (isoneunit(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
+similarlength(n, a) = isoneunit(a) || n == nnz(a)
+similarlength(n, a::Tuple{}) = true
+
 
 @inline isa_AASV(a) = isa(a, AbstractAlmostSparseVector) ||
                      (isa(a, SubArray) && isa(a.parent, AbstractAlmostSparseVector))
 
-"Is vectors are similar by non-zero chunks"
+"Are the vectors similar in every non-zero chunk"
 function issimilar_AASV(dest, args::Tuple)
 
     args1 = filter(a->isa_AASV(a), args)
@@ -1174,12 +1176,17 @@ function issimilar_AASV(dest, args::Tuple)
 end
 issimilar_AASV(dest, args) = issimilar_AASV(dest, (args,))
 
-"Is all vectors are iterable by non-zero chunks"
-@inline function isbynzchunks(args)
-    return !any(a -> !(isa_AASV(a)                          ||
-                       isa(a, Number)                       ||
-                       isa(a, DenseArray) && length(a) == 1 ||
-                       isa(a, SubArray)   && length(a) == 1    ), args)
+"Are all vectors iterable by non-zero chunks"
+iterablenzchunks(a, args...) = isbroadcastable_AASV(a) ||
+                               iterablenzchunks(isbroadcastable_AASV(a), iterablenzchunks(args...))
+iterablenzchunks(a, b) = isbroadcastable_AASV(a) || isbroadcastable_AASV(b)
+iterablenzchunks(a) = isbroadcastable_AASV(a)
+
+isbroadcastable_AASV(a) = isa_AASV(a) || isoneunit(a)
+@inline function isoneunit(a)
+    return (isa(a, Number)                       ||
+            isa(a, DenseArray) && length(a) == 1 ||
+            isa(a, SubArray)   && length(a) == 1    )
 end
 
 #

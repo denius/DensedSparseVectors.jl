@@ -28,60 +28,25 @@ const FOrd = ForwardOrdering
     DensedSparseVector{Tv,Ti,Td{Tv},Tc{Ti,Td{Tv}}}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
 
 
-function SpacedIndex(sv::AbstractSpacedVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc}
-    nzind = Vector{Ti}(undef, length(sv.nzind))
-    data = Vector{Int}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(zip(sv.nzind, sv.data))
-        nzind[i] = k
-        data[i] = length(d)
-    end
-    return SpacedIndex{Ti,Vector{Ti},Vector{Int}}(dsv.n, dsv.nnz, nzind, data)
-end
+SpacedIndex(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = SpacedIndex{Vector}(v)
 
-function SpacedIndex{Tdata}(sv::AbstractSpacedVector{Tv,Ti,Td,Tc}) where {Tdata<:AbstractVector,Tv,Ti,Td,Tc}
-    nzind = Tdata{Ti}(undef, length(sv.data))
+function SpacedIndex{Tdata}(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tdata<:AbstractVector,Tv,Ti,Td,Tc}
+    nzind = Tdata{Ti}(undef, nnzchunks(v))
     data = Tdata{Int}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(zip(sv.nzind, sv.data))
+    for (i, (k,d)) in enumerate(nzchunkpairs(v))
         nzind[i] = k
-        data[i] = length(d)
+        data[i] = length_of_that_chunk(v, d)
     end
     return SpacedIndex{Ti,Tdata{Ti},Tdata{Int}}(dsv.n, dsv.nnz, nzind, data)
 end
 
-function SpacedIndex(dsv::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc}
-    nzind = Vector{Ti}(undef, length(dsv.data))
-    data = Vector{Int}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(dsv.data)
-        nzind[i] = k
-        data[i] = length(d)
-    end
-    return SpacedIndex{Ti,Vector{Ti},Vector{Int}}(dsv.n, dsv.nnz, nzind, data)
-end
 
-function SpacedIndex{Tdata}(dsv::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tdata<:AbstractVector,Tv,Ti,Td,Tc}
-    nzind = Tdata{Ti}(undef, length(dsv.data))
-    data = Tdata{Int}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(dsv.data)
-        nzind[i] = k
-        data[i] = length(d)
-    end
-    return SpacedIndex{Ti,Tdata{Ti},Tdata{Int}}(dsv.n, dsv.nnz, nzind, data)
-end
+SpacedVector(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = SpacedVector{Vector}(v)
 
-function SpacedVector(dsv::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc}
-    nzind = Vector{Ti}(undef, length(dsv.data))
-    data = Vector{Td}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(dsv.data)
-        nzind[i] = k
-        data[i] = d
-    end
-    return SpacedVector{Tv,Ti,Vector{Ti},Vector{Td}}(dsv.n, dsv.nnz, nzind, data)
-end
-
-function SpacedVector{Tdata}(dsv::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tdata,Tv,Ti,Td,Tc}
-    nzind = Vector{Ti}(undef, length(dsv.data))
-    data = Vector{Td}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(dsv.data)
+function SpacedVector{Tdata}(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tdata,Tv,Ti,Td,Tc}
+    nzind = Tdata{Ti}(undef, nnzchunks(v))
+    data = Tdata{Td}(undef, length(nzind))
+    for (i, (k,d)) in enumerate(nzchunkpairs(v))
         nzind[i] = k
         data[i] = d
     end
@@ -89,9 +54,9 @@ function SpacedVector{Tdata}(dsv::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where
 end
 
 function SpacedVector{Tv,Ti,Tx,Ts}(dsv::AbstractDensedSparseVector) where {Tv,Ti,Tx,Ts}
-    nzind = Tx{Ti}(undef, length(dsv.data))
+    nzind = Tx{Ti}(undef, nnzchunks(v))
     data = Tx{Ts{Tv}}(undef, length(nzind))
-    for (i, (k,d)) in enumerate(dsv.data)
+    for (i, (k,d)) in enumerate(nzchunkpairs(v))
         nzind[i] = k
         data[i] = Ts{Tv}(d)
     end
