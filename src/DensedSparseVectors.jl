@@ -127,25 +127,26 @@ function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti
     return SpacedVector{Tvn,Tin,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
 end
 
-Base.@propagate_inbounds length_of_that_chunk(v::SpacedIndex, chunk) = chunk
-Base.@propagate_inbounds length_of_that_chunk(v::SpacedVector, chunk) = length(chunk)
-Base.@propagate_inbounds length_of_that_chunk(v::DensedSparseVector, chunk) = length(chunk)
-@inline get_chunk_length(v::SpacedIndex, i) = v.data[i]
-@inline get_chunk_length(v::SpacedVector, i) = size(v.data[i])[1]
-@inline get_chunk_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
-@inline get_chunk(v::Number, i) = v
-@inline function get_chunk(v::Vector, i)
-    if length(v) == 1
-        return v[]
-    else
-        return v
-    end
-end
-@inline get_chunk(v::SparseVector, i) = view(v.nzval, i:i)
-@inline get_chunk(v::SpacedIndex, i) = Fill(true, v.data[i])
-@inline get_chunk(v::SpacedVector, i) = v.data[i]
-@inline get_chunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
-@inline function get_chunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
+Base.@propagate_inbounds length_of_that_nzchunk(v::SpacedIndex, chunk) = chunk
+Base.@propagate_inbounds length_of_that_nzchunk(v::SpacedVector, chunk) = length(chunk)
+Base.@propagate_inbounds length_of_that_nzchunk(v::DensedSparseVector, chunk) = length(chunk)
+@inline get_nzchunk_length(v::SpacedIndex, i) = v.data[i]
+@inline get_nzchunk_length(v::SpacedVector, i) = size(v.data[i])[1]
+@inline get_nzchunk_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
+@inline get_nzchunk(v::Number, i) = v
+@inline get_nzchunk(v::Vector, i) = v
+###@inline function get_nzchunk(v::Vector, i)
+###    if length(v) == 1
+###        return v[]
+###    else
+###        return v
+###    end
+###end
+@inline get_nzchunk(v::SparseVector, i) = view(v.nzval, i:i)
+@inline get_nzchunk(v::SpacedIndex, i) = Fill(true, v.data[i])
+@inline get_nzchunk(v::SpacedVector, i) = v.data[i]
+@inline get_nzchunk(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((v.data, i))
+@inline function get_nzchunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
     idx1 = first(v.indices[1])
     key = v.parent.nzind[i]
     len = length(v.parent.data[i])
@@ -157,7 +158,7 @@ end
         return @view(v.parent.data[i][1:end])
     end
 end
-@inline function get_chunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
+@inline function get_nzchunk(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
     idx1 = first(v.indices[1])
     key, chunk = deref((v.parent.data, i))
     len = length(chunk)
@@ -169,19 +170,19 @@ end
         return @view(chunk[1:end])
     end
 end
-@inline get_chunk_key(v::Vector, i) = i
-@inline get_chunk_key(v::SparseVector, i) = v.nzind[i]
-@inline get_chunk_key(v::SpacedIndex, i) = v.nzind[i]
-@inline get_chunk_key(v::SpacedVector, i) = v.nzind[i]
-@inline get_chunk_key(v::DensedSparseVector, i) = deref_key((v.data, i))
-@inline function get_chunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
+@inline get_nzchunk_key(v::Vector, i) = i
+@inline get_nzchunk_key(v::SparseVector, i) = v.nzind[i]
+@inline get_nzchunk_key(v::SpacedIndex, i) = v.nzind[i]
+@inline get_nzchunk_key(v::SpacedVector, i) = v.nzind[i]
+@inline get_nzchunk_key(v::DensedSparseVector, i) = deref_key((v.data, i))
+@inline function get_nzchunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractSpacedVector}
     if v.parent.nzind[i] <= first(v.indices[1]) < v.parent.nzind[i] + length(v.parent.data[i])
         return first(v.indices[1])
     else
         return v.parent.nzind[i]
     end
 end
-@inline function get_chunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
+@inline function get_nzchunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractDensedSparseVector}
     key, chunk = deref((v.parent.data, i))
     len = length(chunk)
     if key <= first(v.indices[1]) < key + len
@@ -190,19 +191,19 @@ end
         return key
     end
 end
-@inline get_key_and_chunk(v::Vector, i) = (i, v)
-@inline get_key_and_chunk(v::SparseVector, i) = (v.nzind[i], view(v.data, i:i))
-@inline get_key_and_chunk(v::SpacedIndex, i) = (v.nzind[i], v.data[i])
-@inline get_key_and_chunk(v::SpacedVector, i) = (v.nzind[i], v.data[i])
-@inline get_key_and_chunk(v::DensedSparseVector, i) = deref((v.data, i))
-@inline get_key_and_chunk(v::Vector) = (1, eltype(v)[])
-@inline get_key_and_chunk(v::SparseVector, i) = (eltype(v.nzind)(1), view(v.data, 1:0))
-@inline get_key_and_chunk(v::SpacedIndex) = (valtype(v.nzind)(1), valtype(v.data)(0))
-@inline get_key_and_chunk(v::SpacedVector) = (valtype(v.nzind)(1), valtype(v.data)())
-@inline get_key_and_chunk(v::DensedSparseVector) = (keytype(v.data)(1), valtype(v.data)())
-@inline getindex_chunk(v::SpacedIndex, chunk, i) = 1 <= i <= chunk
-@inline getindex_chunk(v::SpacedVector, chunk, i) = chunk[i]
-@inline getindex_chunk(v::DensedSparseVector, chunk, i) = chunk[i]
+@inline get_key_and_nzchunk(v::Vector, i) = (i, v)
+@inline get_key_and_nzchunk(v::SparseVector, i) = (v.nzind[i], view(v.data, i:i))
+@inline get_key_and_nzchunk(v::SpacedIndex, i) = (v.nzind[i], v.data[i])
+@inline get_key_and_nzchunk(v::SpacedVector, i) = (v.nzind[i], v.data[i])
+@inline get_key_and_nzchunk(v::DensedSparseVector, i) = deref((v.data, i))
+@inline get_key_and_nzchunk(v::Vector) = (1, eltype(v)[])
+@inline get_key_and_nzchunk(v::SparseVector, i) = (eltype(v.nzind)(1), view(v.data, 1:0))
+@inline get_key_and_nzchunk(v::SpacedIndex) = (valtype(v.nzind)(1), valtype(v.data)(0))
+@inline get_key_and_nzchunk(v::SpacedVector) = (valtype(v.nzind)(1), valtype(v.data)())
+@inline get_key_and_nzchunk(v::DensedSparseVector) = (keytype(v.data)(1), valtype(v.data)())
+@inline getindex_nzchunk(v::SpacedIndex, chunk, i) = 1 <= i <= chunk
+@inline getindex_nzchunk(v::SpacedVector, chunk, i) = chunk[i]
+@inline getindex_nzchunk(v::DensedSparseVector, chunk, i) = chunk[i]
 @inline Base.firstindex(v::AbstractSpacedVector) = firstindex(v.nzind)
 @inline Base.firstindex(v::AbstractDensedSparseVector) = startof(v.data)
 @inline Base.lastindex(v::AbstractSpacedVector) = lastindex(v.nzind)
@@ -224,8 +225,8 @@ end
         if st === beforestartindex(v)
             return firstindex(v)
         else
-            key = get_chunk_key(v, st)
-            len = get_chunk_length(v, st)
+            key = get_nzchunk_key(v, st)
+            len = get_nzchunk_length(v, st)
             if key + len - 1 >= i
                 return st
             else
@@ -271,8 +272,8 @@ Base.@propagate_inbounds function iteratenzchunks(v::AbstractDensedSparseVector,
 end
 Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = search_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractAlmostSparseVector}
     if state !== pastendindex(v.parent)
-        key = get_chunk_key(v.parent, state)
-        len = get_chunk_length(v.parent, state)
+        key = get_nzchunk_key(v.parent, state)
+        len = get_nzchunk_length(v.parent, state)
         if last(v.indices[1]) >= key + len
             return (state, advance(v.parent, state))
         elseif key <= last(v.indices[1]) < key + len
@@ -382,10 +383,10 @@ function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostS
     st = search_nzchunk(v, i)
     if (ret = iteratenzchunks(v, st)) !== nothing
         idxchunk, next = ret
-        key, chunk = get_key_and_chunk(v, idxchunk)
-        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_that_chunk(v, chunk))
+        key, chunk = get_key_and_nzchunk(v, idxchunk)
+        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_that_nzchunk(v, chunk))
     else
-        key, chunk = get_key_and_chunk(v)
+        key, chunk = get_key_and_nzchunk(v)
         return ASDSVIteratorState{T}(1, 1, key, chunk, 0)
     end
 end
@@ -405,8 +406,8 @@ for (fn, ret1, ret2) in
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
         elseif (ret = iteratenzchunks(v, next)) !== nothing
             i, next = ret
-            key, chunk = get_key_and_chunk(v, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_chunk(v, chunk)))
+            key, chunk = get_key_and_nzchunk(v, i)
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_nzchunk(v, chunk)))
         else
             return nothing
         end
@@ -438,8 +439,8 @@ for (fn, ret1, ret2) in
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
         elseif (ret = iteratenzchunks(v.parent, next)) !== nothing
             i, next = ret
-            key, chunk = get_key_and_chunk(v.parent, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_chunk(v.parent, chunk)))
+            key, chunk = get_key_and_nzchunk(v.parent, i)
+            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_nzchunk(v.parent, chunk)))
         else
             return nothing
         end
@@ -458,7 +459,7 @@ end
 @inline function Base.iterate(it::NZChunks, state...)
     y = iteratenzchunks(it.itr, state...)
     if y !== nothing
-        return (get_chunk(it.itr, y[1]), y[2])
+        return (get_nzchunk(it.itr, y[1]), y[2])
     else
         return nothing
     end
@@ -477,8 +478,8 @@ end
 @inline function Base.iterate(it::NZChunkPairs, state...)
     y = iteratenzchunks(it.itr, state...)
     if y !== nothing
-        return ((get_chunk_key(it.itr, y[1]), get_chunk(it.itr, y[1])), y[2])
-        #return (get_key_and_chunk(it.itr, y[1]), y[2])
+        return ((get_nzchunk_key(it.itr, y[1]), get_nzchunk(it.itr, y[1])), y[2])
+        #return (get_key_and_nzchunk(it.itr, y[1]), y[2])
     else
         return nothing
     end
@@ -579,7 +580,7 @@ SparseArrays.findnz(v::AbstractAlmostSparseVector) = (nzinds(v), nzvals(v))
     st = searchsortedlastchunk(v, i)
     if st === beforestartindex(v)  # the index `i` is before first index
         return false
-    elseif i >= get_chunk_key(v, st) + get_chunk_length(v, st)
+    elseif i >= get_nzchunk_key(v, st) + get_nzchunk_length(v, st)
         # the index `i` is outside of data chunk indices
         return false
     end
@@ -592,9 +593,9 @@ end
 @inline function Base.getindex(v::AbstractSpacedVector, i::Integer)
     st = searchsortedlast(v.nzind, i)
     if st !== 0  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_chunk(v, st)
-        if i < ifirst + length_of_that_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
-            return getindex_chunk(v, chunk, i - ifirst + 1)
+        (ifirst, chunk) = get_key_and_nzchunk(v, st)
+        if i < ifirst + length_of_that_nzchunk(v, chunk)  # the index `i` is inside of data chunk indices range
+            return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
     return zero(eltype(v))
@@ -610,9 +611,9 @@ end
 @inline function Base.getindex(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
     st = searchsortedlast(v.data, i)
     if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
-        (ifirst, chunk) = get_key_and_chunk(v, st)
-        if i < ifirst + length_of_that_chunk(v, chunk)  # the index `i` is inside of data chunk indices range
-            return getindex_chunk(v, chunk, i - ifirst + 1)
+        (ifirst, chunk) = get_key_and_nzchunk(v, st)
+        if i < ifirst + length_of_that_nzchunk(v, chunk)  # the index `i` is inside of data chunk indices range
+            return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
     return zero(Tv)
@@ -1047,7 +1048,8 @@ end
 function Base.copy(bc::Broadcasted{<:AlSpVecStyle})
     dest = similar(bc, Broadcast.combine_eltypes(bc.f, bc.args))
     bcf = Broadcast.flatten(bc)
-    nzbroadcast!(bcf.f, dest, bcf.args)
+    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf.args)))
+    nzcopytoflatten!(bcf.f, dest, bcf.args)
 end
 
 Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
@@ -1060,32 +1062,16 @@ Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(
 Base.copyto!(dest::AbstractAlmostSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
 
-@generated function nzcopyto!(dest, bc)
-    return quote
-        bcf = Broadcast.flatten(bc)
-        nzcopyto!(bcf.f, dest, bcf.args)
-    end
+function nzcopyto!(dest, bc)
+    bcf = Broadcast.flatten(bc)
+    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf.args)))
+    nzcopytoflatten!(bcf.f, dest, bcf.args)
 end
 
-function nzcopyto!(f, dest, args)
-    ###if !(broadcastable_with_AASV(dest, args) && similarlength(nnz(dest), args))
-    ####if !(broadcastable_with_AASV(dest, args...) && similarlength(nnz(dest), args))
-    ###    throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, args)))
-    ###end
-    if length(args) == 1 && isa(args[1], Number)
-        foreach(c -> fill!(c, args[1]), nzchunks(dest))
-    elseif length(args) == 1 && isa(args[1], DenseArray) && length(args[1]) == 1
-        foreach(c -> fill!(c, args[1][1]), nzchunks(dest))
-    elseif iterablenzchunks(dest, args) && issimilar_AASV(dest, args)
-    #elseif iterablenzchunks(dest, args...) && issimilar_AASV(dest, args)
-    ##elseif iterablenzchunks((dest, args...)) && issimilar_AASV(dest, args)
-        ##args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), args)
-        ##nzbroadcastchunks!(f, dest, args1)
-        #@show "nzcopyto!: 1"
+function nzcopytoflatten!(f, dest, args)
+    if iterablenzchunks(dest, args) && issimilar_AASV(dest, args)
         nzbroadcastchunks!(f, dest, args)
     else
-        #@debug iterablenzchunks(dest, args)
-        #@debug issimilar_AASV(dest, args)
         nzbroadcast!(f, dest, args)
     end
     return dest
@@ -1101,12 +1087,12 @@ ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
 @inline Base.getindex(v::ItWrapper, i::Integer) = v.x
 @inline Base.iterate(v::ItWrapper, state = 1) = (v.x, state)
 @inline iteratenzchunks(v::ItWrapper, state = 1) = (state, state)
-@inline get_chunk(v::ItWrapper, i) = v
+@inline get_nzchunk(v::ItWrapper, i) = v
 @inline Base.ndims(v::ItWrapper) = 1
 @inline Base.length(v::ItWrapper) = 1
 
 @inline iteratenzchunks(v::Base.RefValue, state = 1) = (state, state)
-@inline get_chunk(v::Base.RefValue, i) = v[]
+@inline get_nzchunk(v::Base.RefValue, i) = v[]
 
 @generated function nzbroadcastchunks!(f, dest, args)
     return quote
@@ -1154,8 +1140,8 @@ function broadcastable_with_AASV(a)
                 isa(a, SubArray) && length(a) > 1           )
 end
 
-similarlength(n, args::Tuple) = (isoneunit(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
-similarlength(n, a) = isoneunit(a) || n == nnz(a)
+similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
+similarlength(n, a) = ismathscalar(a) || n == nnz(a)
 similarlength(n, a::Tuple{}) = true
 
 
@@ -1181,10 +1167,10 @@ iterablenzchunks(a, args...) = isa_AASV_or_scalar(a) || iterablenzchunks(a, iter
 iterablenzchunks(a, b) = isa_AASV_or_scalar(a) || isa_AASV_or_scalar(b)
 iterablenzchunks(a) = isa_AASV_or_scalar(a)
 
-isa_AASV_or_scalar(a) = isa_AASV(a) || isoneunit(a)
+isa_AASV_or_scalar(a) = isa_AASV(a) || ismathscalar(a)
 
-#function isoneunit(a)
-@inline function isoneunit(a)
+#function ismathscalar(a)
+@inline function ismathscalar(a)
     return (isa(a, Number)                       ||
             isa(a, DenseArray) && length(a) == 1 ||
             isa(a, SubArray)   && length(a) == 1    )
