@@ -302,7 +302,7 @@ Base.@propagate_inbounds function iteratenzchunks(v::Vector, state = (1, length(
         return nothing
     end
 end
-Base.@propagate_inbounds iteratenzchunks(v::Number, state = 1) = (state, state)
+Base.@propagate_inbounds iteratenzchunks(v::Number, state = 1) = (1, state)
 
 "`iteratenzpairs(v::AbstractAlmostSparseVector)` iterates over nonzero elements of vector and returns pair of index and value"
 function iteratenzpairs end
@@ -1025,15 +1025,13 @@ find_AASV(x::Base.Broadcast.Extruded) = x.x  # expose internals of Broadcast but
 find_AASV(x) = x
 find_AASV(::Tuple{}) = nothing
 find_AASV(v::AbstractAlmostSparseVector, rest) = v
-#find_AASV(v::SpacedVector, rest) = v
 find_AASV(::Any, rest) = find_AASV(rest)
 
 function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
     if bc.axes isa Nothing
         v1 = find_AASV(bc)
         bcf = Broadcast.flatten(bc)
-        if !(iterablealike_AASV(v1, args) && similarlength(nnz(v1), args))
-        #if !similarlength(nnz(v1), bcf.args)
+        if !(broadcastable_with_AASV(v1, args) && similarlength(nnz(v1), args))
             throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), bcf.args)))"))
         end
         bcaxes = axes(v1)
@@ -1070,25 +1068,31 @@ Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broad
 end
 
 function nzcopyto!(f, dest, args)
-    if !(iterablealike_AASV(dest, args...) && similarlength(nnz(dest), args))
-        throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, args)))
-    end
+    ###if !(broadcastable_with_AASV(dest, args) && similarlength(nnz(dest), args))
+    ####if !(broadcastable_with_AASV(dest, args...) && similarlength(nnz(dest), args))
+    ###    throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, args)))
+    ###end
     if length(args) == 1 && isa(args[1], Number)
         foreach(c -> fill!(c, args[1]), nzchunks(dest))
     elseif length(args) == 1 && isa(args[1], DenseArray) && length(args[1]) == 1
         foreach(c -> fill!(c, args[1][1]), nzchunks(dest))
-    elseif iterablenzchunks((dest, args...)) && issimilar_AASV(dest, args)
-        args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), args)
-        nzbroadcastchunks!(f, dest, args1)
+    elseif iterablenzchunks(dest, args) && issimilar_AASV(dest, args)
+    #elseif iterablenzchunks(dest, args...) && issimilar_AASV(dest, args)
+    ##elseif iterablenzchunks((dest, args...)) && issimilar_AASV(dest, args)
+        ##args1 = map(a -> isa_AASV(a) ? a : ItWrapper(a), args)
+        ##nzbroadcastchunks!(f, dest, args1)
+        #@show "nzcopyto!: 1"
+        nzbroadcastchunks!(f, dest, args)
     else
+        #@debug iterablenzchunks(dest, args)
+        #@debug issimilar_AASV(dest, args)
         nzbroadcast!(f, dest, args)
     end
     return dest
 end
 
-nzcopytoDimensionMismatch(dest, args)::String =
-    "Number of nonzeros of vectors must be equal, but have nnz's:" *
-    "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, args...))))"
+nzcopytoDimensionMismatch(dest, args)::String = "Number of nonzeros of vectors must be equal, but have nnz's:" *
+                                                "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, args...))))"
 
 struct ItWrapper{T}
     x::T
@@ -1098,8 +1102,8 @@ ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
 @inline Base.iterate(v::ItWrapper, state = 1) = (v.x, state)
 @inline iteratenzchunks(v::ItWrapper, state = 1) = (state, state)
 @inline get_chunk(v::ItWrapper, i) = v
-##alternative##@inline get_chunk(v::ItWrapper, i) = v.x
 @inline Base.ndims(v::ItWrapper) = 1
+@inline Base.length(v::ItWrapper) = 1
 
 @inline iteratenzchunks(v::Base.RefValue, state = 1) = (state, state)
 @inline get_chunk(v::Base.RefValue, i) = v[]
@@ -1110,18 +1114,14 @@ ItWrapper(v) = ItWrapper{typeof(v[])}(v[])
         nzchunksiters = map(nzchunks, args)
         nzchunksiters = (nzchunks(dest), nzchunksiters...)
         for (dst, rest...) in zip(nzchunksiters...)
-            ##alternative##broadcast!(f, dst, rest...)
-            broadcast!(f, dst, rest...)
-            #i = 0
-            #@inbounds for res in zip(rest...)
-            #    dst[i+=1] = f(res...)
-            #end
+            dst .= f.(rest...)
+            #broadcast!(f, dst, rest...)
         end
         return dest
     end
 end
 
-"`nzbroadcast!(f, dest, args)` perform broadcasting over non-zero values of vectors in `args`.
+"`nzbroadcast!(f, dest, args)` performs broadcasting over non-zero values of vectors in `args`.
 Note 1: `f` and `args` should be `flatten` `bc.f` and `bc.args` respectively.
 Note 2: The coincidence of vectors indices should be checked and provided by the user."
 @generated function nzbroadcast!(f, dest, args)
@@ -1145,9 +1145,9 @@ Note 2: The coincidence of vectors indices should be checked and provided by the
     end
 end
 
-iterablealike_AASV(a, args...) = iterablealike_AASV(a) || iterablealike_AASV(args...)
-iterablealike_AASV(a, b) = iterablealike_AASV(a) || iterablealike_AASV(b)
-function iterablealike_AASV(a)
+broadcastable_with_AASV(a, args...) = broadcastable_with_AASV(a) || broadcastable_with_AASV(args...)
+broadcastable_with_AASV(a, b) = broadcastable_with_AASV(a) || broadcastable_with_AASV(b)
+function broadcastable_with_AASV(a)
         return (isa_AASV(a)                              ||
                 isa(a, AbstractSparseVector)             ||
                 isa(a, DenseArray) && length(a) > 1      ||
@@ -1162,7 +1162,7 @@ similarlength(n, a::Tuple{}) = true
 @inline isa_AASV(a) = isa(a, AbstractAlmostSparseVector) ||
                      (isa(a, SubArray) && isa(a.parent, AbstractAlmostSparseVector))
 
-"Are the vectors similar in every non-zero chunk"
+"Are the vectors the similar in every non-zero chunk"
 function issimilar_AASV(dest, args::Tuple)
 
     args1 = filter(a->isa_AASV(a), args)
@@ -1177,12 +1177,13 @@ end
 issimilar_AASV(dest, args) = issimilar_AASV(dest, (args,))
 
 "Are all vectors iterable by non-zero chunks"
-iterablenzchunks(a, args...) = isbroadcastable_AASV(a) ||
-                               iterablenzchunks(isbroadcastable_AASV(a), iterablenzchunks(args...))
-iterablenzchunks(a, b) = isbroadcastable_AASV(a) || isbroadcastable_AASV(b)
-iterablenzchunks(a) = isbroadcastable_AASV(a)
+iterablenzchunks(a, args...) = isa_AASV_or_scalar(a) || iterablenzchunks(a, iterablenzchunks(args...))
+iterablenzchunks(a, b) = isa_AASV_or_scalar(a) || isa_AASV_or_scalar(b)
+iterablenzchunks(a) = isa_AASV_or_scalar(a)
 
-isbroadcastable_AASV(a) = isa_AASV(a) || isoneunit(a)
+isa_AASV_or_scalar(a) = isa_AASV(a) || isoneunit(a)
+
+#function isoneunit(a)
 @inline function isoneunit(a)
     return (isa(a, Number)                       ||
             isa(a, DenseArray) && length(a) == 1 ||
