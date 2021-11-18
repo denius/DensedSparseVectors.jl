@@ -1,5 +1,3 @@
-import Base: ForwardOrdering, Forward
-const FOrd = ForwardOrdering
 
 @inline SparseArrays.sparse(sv::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
     SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
@@ -21,11 +19,11 @@ const FOrd = ForwardOrdering
     SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(n, 0, Tx{Ti}(), Tx{Ts{Tv}}())
 
 @inline DensedSparseVector(n::Integer = 0) =
-    DensedSparseVector{Float64,Int,Vector{Float64},SortedDict{Int,Vector{Float64},FOrd}}(n, 0, typemin(Int), SortedDict{Int,Vector{Float64},FOrd}(Forward))
+    DensedSparseVector{Float64,Int,Vector{Float64},SortedDict{Int,Vector{Float64},FOrd}}(n, 0, typemin(Int), SortedDict{Int,Vector{Float64}}())
 @inline DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-    DensedSparseVector{Tv,Ti,Vector{Float64},SortedDict{Int,Vector{Float64},FOrd}}(n, 0, typemin(Ti), SortedDict{Ti,Vector{Tv},FOrd}(Forward))
+    DensedSparseVector{Tv,Ti,Vector{Tv},SortedDict{Ti,Vector{Tv},FOrd}}(n, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
 @inline DensedSparseVector{Tv,Ti,Td,Tc}(n::Integer = 0) where {Tv,Ti,Td,Tc} =
-    DensedSparseVector{Tv,Ti,Td{Tv},Tc{Ti,Td{Tv}}}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
+    DensedSparseVector{Tv,Ti,Td{Tv},Tc{Ti,Td{Tv},FOrd}}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
 
 
 SpacedIndex(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = SpacedIndex{Vector}(v)

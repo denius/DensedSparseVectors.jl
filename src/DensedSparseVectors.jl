@@ -11,6 +11,9 @@
 #module DensedSparseVectors
 #export DensedSparseVector
 
+import Base: ForwardOrdering, Forward
+const FOrd = ForwardOrdering
+
 import Base.Broadcast: BroadcastStyle
 using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DocStringExtensions
@@ -79,7 +82,9 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSparseVector{Tv,Ti<:Integer,Td<:AbstractVector{Tv},Tc<:AbstractDict{Ti,Td}} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
+mutable struct DensedSparseVector{Tv,Ti<:Integer,Td<:AbstractVector{Tv},Tc<:SortedDict{Ti,Td,FOrd}} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
+#mutable struct DensedSparseVector{Tv,Ti<:Integer,Td<:AbstractVector{Tv},Tc<:AbstractDict{Ti,Td}} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
+#mutable struct DensedSparseVector{Tv,Ti<:Integer,Td<:AbstractVector{Tv},Tc<:AbstractDict} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
     "`n` is the vector length"
     n::Int
     "Number of stored non-zero elements"
@@ -115,9 +120,9 @@ Base.similar(v::SpacedIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
     return SpacedIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data))
 Base.similar(v::SpacedIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
 
-Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts} = similar(v, Tv)
-Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType} = similar(v, Pair{Ti,ElType})
-function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts} = similar(v, Tv)
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType} = similar(v, Pair{Ti,ElType})
+function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     nzind = similar(v.nzind, Tin)
     data = similar(v.data)
     for (i, (k,d)) in enumerate(nzchunkpairs(v))
@@ -125,6 +130,13 @@ function Base.similar(v::SpacedVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti
         data[i] = similar(d, Tvn)
     end
     return SpacedVector{Tvn,Tin,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data)
+end
+function Base.similar(v::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
+    data = SortedDict{Tin, typeof(similar(valtype(v.data)(), Tvn)), FOrd}(Forward)
+    for (k,d) in nzchunkpairs(v)
+        data[k] = similar(d, Tvn)
+    end
+    return DensedSparseVector{Tvn,Tin,valtype(data),typeof(data)}(v.n, v.nnz, Tin(v.lastkey), data)
 end
 
 Base.@propagate_inbounds length_of_that_nzchunk(v::SpacedIndex, chunk) = chunk
@@ -135,13 +147,6 @@ Base.@propagate_inbounds length_of_that_nzchunk(v::DensedSparseVector, chunk) = 
 @inline get_nzchunk_length(v::DensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
 @inline get_nzchunk(v::Number, i) = v
 @inline get_nzchunk(v::Vector, i) = v
-###@inline function get_nzchunk(v::Vector, i)
-###    if length(v) == 1
-###        return v[]
-###    else
-###        return v
-###    end
-###end
 @inline get_nzchunk(v::SparseVector, i) = view(v.nzval, i:i)
 @inline get_nzchunk(v::SpacedIndex, i) = Fill(true, v.data[i])
 @inline get_nzchunk(v::SpacedVector, i) = v.data[i]
@@ -1032,8 +1037,9 @@ function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
     if bc.axes isa Nothing
         v1 = find_AASV(bc)
         bcf = Broadcast.flatten(bc)
-        if !(broadcastable_with_AASV(v1, args) && similarlength(nnz(v1), args))
-            throw(DimensionMismatch("Number of nonzeros of vectors must be equal, but have nnz's: $(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), bcf.args)))"))
+        ###if !(broadcastable_with_AASV(v1, args) && similarlength(nnz(v1), args))
+        if !similarlength(nnz(v1), args)
+            throw(DimensionMismatch(nzDimensionMismatchMsg(bcf.args)))
         end
         bcaxes = axes(v1)
         #bcaxes = Broadcast.combine_axes(bc.args...)
@@ -1048,7 +1054,7 @@ end
 function Base.copy(bc::Broadcasted{<:AlSpVecStyle})
     dest = similar(bc, Broadcast.combine_eltypes(bc.f, bc.args))
     bcf = Broadcast.flatten(bc)
-    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf.args)))
+    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
     nzcopytoflatten!(bcf.f, dest, bcf.args)
 end
 
@@ -1064,7 +1070,7 @@ Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractAlmostSparseVector}, bc::Broad
 
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
-    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzcopytoDimensionMismatch(dest, bcf.args)))
+    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
     nzcopytoflatten!(bcf.f, dest, bcf.args)
 end
 
@@ -1077,8 +1083,8 @@ function nzcopytoflatten!(f, dest, args)
     return dest
 end
 
-nzcopytoDimensionMismatch(dest, args)::String = "Number of nonzeros of vectors must be equal, but have nnz's:" *
-                                                "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), (dest, args...))))"
+nzDimensionMismatchMsg(args)::String = "Number of nonzeros of vectors must be equal, but have nnz's:" *
+                                          "$(map((a)->nnz(a), filter((a)->isa(a,AbstractVector), args)))"
 
 struct ItWrapper{T}
     x::T
@@ -1131,14 +1137,14 @@ Note 2: The coincidence of vectors indices should be checked and provided by the
     end
 end
 
-broadcastable_with_AASV(a, args...) = broadcastable_with_AASV(a) || broadcastable_with_AASV(args...)
-broadcastable_with_AASV(a, b) = broadcastable_with_AASV(a) || broadcastable_with_AASV(b)
-function broadcastable_with_AASV(a)
-        return (isa_AASV(a)                              ||
-                isa(a, AbstractSparseVector)             ||
-                isa(a, DenseArray) && length(a) > 1      ||
-                isa(a, SubArray) && length(a) > 1           )
-end
+###broadcastable_with_AASV(a, args...) = broadcastable_with_AASV(a) || broadcastable_with_AASV(args...)
+###broadcastable_with_AASV(a, b) = broadcastable_with_AASV(a) || broadcastable_with_AASV(b)
+###function broadcastable_with_AASV(a)
+###        return (isa_AASV(a)                              ||
+###                isa(a, AbstractSparseVector)             ||
+###                isa(a, DenseArray) && length(a) > 1      ||
+###                isa(a, SubArray) && length(a) > 1           )
+###end
 
 similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
 similarlength(n, a) = ismathscalar(a) || n == nnz(a)
