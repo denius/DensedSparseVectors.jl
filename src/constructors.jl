@@ -1,29 +1,25 @@
 
-@inline SparseArrays.sparse(sv::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+@inline SparseArrays.sparse(sv::AbstractAlmostSparseVector) =
     SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
-@inline SparseArrays.SparseVector(sv::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} =
+@inline SparseArrays.SparseVector(sv::AbstractAlmostSparseVector) =
     SparseVector(length(sv), SparseArrays.nonzeroinds(sv), SparseArrays.nonzeros(sv))
 
-@inline SpacedIndex(n::Integer = 0) =
-    SpacedIndex{Int,Vector{Int},Vector{Int}}(n, 0, Vector{Int}(), Vector{Int}())
-@inline SpacedIndex{Ti}(n::Integer = 0) where {Ti} =
-    SpacedIndex{Ti,Vector{Ti},Vector{Int}}(n, 0, Vector{Ti}(), Vector{Int}())
+@inline SpacedIndex(n::Integer = 0) = SpacedIndex{Int,Vector,Vector}(n)
+@inline SpacedIndex{Ti}(n::Integer = 0) where {Ti} = SpacedIndex{Ti,Vector,Vector}(n)
 @inline SpacedIndex{Ti,Tx}(n::Integer = 0) where {Ti,Tx} =
-    SpacedIndex{Ti,Tx{Ti},Tx{Int}}(n, 0, Tx{Ti}(), Tx{Int}())
+    SpacedIndex{Ti,Tx{Ti},Tx{Int}}(n, 0, Tx{Ti}(), Tx{Int}(), 0)
 
-@inline SpacedVector(n::Integer = 0) =
-    SpacedVector{Float64,Int,Vector{Int},Vector{Vector{Float64}}}(n, 0, Vector{Int}(), Vector{Vector{Float64}}())
-@inline SpacedVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-    SpacedVector{Tv,Ti,Vector{Ti},Vector{Vector{Tv}}}(n, 0, Vector{Ti}(), Vector{Vector{Tv}}())
+@inline SpacedVector(n::Integer = 0) = SpacedVector{Float64,Int,Vector,Vector}(n)
+@inline SpacedVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = SpacedVector{Tv,Ti,Vector,Vector}(n)
 @inline SpacedVector{Tv,Ti,Tx,Ts}(n::Integer = 0) where {Tv,Ti,Tx,Ts} =
-    SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(n, 0, Tx{Ti}(), Tx{Ts{Tv}}())
+    SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(n, 0, Tx{Ti}(), Tx{Ts{Tv}}(), 0)
 
-@inline DensedSparseVector(n::Integer = 0) =
-    DensedSparseVector{Float64,Int,Vector{Float64},SortedDict{Int,Vector{Float64},FOrd}}(n, 0, typemin(Int), SortedDict{Int,Vector{Float64}}())
-@inline DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-    DensedSparseVector{Tv,Ti,Vector{Tv},SortedDict{Ti,Vector{Tv},FOrd}}(n, 0, typemin(Ti), SortedDict{Ti,Vector{Tv}}())
-@inline DensedSparseVector{Tv,Ti,Td,Tc}(n::Integer = 0) where {Tv,Ti,Td,Tc} =
-    DensedSparseVector{Tv,Ti,Td{Tv},Tc{Ti,Td{Tv},FOrd}}(n, 0, typemin(Ti), Tc{Ti,Td{Tv}}())
+@inline function DensedSparseVector{Tv,Ti,Td,Tc}(n::Integer = 0) where {Tv,Ti,Td,Tc}
+    data = Tc{Ti,Td{Tv}}()
+    DensedSparseVector{Tv,Ti,Td{Tv},Tc{Ti,Td{Tv},FOrd}}(n, 0, typemin(Ti), data, beforestartsemitoken(data))
+end
+@inline DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Vector,SortedDict}(n)
+@inline DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Vector,SortedDict}(n)
 
 
 SpacedIndex(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = SpacedIndex{Vector}(v)
@@ -33,9 +29,9 @@ function SpacedIndex{Tdata}(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {T
     data = Tdata{Int}(undef, length(nzind))
     for (i, (k,d)) in enumerate(nzchunkpairs(v))
         nzind[i] = k
-        data[i] = length_of_that_chunk(v, d)
+        data[i] = length_of_that_nzchunk(v, d)
     end
-    return SpacedIndex{Ti,Tdata{Ti},Tdata{Int}}(dsv.n, dsv.nnz, nzind, data)
+    return SpacedIndex{Ti,Tdata{Ti},Tdata{Int}}(dsv.n, dsv.nnz, nzind, data, 0)
 end
 
 
@@ -58,6 +54,6 @@ function SpacedVector{Tv,Ti,Tx,Ts}(dsv::AbstractDensedSparseVector) where {Tv,Ti
         nzind[i] = k
         data[i] = Ts{Tv}(d)
     end
-    return SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(dsv.n, dsv.nnz, nzind, data)
+    return SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(dsv.n, dsv.nnz, nzind, data, 0)
 end
 
