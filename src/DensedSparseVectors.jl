@@ -77,7 +77,7 @@ The speed of `Broadcasting` on `DensedSparseVector` is almost the same as
 on the `Vector` excluding the cases where the indices are wide broaded and
 there is no consecuitive ranges of indices. The speed by direct index access is ten or
 more times slower then the for `Vector`'s one. The main purpose of this type is
-the construction of the `AbstractAlmostSparseVector` vectors with further convertion to `SpacedVector`.
+the construction of the `AbstractAlmostSparseVector` vectors with further conversion to `SpacedVector`.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
@@ -91,7 +91,7 @@ mutable struct DensedSparseVector{Tv,Ti<:Integer,Td<:AbstractVector{Tv},Tc<:Sort
     nnz::Int
     "The last node key`::{Ti}` in `data` tree"
     lastkey::Ti
-    "`Tc{Ti,Td{Tv}}` -- Tree based (sorted) Dict data container"
+    "`Tc{Ti,Td{Tv}}` -- Sorted Dict data container"
     data::Tc
 end
 
@@ -139,6 +139,7 @@ function Base.similar(v::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair
     return DensedSparseVector{Tvn,Tin,valtype(data),typeof(data)}(v.n, v.nnz, Tin(v.lastkey), data)
 end
 
+nnzchunks(v::AbstractAlmostSparseVector) = length(v.data)
 Base.@propagate_inbounds length_of_that_nzchunk(v::SpacedIndex, chunk) = chunk
 Base.@propagate_inbounds length_of_that_nzchunk(v::SpacedVector, chunk) = length(chunk)
 Base.@propagate_inbounds length_of_that_nzchunk(v::DensedSparseVector, chunk) = length(chunk)
@@ -213,6 +214,8 @@ end
 @inline Base.firstindex(v::AbstractDensedSparseVector) = startof(v.data)
 @inline Base.lastindex(v::AbstractSpacedVector) = lastindex(v.nzind)
 @inline Base.lastindex(v::AbstractDensedSparseVector) = lastindex(v.data)
+@inline lastkey(v::AbstractSpacedVector) = last(v.nzind)
+@inline lastkey(v::AbstractDensedSparseVector) = deref_key((v.data, lastindex(v.data)))
 @inline beforestartindex(v::AbstractSpacedVector) = firstindex(v) - 1
 @inline beforestartindex(v::AbstractDensedSparseVector) = beforestartsemitoken(v.data)
 @inline pastendindex(v::AbstractSpacedVector) = lastindex(v) + 1
@@ -824,8 +827,9 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
 
     #if sstatus == 3  # the index `i` is after the last index
     # Note: `searchsortedlast` isn't got `status((tree, semitoken)) == 3`, the 2 only.
-    #       The `searchsortedlast` is the same.
-    if i >= v.lastkey # the index `i` is after the last key index
+    #       The `searchsortedfirst` is the same.
+    if i >= lastkey(v) # the index `i` is after the last key index
+    #if i >= v.lastkey # the index `i` is after the last key index
         if ifirst + length(chunk) < i  # there is will be the gap in indices after inserting
             v.data[i] = Td(Fill(val,1))
             v.lastkey = Ti(i)

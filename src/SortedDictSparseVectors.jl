@@ -85,7 +85,7 @@ Base.similar(v::SortedSetSparseIndex{Ti}, ::Type{ElType}) where {Ti,ElType} = de
 function Base.similar(v::SortedDictSparseVector{Tv,Ti}, ::Type{ElType}) where {Tv,Ti,ElType}
     data = SortedDict{Ti,ElType,FOrd}(Forward)
     for (k,d) in v.data
-        data[k] = ElType(v)
+        data[k] = ElType(d)
     end
     return SortedDictSparseVector{ElType,Ti}(v.n, data)
 end
