@@ -457,9 +457,14 @@ struct ASDSVIteratorState{Tn,Td}
     chunklen::Int    # current chunk length
 end
 
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractVectorDensedSparseVector{Tv,Ti}} where {Tv,Ti} =
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
+                                    {T<:DensedSparseIndex{Ti}} where {Ti} =
+    ASDSVIteratorState{Int, Int}(next, nextpos, currentkey, chunk, chunklen)
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
+                                    {T<:AbstractVectorDensedSparseVector{Tv,Ti}} where {Tv,Ti} =
     ASDSVIteratorState{Int, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti} =
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
+                                    {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti} =
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractDensedSparseVector}
@@ -713,14 +718,19 @@ end
 end
 
 
-# FIXME: complete me
 function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
+
+    if (st = v.lastusedchunkindex) != beforestartindex(v)
+        (ifirst, chunk) = get_key_and_nzchunk(v, st)
+        if ifirst <= i < ifirst + length(chunk)
+            return v
+        end
+    end
 
     st = searchsortedlast(v.nzind, i)
 
     # check the index exist and update its data
-    if st > 0  # the index `i` is not before the first index
-    #if v.nnz > 0 && st > 0  # the index `i` is not before the first index
+    if st != beforestartindex(v)  # the index `i` is not before the first index
         ifirst, chunklen = v.nzind[st], v.data[st]
         if i < ifirst + chunklen
             return v
@@ -732,19 +742,21 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
         v.data = push!(v.data, 1)
         v.nnz += 1
         v.n = max(v.n, Int(i))
+        v.lastusedchunkindex = 1
         return v
     end
 
-    if st == 0  # the index `i` is before the first index
+    if st == beforestartindex(v)  # the index `i` is before the first index
         inextfirst = v.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(v.nzind, i)
-            pushfirst!(v.data, [val])
+            pushfirst!(v.data, 1)
         else
             v.nzind[1] -= 1
-            pushfirst!(v.data[1], val)
+            v.data[1] += 1
         end
         v.nnz += 1
+        v.lastusedchunkindex = 1
         return v
     end
 
@@ -759,6 +771,7 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
         end
         v.nnz += 1
         v.n = max(v.n, Int(i))
+        v.lastusedchunkindex = length(v.nzind)
         return v
     end
 
@@ -771,14 +784,18 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
         v.data[st] += 1 + v.data[stnext]
         v.nzind = deleteat!(v.nzind, stnext)
         v.data  = deleteat!(v.data, stnext)
+        v.lastusedchunkindex = st
     elseif i - ilast == 1  # append to left chunk
         v.data[st] += 1
+        v.lastusedchunkindex = st
     elseif inextfirst - i == 1  # prepend to right chunk
         v.nzind[stnext] -= 1
         v.data[stnext] += 1
+        v.lastusedchunkindex = stnext
     else  # insert single element chunk
         v.nzind = insert!(v.nzind, stnext, Ti(i))
         v.data  = insert!(v.data, stnext, 1)
+        v.lastusedchunkindex = stnext
     end
 
     v.nnz += 1
