@@ -45,12 +45,12 @@ mutable struct SpacedIndex{Ti} <: AbstractSpacedVector{Bool,Ti}
     nzind::Vector{Ti}  # Tx{Ti} -- Vector of chunk's first indices
     "`Vector{Int}` -- Vector of chunks lengths"
     data::Vector{Int}  # Tx{Int} -- Vector of chunks lengths
-    "`n` is the vector length"
+    "Vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
 
-    SpacedIndex{Ti}(n::Integer, nzind, data) where {Ti} = new{Ti}(0, nzind, data, n, foldl((s,c)->(s+length(c)), data; init=0))
+    SpacedIndex{Ti}(n::Integer, nzind, data) where {Ti} = new{Ti}(0, nzind, data, n, foldl((s,c)->(s+c), data; init=0))
 end
 
 SpacedIndex(n::Integer, nzind, data) = SpacedIndex{eltype(nzind)}(n, nzind, data)
@@ -69,11 +69,11 @@ $(TYPEDFIELDS)
 mutable struct SpacedVector{Tv,Ti} <: AbstractSpacedVector{Tv,Ti}
     "index of last used chunk"
     lastusedchunkindex::Int
-    "`Tx{Ti}` vector of indices of chunks first element stored in `data`"
+    "`Vector{Ti}` vector of indices of chunks first element stored in `data`"
     nzind::Vector{Ti}  # Vector of chunk's first indices
-    "`Tx{<:AbstractVector{Tv}}` -- Vector of Vectors (chunks) with non-zero values"
+    "`Vector{Vector{Tv}}` -- Vector of Vectors (chunks) with non-zero values"
     data::Vector{Vector{Tv}}   # Tx{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
-    "`n` is the vector length"
+    "Vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
@@ -99,9 +99,9 @@ $(TYPEDFIELDS)
 mutable struct DensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti}
     "index of last used chunk"
     lastusedchunkindex::DataStructures.Tokens.IntSemiToken
-    "`Tc{Ti,Td{Tv}}` -- Sorted Dict data container"
+    "`SortedDict{Ti,Vector{Tv}}` -- Sorted Dict data container"
     data::SortedDict{Ti,Vector{Tv},FOrd}
-    "`n` is the vector length"
+    "Vector length"
     n::Int
     "Number of stored non-zero elements"
     nnz::Int
@@ -158,8 +158,8 @@ Base.strides(v::AbstractAlmostSparseVector) = (1,)
 Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti} = Tv
 Base.IndexStyle(::AbstractAlmostSparseVector) = IndexLinear()
 
-Base.similar(v::SpacedIndex) = similar(v, eltype(v))
-Base.similar(v::SpacedIndex, ::Type{ElType}) where {ElType} = SpacedIndex{ElType}(v.n, v.nnz, copy(v.nzind), copy(v.data))
+Base.similar(v::SpacedIndex) = SpacedIndex(v.n, copy(v.nzind), copy(v.data))
+Base.similar(v::SpacedIndex, ::Type{ElType}) where {ElType} = SpacedIndex{ElType}(v.n, copy(v.nzind), copy(v.data))
 
 Base.similar(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti} = similar(v, Tv)
 Base.similar(v::AbstractAlmostSparseVector{Tv,Ti}, ::Type{ElType}) where {Tv,Ti,ElType} = similar(v, Pair{Ti,ElType})
@@ -173,7 +173,7 @@ function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,T
     return SpacedVector{Tvn,Tin}(v.n, nzind, data)
 end
 function Base.similar(v::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
-    data = SortedDict{Tin, typeof(similar(valtype(v.data)(), Tvn)), FOrd}(Forward)
+    data = SortedDict{Tin, Vector{Tvn}, FOrd}(Forward)
     for (k,d) in nzchunkpairs(v)
         data[k] = similar(d, Tvn)
     end
@@ -302,17 +302,16 @@ end
 
 @inline SparseArrays.sparse(v::AbstractAlmostSparseVector) =
     SparseVector(length(v), SparseArrays.nonzeroinds(v), SparseArrays.nonzeros(v))
-#@inline SparseArrays.SparseVector(v::AbstractAlmostSparseVector) = sparse(v)
 
 function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti}
     ret = Vector{Ti}()
     for (k,d) in nzchunkpairs(v)
-        append!(ret, (k:k+length(d)-1))
+        append!(ret, (k:k+length_of_that_nzchunk(v,d)-1))
     end
     return ret
 end
 function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti}
-    ret = Tv===Bool ? BitVector() : Vector{Tv}()
+    ret = Vector{Tv}()
     for d in nzchunks(v)
         append!(ret, collect(d))
     end
@@ -790,7 +789,7 @@ end
 @inline function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = Tv(value)
 
-    if (st = v.lastusedchunkindex) !== beforestartindex(v)
+    if (st = v.lastusedchunkindex) != beforestartindex(v)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -801,7 +800,7 @@ end
     st = searchsortedlast(v.nzind, i)
 
     # check the index exist and update its data
-    if st !== 0  # the index `i` is not before the first index
+    if st != beforestartindex(v)  # the index `i` is not before the first index
         ifirst, chunk = v.nzind[st], v.data[st]
         if i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -819,7 +818,7 @@ end
         return v
     end
 
-    if st === beforestartindex(v)  # the index `i` is before the first index
+    if st == beforestartindex(v)  # the index `i` is before the first index
         inextfirst = v.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(v.nzind, i)
@@ -1271,6 +1270,39 @@ isa_AASV_or_scalar(a) = isa_AASV(a) || ismathscalar(a)
     return (isa(a, Number)                       ||
             isa(a, DenseArray) && length(a) == 1 ||
             isa(a, SubArray)   && length(a) == 1    )
+end
+
+#
+#  Aux functions
+#
+# derived from stdlib/SparseArrays/src/sparsevector.jl
+#
+function Base.show(io::IOContext, x::SpacedIndex)
+    nzind = [v[1] for v in nzchunkpairs(x)]
+    nzval = [v[2] for v in nzchunkpairs(x)]
+    n = length(nzind)
+    if isempty(nzind)
+        return Base.show(io, MIME("text/plain"), x)
+    end
+    limit = get(io, :limit, false)::Bool
+    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+    pad = ndigits(n)
+    if !haskey(io, :compact)
+        io = IOContext(io, :compact => true)
+    end
+    for k = eachindex(nzind)
+        if k < half_screen_rows || k > length(nzind) - half_screen_rows
+            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+            if isassigned(nzval, Int(k))
+                Base.show(io, nzval[k])
+            else
+                print(io, Base.undef_ref_str)
+            end
+            k != length(nzind) && println(io)
+        elseif k == half_screen_rows
+            println(io, "   ", " "^pad, "   \u22ee")
+        end
+    end
 end
 
 #
