@@ -1,14 +1,14 @@
 
 
 @inline SpacedIndex(n::Integer = 0) = SpacedIndex{Int,Vector,Vector}(n)
-@inline SpacedIndex{Ti}(n::Integer = 0) where {Ti} = SpacedIndex{Ti,Vector,Vector}(n)
+@inline SpacedIndex{Ti}(n::Integer = 0) where {Ti} = SpacedIndex{Ti,Vector}(n)
 @inline SpacedIndex{Ti,Tx}(n::Integer = 0) where {Ti,Tx} =
-    SpacedIndex{Ti,Tx{Ti},Tx{Int}}(n, 0, Tx{Ti}(), Tx{Int}(), 0)
+    SpacedIndex{Ti,Tx{Int},Tx{Ti}}(n, 0, Tx{Ti}(), Tx{Int}(), 0)
 
 @inline SpacedVector(n::Integer = 0) = SpacedVector{Float64,Int,Vector,Vector}(n)
 @inline SpacedVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = SpacedVector{Tv,Ti,Vector,Vector}(n)
-@inline SpacedVector{Tv,Ti,Tx,Ts}(n::Integer = 0) where {Tv,Ti,Tx,Ts} =
-    SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts{Tv}}}(n, 0, Tx{Ti}(), Tx{Ts{Tv}}(), 0)
+@inline SpacedVector{Tv,Ti,Ts,Tx}(n::Integer = 0) where {Tv,Ti,Ts,Tx} =
+    SpacedVector{Tv,Ti,Tx{Ts{Tv}},Tx{Ti}}(n, 0, Tx{Ti}(), Tx{Ts{Tv}}(), 0)
 
 @inline DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Vector,SortedDict}(n)
 @inline DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Vector,SortedDict}(n)
@@ -27,21 +27,20 @@ function SpacedIndex{Tdata}(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {T
         nzind[i] = k
         data[i] = length_of_that_nzchunk(v, d)
     end
-    return SpacedIndex{Ti,Tdata{Ti},Tdata{Int}}(v.n, v.nnz, nzind, data, 0)
+    return SpacedIndex{Ti,Tdata{Int},Tdata{Ti}}(v.n, v.nnz, nzind, data, 0)
 end
 
 
 SpacedVector(v::AbstractDensedSparseVector) = SpacedVector{Vector}(v)
-SpacedVector{Tdata}(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tdata,Tv,Ti,Td,Tc} = SpacedVector{Tv,Ti,Tdata,Td}(v)
+SpacedVector{Tdata}(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}) where {Tdata,Tv,Ti,Td,Tc} = SpacedVector{Tv,Ti,Td,Tdata}(v)
 
-function SpacedVector{Tv,Ti,Tx,Ts}(v::AbstractDensedSparseVector) where {Tv,Ti,Tx,Ts}
-    @show Tv,Ti,Tx,Ts
+function SpacedVector{Tv,Ti,Ts,Tx}(v::AbstractDensedSparseVector) where {Tv,Ti,Ts,Tx}
     nzind = Tx{Ti}(undef, nnzchunks(v))
     data = Tx{Ts}(undef, length(nzind))
     for (i, (k,d)) in enumerate(nzchunkpairs(v))
         nzind[i] = k
         data[i] = Ts(d)
     end
-    return SpacedVector{Tv,Ti,Tx{Ti},Tx{Ts}}(v.n, v.nnz, nzind, data, 0)
+    return SpacedVector{Tv,Ti,Tx{Ts},Tx{Ti}}(v.n, v.nnz, nzind, data, 0)
 end
 

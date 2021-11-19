@@ -104,23 +104,27 @@ SparseArrays.findnz(v::AbstractSortedDictSparseVector) = (SparseArrays.nonzeroin
 #  Testing functions
 #
 
-function testfun_create(T::Type, n = 500_000)
-
+function testfun_create(T::Type, n = 500_000, density = 0.9)
     dsv = T(n)
-
     Random.seed!(1234)
-    for i in rand(1:n, 4*n)
+    for i in shuffle(randsubseq(1:n, density))
         dsv[i] = rand()
     end
-
     dsv
 end
 
-function testfun_create_dense(T::Type, n = 500_000, nchunks = 100, density = 0.95)
+function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
+    dsv = T(n)
+    Random.seed!(1234)
+    for i in randsubseq(1:n, density)
+        dsv[i] = rand()
+    end
+    dsv
+end
 
+function testfun_create_dense(T::Type, n = 500_000, nchunks = 800, density = 0.95)
     dsv = T(n)
     chunklen = max(1, floor(Int, n / nchunks))
-
     Random.seed!(1234)
     for i = 0:nchunks-1
         len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
@@ -128,9 +132,7 @@ function testfun_create_dense(T::Type, n = 500_000, nchunks = 100, density = 0.9
         for j = 1:len
             dsv[i*chunklen + j] = rand()
         end
-        #dsv[1+i*chunklen:len+i*chunklen] .= rand(len)
     end
-
     dsv
 end
 

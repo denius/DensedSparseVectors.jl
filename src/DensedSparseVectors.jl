@@ -28,7 +28,7 @@ using Random
 
 abstract type AbstractAlmostSparseVector{Tv,Ti,Td,Tc} <: AbstractSparseVector{Tv,Ti} end
 
-abstract type AbstractSpacedVector{Tv,Ti,Tx,Ts} <: AbstractAlmostSparseVector{Tv,Ti,Tx,Ts} end
+abstract type AbstractSpacedVector{Tv,Ti,Ts,Tx} <: AbstractAlmostSparseVector{Tv,Ti,Ts,Tx} end
 abstract type AbstractDensedSparseVector{Tv,Ti,Td,Tc} <: AbstractAlmostSparseVector{Tv,Ti,Td,Tc} end
 
 
@@ -38,15 +38,15 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct SpacedIndex{Ti,Tx,Ts} <: AbstractSpacedVector{Bool,Ti,Tx,Ts}
+mutable struct SpacedIndex{Ti,Td,Tx} <: AbstractSpacedVector{Bool,Ti,Td,Tx}
     "`n` is the vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
     "Vector of chunk's first indices"
-    nzind::Tx  # Vector of chunk's first indices
+    nzind::Tx  # Tx{Ti} -- Vector of chunk's first indices
     "`Vector{Int}` -- Vector of chunks lengths"
-    data::Ts   # Vector{Int} -- Vector of chunks lengths
+    data::Td   # Tx{Int} -- Vector of chunks lengths
     "index of last used chunk"
     lastusedchunkindex::Int
 end
@@ -61,15 +61,15 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct SpacedVector{Tv,Ti,Tx,Ts} <: AbstractSpacedVector{Tv,Ti,Tx,Ts}
+mutable struct SpacedVector{Tv,Ti,Td,Tx} <: AbstractSpacedVector{Tv,Ti,Td,Tx}
     "`n` is the vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
-    "Vector of chunk's first indices"
+    "`Tx{Ti}` vector of indices of chunks first element stored in `data`"
     nzind::Tx  # Vector of chunk's first indices
-    "`Td{<:AbstractVector{Tv}}` -- Vector of Vectors (chunks) with values"
-    data::Ts   # Td{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
+    "`Tx{<:AbstractVector{Tv}}` -- Vector of Vectors (chunks) with non-zero values"
+    data::Td   # Tx{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
     "index of last used chunk"
     lastusedchunkindex::Int
 end
@@ -118,12 +118,12 @@ Base.strides(v::AbstractAlmostSparseVector) = (1,)
 Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Tv
 Base.IndexStyle(::AbstractAlmostSparseVector) = IndexLinear()
 
-Base.similar(v::SpacedIndex{Ti,Tx,Ts}) where {Ti,Tx,Ts} =
-    return SpacedIndex{Ti,Tx,Ts}(v.n, v.nnz, copy(v.nzind), copy(v.data), 0)
-Base.similar(v::SpacedIndex{Ti,Tx,Ts}, ::Type{ElType}) where {Ti,Tx,Ts,ElType} = similar(v)
+Base.similar(v::SpacedIndex{Ti,Ts,Tx}) where {Ti,Ts,Tx} =
+    return SpacedIndex{Ti,Ts,Tx}(v.n, v.nnz, copy(v.nzind), copy(v.data), 0)
+Base.similar(v::SpacedIndex, ::Type{ElType}) where {ElType} = similar(v)
 
-Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts} = similar(v, Tv)
-Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}, ::Type{ElType}) where {Tv,Ti,Tx,Ts,ElType} = similar(v, Pair{Ti,ElType})
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx} = similar(v, Tv)
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}, ::Type{ElType}) where {Tv,Ti,Ts,Tx,ElType} = similar(v, Pair{Ti,ElType})
 function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     nzind = similar(v.nzind, Tin)
     data = similar(v.data)
@@ -131,7 +131,7 @@ function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,T
         nzind[i] = k
         data[i] = similar(d, Tvn)
     end
-    return SpacedVector{Tvn,Tin,typeof(nzind),typeof(data)}(v.n, v.nnz, nzind, data, 0)
+    return SpacedVector{Tvn,Tin,typeof(data),typeof(nzind)}(v.n, v.nnz, nzind, data, 0)
 end
 function Base.similar(v::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     data = SortedDict{Tin, typeof(similar(valtype(v.data)(), Tvn)), FOrd}(Forward)
@@ -265,14 +265,14 @@ end
     SparseVector(length(v), SparseArrays.nonzeroinds(v), SparseArrays.nonzeros(v))
 #@inline SparseArrays.SparseVector(v::AbstractAlmostSparseVector) = sparse(v)
 
-function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
+function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx}
     ret = Vector{Ti}()
     for (k,d) in nzchunkpairs(v)
         append!(ret, (k:k+length(d)-1))
     end
     return ret
 end
-function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}) where {Tv,Ti,Tx,Ts}
+function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx}
     ret = Tv===Bool ? BitVector() : Vector{Tv}()
     for d in nzchunks(v)
         append!(ret, collect(d))
@@ -420,7 +420,7 @@ struct ASDSVIteratorState{Tn,Td}
 end
 
 @inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
-                              {T<:AbstractSpacedVector{Tv,Ti,Tx,Ts}} where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td =
+                              {T<:AbstractSpacedVector{Tv,Ti,Ts,Tx}} where {Tv,Ti,Ts<:AbstractVector{Td},Tx} where Td =
     ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk, chunklen)
 @inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                               {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
@@ -448,7 +448,7 @@ for (fn, ret1, ret2) in
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
     @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where
-                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}} where {Ti,Tv,Ts,Tx}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
@@ -479,7 +479,7 @@ for (fn, ret1, ret2) in
 
     @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T},
                                                 state = get_iterator_init_state(v.parent, first(v.indices[1]))) where
-                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Tx,Ts}} where {Ti,Tv,Tx,Ts}
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}} where {Tv,Ti,Ts,Tx}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(v.indices[1])
             return nothing
@@ -678,7 +678,7 @@ end
 
 
 # FIXME: complete me
-function Base.setindex!(v::SpacedIndex{Ti,Tx,Ts}, value, i::Integer) where {Ti,Tx,Ts}
+function Base.setindex!(v::SpacedIndex{Ti,Ts,Tx}, value, i::Integer) where {Ti,Ts,Tx}
 
     st = searchsortedlast(v.nzind, i)
 
@@ -750,7 +750,7 @@ function Base.setindex!(v::SpacedIndex{Ti,Tx,Ts}, value, i::Integer) where {Ti,T
 
 end
 
-function Base.setindex!(v::SpacedVector{Tv,Ti,Tx,Ts}, value, i::Integer) where {Tv,Ti,Tx,Ts<:AbstractVector{Td}} where Td
+function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {Tv,Ti,Ts<:AbstractVector{Td},Tx} where Td
     val = eltype(v)(value)
 
     if (st = v.lastusedchunkindex) > 0
@@ -952,7 +952,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
 
 
 
-@inline function Base.delete!(v::SpacedIndex{Ti,Tx,Ts}, i::Integer) where {Tv,Ti,Tx,Ts}
+@inline function Base.delete!(v::SpacedIndex{Ti,Ts,Tx}, i::Integer) where {Ti,Ts,Tx}
 
     v.nnz == 0 && return v
 
@@ -988,7 +988,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
     return v
 end
 
-@inline function Base.delete!(v::SpacedVector{Tv,Ti,Tx,Ts}, i::Integer) where {Tv,Ti,Tx,Ts}
+@inline function Base.delete!(v::SpacedVector{Tv,Ti,Ts,Tx}, i::Integer) where {Tv,Ti,Ts,Tx}
 
     v.nnz == 0 && return v
 
