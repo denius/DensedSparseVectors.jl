@@ -118,8 +118,30 @@ end
 DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int}(n)
 
 
-includet("constructors.jl")
+#
+#  Converters
+#
 
+function SpacedIndex(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti}
+    nzind = Vector{Ti}(undef, nnzchunks(v))
+    data = Vector{Int}(undef, length(nzind))
+    for (i, (k,d)) in enumerate(nzchunkpairs(v))
+        nzind[i] = k
+        data[i] = length_of_that_nzchunk(v, d)
+    end
+    return SpacedIndex{Ti}(v.n, nzind, data)
+end
+
+
+function SpacedVector(v::AbstractDensedSparseVector{Tv,Ti}) where {Tv,Ti}
+    nzind = Vector{Ti}(undef, nnzchunks(v))
+    data = Vector{Vector{Tv}}(undef, length(nzind))
+    for (i, (k,d)) in enumerate(nzchunkpairs(v))
+        nzind[i] = k
+        data[i] = Vector{Tv}(d)
+    end
+    return SpacedVector{Tv,Ti}(v.n, nzind, data)
+end
 
 
 
@@ -999,6 +1021,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
     end
 
     v.nnz -= 1
+    v.lastusedchunkindex = 0
 
     return v
 end
@@ -1036,6 +1059,7 @@ end
     end
 
     v.nnz -= 1
+    v.lastusedchunkindex = 0
 
     return v
 end
@@ -1073,6 +1097,7 @@ end
     end
 
     v.nnz -= 1
+    v.lastusedchunkindex = beforestartsemitoken(v.data)
 
     return v
 end
@@ -1226,8 +1251,10 @@ function issimilar_AASV(dest, args::Tuple)
 
     iters = map(nzchunkpairs, (dest, args1...))
     for (dst, rest...) in zip(iters...)
-        foldl((s,r)-> s && r[1]==dst[1], rest, init=true) || return false
-        foldl((s,r)-> s && length(r[2])==length(dst[2]), rest, init=true) || return false
+        idx = dst[1]
+        len = length(dst[2])
+        foldl((s,r)-> s && r[1]==idx, rest, init=true) || return false
+        foldl((s,r)-> s && length(r[2])==len, rest, init=true) || return false
     end
     return true
 end
