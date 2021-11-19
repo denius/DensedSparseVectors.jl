@@ -675,21 +675,21 @@ end
 
 
 @inline function Base.getindex(v::AbstractSpacedVector, i::Integer)
-    if (st = v.lastusedchunkindex) > 0
+    if (st = v.lastusedchunkindex) !== beforestartindex(v)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
             return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
     st = searchsortedlast(v.nzind, i)
-    if st !== 0  # the index `i` is not before the first index
+    if st !== beforestartindex(v)  # the index `i` is not before the first index
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if i < ifirst + length_of_that_nzchunk(v, chunk)  # is the index `i` inside of data chunk indices range
             v.lastusedchunkindex = st
             return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
-    v.lastusedchunkindex = 0
+    v.lastusedchunkindex = beforestartindex(v)
     return zero(eltype(v))
 end
 
@@ -787,10 +787,10 @@ function Base.setindex!(v::SpacedIndex{Ti}, value, i::Integer) where {Ti}
 
 end
 
-function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+@inline function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = Tv(value)
 
-    if (st = v.lastusedchunkindex) > 0
+    if (st = v.lastusedchunkindex) !== beforestartindex(v)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -801,7 +801,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     st = searchsortedlast(v.nzind, i)
 
     # check the index exist and update its data
-    if st > 0  # the index `i` is not before the first index
+    if st !== 0  # the index `i` is not before the first index
         ifirst, chunk = v.nzind[st], v.data[st]
         if i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -819,7 +819,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
         return v
     end
 
-    if st == 0  # the index `i` is before the first index
+    if st === beforestartindex(v)  # the index `i` is before the first index
         inextfirst = v.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(v.nzind, i)
@@ -878,7 +878,7 @@ end
 
 
 
-function Base.setindex!(v::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+@inline function Base.setindex!(v::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = eltype(v)(value)
 
     if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
