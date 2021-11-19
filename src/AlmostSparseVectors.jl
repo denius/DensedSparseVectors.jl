@@ -26,10 +26,10 @@ using Random
 #import Base: getindex, setindex!, unsafe_load, unsafe_store!, nnz, length, isempty
 
 
-abstract type AbstractAlmostSparseVector{Tv,Ti,Td,Tc} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractAlmostSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
-abstract type AbstractSpacedVector{Tv,Ti,Ts,Tx} <: AbstractAlmostSparseVector{Tv,Ti,Ts,Tx} end
-abstract type AbstractDensedSparseVector{Tv,Ti,Td,Tc} <: AbstractAlmostSparseVector{Tv,Ti,Td,Tc} end
+abstract type AbstractSpacedVector{Tv,Ti} <: AbstractAlmostSparseVector{Tv,Ti} end
+abstract type AbstractDensedSparseVector{Tv,Ti} <: AbstractAlmostSparseVector{Tv,Ti} end
 
 
 """The `SpacedIndex` is for fast indices creating and saving for `SpacedVector`.
@@ -38,19 +38,24 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct SpacedIndex{Ti,Td,Tx} <: AbstractSpacedVector{Bool,Ti,Td,Tx}
+mutable struct SpacedIndex{Ti} <: AbstractSpacedVector{Bool,Ti}
+    "index of last used chunk"
+    lastusedchunkindex::Int
+    "Vector of chunk's first indices"
+    nzind::Vector{Ti}  # Tx{Ti} -- Vector of chunk's first indices
+    "`Vector{Int}` -- Vector of chunks lengths"
+    data::Vector{Int}  # Tx{Int} -- Vector of chunks lengths
     "`n` is the vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
-    "Vector of chunk's first indices"
-    nzind::Tx  # Tx{Ti} -- Vector of chunk's first indices
-    "`Vector{Int}` -- Vector of chunks lengths"
-    data::Td   # Tx{Int} -- Vector of chunks lengths
-    "index of last used chunk"
-    lastusedchunkindex::Int
+
+    SpacedIndex{Ti}(n::Integer, nzind, data) where {Ti} = new{Ti}(0, nzind, data, n, foldl((s,c)->(s+length(c)), data; init=0))
 end
 
+SpacedIndex(n::Integer, nzind, data) = SpacedIndex{eltype(nzind)}(n, nzind, data)
+SpacedIndex{Ti}(n::Integer = 0) where {Ti} = SpacedIndex{Ti}(n, Vector{Ti}(), Vector{Int}())
+SpacedIndex(n::Integer = 0) = SpacedIndex{Int}(n)
 
 """
 The `SpacedVector` is alike the `Vector` but have the omits in stored indices/data and,
@@ -61,19 +66,24 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct SpacedVector{Tv,Ti,Td,Tx} <: AbstractSpacedVector{Tv,Ti,Td,Tx}
+mutable struct SpacedVector{Tv,Ti} <: AbstractSpacedVector{Tv,Ti}
+    "index of last used chunk"
+    lastusedchunkindex::Int
+    "`Tx{Ti}` vector of indices of chunks first element stored in `data`"
+    nzind::Vector{Ti}  # Vector of chunk's first indices
+    "`Tx{<:AbstractVector{Tv}}` -- Vector of Vectors (chunks) with non-zero values"
+    data::Vector{Vector{Tv}}   # Tx{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
     "`n` is the vector length"
     n::Int     # the vector length
     "Number of stored non-zero elements"
     nnz::Int   # number of non-zero elements
-    "`Tx{Ti}` vector of indices of chunks first element stored in `data`"
-    nzind::Tx  # Vector of chunk's first indices
-    "`Tx{<:AbstractVector{Tv}}` -- Vector of Vectors (chunks) with non-zero values"
-    data::Td   # Tx{<:AbstractVector{Tv}} -- Vector of Vectors (chunks) with values
-    "index of last used chunk"
-    lastusedchunkindex::Int
+
+    SpacedVector{Tv,Ti}(n::Integer, nzind, data) where {Tv,Ti} =
+        new{Tv,Ti}(0, nzind, data, n, foldl((s,c)->(s+length(c)), data; init=0))
+    SpacedVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = new{Tv,Ti}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
 end
 
+SpacedVector(n::Integer = 0) = SpacedVector{Float64,Int}(n)
 
 """
 The `DensedSparseVector` is alike the `SparseVector` but should have the almost all indices are consecuitive stored.
@@ -86,21 +96,29 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSparseVector{Tv,Ti<:Integer,Td,Tc} <: AbstractDensedSparseVector{Tv,Ti,Td,Tc}
+mutable struct DensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti}
+    "index of last used chunk"
+    lastusedchunkindex::DataStructures.Tokens.IntSemiToken
+    "`Tc{Ti,Td{Tv}}` -- Sorted Dict data container"
+    data::SortedDict{Ti,Vector{Tv},FOrd}
     "`n` is the vector length"
     n::Int
     "Number of stored non-zero elements"
     nnz::Int
-    "`Tc{Ti,Td{Tv}}` -- Sorted Dict data container"
-    data::Tc
-    "index of last used chunk"
-    lastusedchunkindex::DataStructures.Tokens.IntSemiToken
+
+    function DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
+        data = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
+        new{Tv,Ti}(beforestartsemitoken(data), data, n, 0)
+    end
+    DensedSparseVector{Tv,Ti}(n::Integer, data::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
+        new{Tv,Ti}(beforestartsemitoken(data), data, n, foldl((s,c)->(s+length(c)), values(data); init=0))
 end
 
 
+DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int}(n)
 
 
-include("constructors.jl")
+includet("constructors.jl")
 
 
 
@@ -115,15 +133,14 @@ Base.axes(v::AbstractAlmostSparseVector) = (Base.OneTo(v.n),)
 Base.ndims(::AbstractAlmostSparseVector) = 1
 Base.ndims(::Type{AbstractAlmostSparseVector}) = 1
 Base.strides(v::AbstractAlmostSparseVector) = (1,)
-Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}) where {Tv,Ti,Td,Tc} = Tv
+Base.eltype(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti} = Tv
 Base.IndexStyle(::AbstractAlmostSparseVector) = IndexLinear()
 
-Base.similar(v::SpacedIndex{Ti,Ts,Tx}) where {Ti,Ts,Tx} =
-    return SpacedIndex{Ti,Ts,Tx}(v.n, v.nnz, copy(v.nzind), copy(v.data), 0)
-Base.similar(v::SpacedIndex, ::Type{ElType}) where {ElType} = similar(v)
+Base.similar(v::SpacedIndex) = similar(v, eltype(v))
+Base.similar(v::SpacedIndex, ::Type{ElType}) where {ElType} = SpacedIndex{ElType}(v.n, v.nnz, copy(v.nzind), copy(v.data))
 
-Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx} = similar(v, Tv)
-Base.similar(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}, ::Type{ElType}) where {Tv,Ti,Ts,Tx,ElType} = similar(v, Pair{Ti,ElType})
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti} = similar(v, Tv)
+Base.similar(v::AbstractAlmostSparseVector{Tv,Ti}, ::Type{ElType}) where {Tv,Ti,ElType} = similar(v, Pair{Ti,ElType})
 function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     nzind = similar(v.nzind, Tin)
     data = similar(v.data)
@@ -131,14 +148,14 @@ function Base.similar(v::SpacedVector, ::Type{ElType}) where {ElType<:Pair{Tin,T
         nzind[i] = k
         data[i] = similar(d, Tvn)
     end
-    return SpacedVector{Tvn,Tin,typeof(data),typeof(nzind)}(v.n, v.nnz, nzind, data, 0)
+    return SpacedVector{Tvn,Tin}(v.n, nzind, data)
 end
 function Base.similar(v::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
     data = SortedDict{Tin, typeof(similar(valtype(v.data)(), Tvn)), FOrd}(Forward)
     for (k,d) in nzchunkpairs(v)
         data[k] = similar(d, Tvn)
     end
-    return DensedSparseVector{Tvn,Tin,valtype(data),typeof(data)}(v.n, v.nnz, data, beforestartsemitoken(data))
+    return DensedSparseVector{Tvn,Tin}(v.n, data)
 end
 
 function Base.collect(::Type{ElType}, v::AbstractAlmostSparseVector) where ElType
@@ -265,14 +282,14 @@ end
     SparseVector(length(v), SparseArrays.nonzeroinds(v), SparseArrays.nonzeros(v))
 #@inline SparseArrays.SparseVector(v::AbstractAlmostSparseVector) = sparse(v)
 
-function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx}
+function SparseArrays.nonzeroinds(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti}
     ret = Vector{Ti}()
     for (k,d) in nzchunkpairs(v)
         append!(ret, (k:k+length(d)-1))
     end
     return ret
 end
-function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}) where {Tv,Ti,Ts,Tx}
+function SparseArrays.nonzeros(v::AbstractAlmostSparseVector{Tv,Ti}) where {Tv,Ti}
     ret = Tv===Bool ? BitVector() : Vector{Tv}()
     for d in nzchunks(v)
         append!(ret, collect(d))
@@ -419,12 +436,10 @@ struct ASDSVIteratorState{Tn,Td}
     chunklen::Int    # current chunk length
 end
 
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
-                              {T<:AbstractSpacedVector{Tv,Ti,Ts,Tx}} where {Tv,Ti,Ts<:AbstractVector{Td},Tx} where Td =
-    ASDSVIteratorState{Int, Td}(next, nextpos, currentkey, chunk, chunklen)
-@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
-                              {T<:AbstractDensedSparseVector{Tv,Ti,Td,Tc}} where {Tv,Ti,Td,Tc} =
-    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Td}(next, nextpos, currentkey, chunk, chunklen)
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractSpacedVector{Tv,Ti}} where {Tv,Ti} =
+    ASDSVIteratorState{Int, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
+@inline ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti} =
+    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractAlmostSparseVector}
     # start iterations from `i` index
@@ -448,7 +463,7 @@ for (fn, ret1, ret2) in
          (:iteratenzinds     , :(Ti(key+nextpos-1))                                , :(key)                     ))
 
     @eval Base.@propagate_inbounds function $fn(v::T, state = get_iterator_init_state(v)) where
-                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}} where {Ti,Tv,Ts,Tx}
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti}} where {Ti,Tv}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
             return ($ret1, ASDSVIteratorState{T}(next, nextpos + 1, key, chunk, chunklen))
@@ -479,7 +494,7 @@ for (fn, ret1, ret2) in
 
     @eval Base.@propagate_inbounds function $fn(v::SubArray{<:Any,<:Any,<:T},
                                                 state = get_iterator_init_state(v.parent, first(v.indices[1]))) where
-                                                {T<:AbstractAlmostSparseVector{Tv,Ti,Ts,Tx}} where {Tv,Ti,Ts,Tx}
+                                                {T<:AbstractAlmostSparseVector{Tv,Ti}} where {Tv,Ti}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(v.indices[1])
             return nothing
@@ -657,7 +672,7 @@ end
 end
 
 
-@inline function Base.getindex(v::AbstractDensedSparseVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
+@inline function Base.getindex(v::AbstractDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
     if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
@@ -678,7 +693,7 @@ end
 
 
 # FIXME: complete me
-function Base.setindex!(v::SpacedIndex{Ti,Ts,Tx}, value, i::Integer) where {Ti,Ts,Tx}
+function Base.setindex!(v::SpacedIndex{Ti}, value, i::Integer) where {Ti}
 
     st = searchsortedlast(v.nzind, i)
 
@@ -703,7 +718,7 @@ function Base.setindex!(v::SpacedIndex{Ti,Ts,Tx}, value, i::Integer) where {Ti,T
         inextfirst = v.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(v.nzind, i)
-            pushfirst!(v.data, Td(Fill(val,1)))
+            pushfirst!(v.data, [val])
         else
             v.nzind[1] -= 1
             pushfirst!(v.data[1], val)
@@ -750,8 +765,8 @@ function Base.setindex!(v::SpacedIndex{Ti,Ts,Tx}, value, i::Integer) where {Ti,T
 
 end
 
-function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {Tv,Ti,Ts<:AbstractVector{Td},Tx} where Td
-    val = eltype(v)(value)
+function Base.setindex!(v::SpacedVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+    val = Tv(value)
 
     if (st = v.lastusedchunkindex) > 0
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
@@ -775,7 +790,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {
 
     if v.nnz == 0
         v.nzind = push!(v.nzind, Ti(i))
-        v.data = push!(v.data, Td(Fill(val,1)))
+        v.data = push!(v.data, [val])
         v.nnz += 1
         v.n = max(v.n, Int(i))
         v.lastusedchunkindex = 1
@@ -786,7 +801,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {
         inextfirst = v.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(v.nzind, i)
-            pushfirst!(v.data, Td(Fill(val,1)))
+            pushfirst!(v.data, [val])
         else
             v.nzind[1] -= 1
             pushfirst!(v.data[1], val)
@@ -801,7 +816,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {
     if i >= v.nzind[end]  # the index `i` is after the last key index
         if i > ifirst + length(chunk)  # there is will be the gap in indices after inserting
             push!(v.nzind, i)
-            push!(v.data, Td(Fill(val,1)))
+            push!(v.data, [val])
         else  # just append to last chunk
             v.data[st] = push!(chunk, val)
         end
@@ -817,7 +832,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {
     inextfirst = v.nzind[stnext]
 
     if inextfirst - ilast == 2  # join chunks
-        v.data[st] = append!(chunk, Td(Fill(val,1)), v.data[stnext])
+        v.data[st] = append!(chunk, [val], v.data[stnext])
         v.nzind = deleteat!(v.nzind, stnext)
         v.data  = deleteat!(v.data, stnext)
         v.lastusedchunkindex = st
@@ -830,7 +845,7 @@ function Base.setindex!(v::SpacedVector{Tv,Ti,Ts,Tx}, value, i::Integer) where {
         v.lastusedchunkindex = stnext
     else  # insert single element chunk
         v.nzind = insert!(v.nzind, stnext, Ti(i))
-        v.data  = insert!(v.data, stnext, Td(Fill(val,1)))
+        v.data  = insert!(v.data, stnext, [val])
         v.lastusedchunkindex = stnext
     end
 
@@ -841,7 +856,7 @@ end
 
 
 
-function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) where {Tv,Ti,Td,Tc}
+function Base.setindex!(v::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = eltype(v)(value)
 
     if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
@@ -870,7 +885,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
     end
 
     if v.nnz == 0
-        v.data[i] = Td(Fill(val,1))
+        v.data[i] = [val]
         v.nnz += 1
         v.n = max(v.n, Int(i))
         v.lastusedchunkindex = startof(v.data)  # firstindex(v.data)
@@ -881,7 +896,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
         stnext = startof(v.data)
         inextfirst = deref_key((v.data, stnext))
         if inextfirst - i > 1  # there is will be gap in indices after inserting
-            v.data[i] = Td(Fill(val,1))
+            v.data[i] = [val]
         else
             v.data[i] = pushfirst!(deref_value((v.data, stnext)), val)
             delete!((v.data, stnext))
@@ -895,7 +910,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
 
     if i >= lastkey(v) # the index `i` is after the last key index
         if ifirst + length(chunk) < i  # there is will be the gap in indices after inserting
-            v.data[i] = Td(Fill(val,1))
+            v.data[i] = [val]
         else  # just append to last chunk
             v.data[st] = push!(chunk, val)
         end
@@ -913,7 +928,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
     inextfirst = deref_key((v.data, stnext))
 
     if inextfirst - ilast == 2  # join chunks
-        v.data[st] = append!(chunk, Td(Fill(val,1)), deref_value((v.data, stnext)))
+        v.data[st] = append!(chunk, [val], deref_value((v.data, stnext)))
         delete!((v.data, stnext))
     elseif i - ilast == 1  # append to left chunk
         v.data[st] = push!(chunk, val)
@@ -922,7 +937,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
         v.data[i] = pushfirst!(deref_value((v.data, stnext)), val)
         delete!((v.data, stnext))
     else  # insert single element chunk
-        v.data[i] = Td(Fill(val,1))
+        v.data[i] = [val]
     end
 
     v.nnz += 1
@@ -930,7 +945,7 @@ function Base.setindex!(v::DensedSparseVector{Tv,Ti,Td,Tc}, value, i::Integer) w
 
 end
 
-function Base.setindex!(v::AbstractAlmostSparseVector{Tv,Ti,Td,Tc}, data::AbstractAlmostSparseVector, index::Integer) where {Tv,Ti,Td,Tc}
+function Base.setindex!(v::AbstractAlmostSparseVector{Tv,Ti}, data::AbstractAlmostSparseVector, index::Integer) where {Tv,Ti}
     i0 = Ti(index-1)
     if v === data
         cdata = deepcopy(data)
@@ -952,7 +967,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
 
 
 
-@inline function Base.delete!(v::SpacedIndex{Ti,Ts,Tx}, i::Integer) where {Ti,Ts,Tx}
+@inline function Base.delete!(v::SpacedIndex{Ti}, i::Integer) where {Ti}
 
     v.nnz == 0 && return v
 
@@ -988,7 +1003,7 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
     return v
 end
 
-@inline function Base.delete!(v::SpacedVector{Tv,Ti,Ts,Tx}, i::Integer) where {Tv,Ti,Ts,Tx}
+@inline function Base.delete!(v::SpacedVector{Tv,Ti}, i::Integer) where {Tv,Ti}
 
     v.nnz == 0 && return v
 
@@ -1025,7 +1040,7 @@ end
     return v
 end
 
-@inline function Base.delete!(v::DensedSparseVector{Tv,Ti,Td,Tc}, i::Integer) where {Tv,Ti,Td,Tc}
+@inline function Base.delete!(v::DensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
 
     v.nnz == 0 && return v
 
