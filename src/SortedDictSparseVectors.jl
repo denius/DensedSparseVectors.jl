@@ -2,20 +2,13 @@
 #module SortedDictSparseVectors
 #export SortedDictSparseVector
 
-import Base.Broadcast: BroadcastStyle
-using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DocStringExtensions
 using DataStructures
-using FillArrays
-using IterTools
 using SparseArrays
 using Random
 
 import Base: ForwardOrdering, Forward
 const FOrd = ForwardOrdering
-
-
-#import Base: getindex, setindex!, unsafe_load, unsafe_store!, nnz, length, isempty
 
 
 abstract type AbstractSortedDictSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end

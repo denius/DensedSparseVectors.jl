@@ -68,7 +68,7 @@ end
 
 
 """
-The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data and,
+The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
 It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
@@ -388,13 +388,16 @@ Base.@propagate_inbounds function iteratenzchunks(v::Vector, state = (1, length(
 end
 Base.@propagate_inbounds iteratenzchunks(v::Number, state = 1) = (1, state)
 
-"`iteratenzpairs(v::AbstractDensedSparseVector)` iterates over non-zero elements of vector and returns pair of index and value"
+"`iteratenzpairs(v::AbstractDensedSparseVector)` iterates over non-zero elements \
+ of vector and returns pair of index and value"
 function iteratenzpairs end
-"`iteratenzpairsview(v::AbstractDensedSparseVector)` iterates over non-zero elements of vector and returns pair of index and `view` of value"
+"`iteratenzpairsview(v::AbstractDensedSparseVector)` iterates over non-zero elements \
+ of vector and returns pair of index and `view` of value"
 function iteratenzpairsview end
 "`iteratenzvals(v::AbstractDensedSparseVector)` iterates over non-zero elements of vector and returns value"
 function iteratenzvals end
-"`iteratenzvalsview(v::AbstractDensedSparseVector)` iterates over non-zero elements of vector and returns pair of index and `view` of value"
+"`iteratenzvalsview(v::AbstractDensedSparseVector)` iterates over non-zero elements \
+ of vector and returns pair of index and `view` of value"
 function iteratenzvalsview end
 "`iteratenzinds(v::AbstractDensedSparseVector)` iterates over non-zero elements of vector and returns indices"
 function iteratenzinds end
@@ -560,7 +563,8 @@ end
 struct NZChunks{It}
     itr::It
 end
-"`nzchunks(v::AbstractDensedSparseVector)` is the `Iterator` over chunks of nonzeros and returns tuple of start index and chunk vector"
+"`nzchunks(v::AbstractDensedSparseVector)` is the `Iterator` over chunks of nonzeros and \
+ returns tuple of start index and chunk vector"
 @inline nzchunks(itr) = NZChunks(itr)
 @inline function Base.iterate(it::NZChunks, state...)
     y = iteratenzchunks(it.itr, state...)
@@ -579,7 +583,7 @@ Base.reverse(it::NZChunks) = NZChunks(reverse(it.itr))
 struct NZChunkPairs{It}
     itr::It
 end
-"`nzchunkpairs(v::AbstractDensedSparseVector)` is the `Iterator` over non-zero chunks,
+"`nzchunkpairs(v::AbstractDensedSparseVector)` is the `Iterator` over non-zero chunks,\
  returns tuple of start index and vector of non-zero values."
 @inline nzchunkpairs(itr) = NZChunkPairs(itr)
 @inline function Base.iterate(it::NZChunkPairs, state...)
@@ -1256,8 +1260,8 @@ end
     end
 end
 
-"`nzbroadcast!(f, dest, args)` performs broadcasting over non-zero values of vectors in `args`.
-Note 1: `f` and `args` should be `flatten` `bc.f` and `bc.args` respectively.
+"`nzbroadcast!(f, dest, args)` performs broadcasting over non-zero values of vectors in `args`.\
+Note 1: `f` and `args` should be `flatten` `bc.f` and `bc.args` respectively.\
 Note 2: The coincidence of vectors indices should be checked and provided by the user."
 @generated function nzbroadcast!(f, dest, args)
     return quote
