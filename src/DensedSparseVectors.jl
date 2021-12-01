@@ -841,24 +841,7 @@ end
     v.lastusedchunkindex = beforestartindex(v)
     return zero(eltype(eltype(v.data)))
 end
-@inline function Base.getindex(v::Densed2SparseVector, i::Integer, j::Integer)
-    if (st = v.lastusedchunkindex) !== beforestartindex(v)
-        (ifirst, chunk) = get_key_and_nzchunk(v, st)
-        if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
-            return getindex_nzchunk(v, chunk, i - ifirst + 1)[j]
-        end
-    end
-    st = searchsortedlast(v.nzind, i)
-    if st !== beforestartindex(v)  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_nzchunk(v, st)
-        if i < ifirst + length_of_that_nzchunk(v, chunk)  # is the index `i` inside of data chunk indices range
-            v.lastusedchunkindex = st
-            return getindex_nzchunk(v, chunk, i - ifirst + 1)[j]
-        end
-    end
-    v.lastusedchunkindex = beforestartindex(v)
-    return zero(eltype(v))
-end
+@inline Base.getindex(v::Densed2SparseVector, i::Integer, j::Integer) = getindex(v, i)[j]
 
 
 @inline function Base.getindex(v::AbstractSDictDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
@@ -1423,7 +1406,7 @@ end
 end
 
 
-@inline function Base.delete!(v::DensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
+@inline function Base.delete!(v::AbstractVectorDensedSparseVector, i::Integer)
 
     v.nnz == 0 && return v
 
@@ -1450,7 +1433,7 @@ end
         v.nzind[st] += 1
         popfirst!(v.data[st])
     else
-        v.nzind = insert!(v.nzind, st+1, Ti(i+1))
+        v.nzind = insert!(v.nzind, st+1, i+1)
         v.data  = insert!(v.data, st+1, v.data[st][i-ifirst+1+1:end])
         resize!(v.data[st], i-ifirst+1 - 1)
     end
