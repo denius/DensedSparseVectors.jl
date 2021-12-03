@@ -1,8 +1,10 @@
 
-module DensedSparseVectors
-export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector, SDictDensedSparseVector
-
-export testfun_create, testfun_create2, testfun_create_seq, testfun_create_dense, testfun_delete!, testfun_getindex, testfun_nzgetindex, testfun_setindex, testfun_nzchunks, testfun_nzpairs, testfun_nzinds, testfun_nzvals, testfun_nzvalsRef, testfun_findnz
+#module DensedSparseVectors
+#export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
+#export SDictDensedSparseVector, SDictDensedSparseIndex
+#export nzpairs, nzvals, nzvalsview, nzinds, nzchunks, nzchunkpairs
+##export iteratenzpairs, iteratenzpairsview, iteratenzvals, iteratenzvalsview, iteratenzinds
+#export testfun_create, testfun_create2, testfun_create_seq, testfun_create_dense, testfun_delete!, testfun_getindex, testfun_nzgetindex, testfun_setindex, testfun_nzchunks, testfun_nzpairs, testfun_nzinds, testfun_nzvals, testfun_nzvalsRef, testfun_findnz
 
 
 import Base: ForwardOrdering, Forward
@@ -166,9 +168,11 @@ mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractVectorDensedSparseVector{T
     n::Int
     "Number of stored non-zero elements"
     nnz::Int
+    "Dummy for empty `getindex` returns"
+    dummy::Vector{Tv}
 
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-        new{Tv,Ti}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0)
+        new{Tv,Ti}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
@@ -408,6 +412,11 @@ end
 @inline Base.firstindex(v::AbstractSDictDensedSparseVector) = startof(v.data)
 @inline Base.lastindex(v::AbstractVectorDensedSparseVector) = lastindex(v.nzind)
 @inline Base.lastindex(v::AbstractSDictDensedSparseVector) = lastindex(v.data)
+
+@inline returnzero(v::DensedSparseIndex) = false
+@inline returnzero(v::SDictDensedSparseIndex) = false
+@inline returnzero(v::DensedSVSparseVector) = zero(eltype(eltype(v.data)))
+@inline returnzero(v::AbstractDensedSparseVector) = zero(eltype(v))
 
 "the index of first element in last chunk of non-zero values"
 @inline lastkey(v::AbstractVectorDensedSparseVector) = last(v.nzind)
@@ -856,29 +865,41 @@ end
         end
     end
     v.lastusedchunkindex = beforestartindex(v)
-    return zero(eltype(v))
+    return returnzero(v)
 end
 
-@inline function Base.getindex(v::DensedSVSparseVector, i::Integer)
+@inline Base.getindex(v::DensedSVSparseVector, i::Integer, j::Integer) = getindex(v, i)[j]
+
+@inline function Base.getindex(v::DensedVLSparseVector, i::Integer)
     if (st = v.lastusedchunkindex) !== beforestartindex(v)
-        (ifirst, chunk) = get_key_and_nzchunk(v, st)
-        if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
-            return getindex_nzchunk(v, chunk, i - ifirst + 1)
+        (ifirst, chunk, offsets) = v.nzind[st], v.data[st], v.offsets[st]
+        if ifirst <= i < ifirst + length(offsets)-1
+            offs = offsets[i-ifirst+1]
+            len = offsets[i-ifirst+1+1] - offsets[i-ifirst+1]
+            return @view(chunk[offs:offs+len-1])
         end
     end
     st = searchsortedlast(v.nzind, i)
     if st !== beforestartindex(v)  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_nzchunk(v, st)
-        if i < ifirst + length_of_that_nzchunk(v, chunk)  # is the index `i` inside of data chunk indices range
+        (ifirst, chunk, offsets) = v.nzind[st], v.data[st], v.offsets[st]
+        if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
             v.lastusedchunkindex = st
-            return getindex_nzchunk(v, chunk, i - ifirst + 1)
+            offs = offsets[i-ifirst+1]
+            len = offsets[i-ifirst+1+1] - offsets[i-ifirst+1]
+            return @view(chunk[offs:offs+len-1])
         end
     end
     v.lastusedchunkindex = beforestartindex(v)
-    return zero(eltype(eltype(v.data)))
+    return view(v.dummy, 1:0)
 end
-@inline Base.getindex(v::DensedSVSparseVector, i::Integer, j::Integer) = getindex(v, i)[j]
-
+@inline function Base.getindex(v::DensedVLSparseVector, i::Integer, j::Integer)
+    vv = getindex(v, i)
+    if j <= length(vv)
+        return vv[j]
+    else
+        return returnzero(v)
+    end
+end
 
 @inline function Base.getindex(v::AbstractSDictDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
     if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
@@ -985,6 +1006,9 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
     return v
 
 end
+
+@inline Base.push!(v::DensedSparseIndex, i::Integer) = setindex!(v, true, i)
+
 
 @inline function Base.setindex!(v::SDictDensedSparseIndex{Ti}, value, i::Integer) where {Ti}
 
@@ -1282,6 +1306,10 @@ end
         end
     end
 
+    if length(value) == 0
+        return v
+    end
+
     if v.nnz == 0
         push!(v.nzind, Ti(i))
         push!(v.data, Vector(value))
@@ -1335,9 +1363,10 @@ end
     inextfirst = v.nzind[stnext]
 
     if inextfirst - ilast == 2  # join chunks
-        append!(v.data[st], [Vector(value)], v.data[stnext])
-        v.offsets[stnext] .+= v.offsets[st][end] + length(value)
-        append!(v.offsets[st], [v.offsets[st][end]+length(value)], v.data[stnext])
+        append!(v.data[st], value, v.data[stnext])
+        v.offsets[stnext] .+= v.offsets[st][end]-1 + length(value)
+        append!(v.offsets[st], v.offsets[stnext])
+        #append!(v.offsets[st], [v.offsets[st][end]+length(value)], v.offsets[stnext])
         deleteat!(v.nzind, stnext)
         deleteat!(v.data, stnext)
         deleteat!(v.offsets, stnext)
@@ -1348,13 +1377,14 @@ end
         v.lastusedchunkindex = st
     elseif inextfirst - i == 1  # prepend to right chunk
         v.nzind[stnext] -= 1
-        prepend!(v.data[stnext], sv)
+        prepend!(v.data[stnext], value)
         v.offsets[stnext][2:end] .+= length(value)
         insert!(v.offsets[stnext], 2, length(value)+1)
         v.lastusedchunkindex = stnext
     else  # insert single element chunk
         insert!(v.nzind, stnext, Ti(i))
-        insert!(v.data, stnext, [Vector(value)])
+        insert!(v.data, stnext, Vector(value))
+        #insert!(v.data, stnext, [Vector(value)])
         insert!(v.offsets, stnext, [1])
         push!(v.offsets[stnext], length(value)+1)
         v.lastusedchunkindex = stnext
@@ -1496,16 +1526,16 @@ Base.@propagate_inbounds Base.fill!(v::SubArray{<:Any,<:Any,<:T}, value) where {
     end
 
     if lenchunk == 1
-        v.nzind = deleteat!(v.nzind, st)
-        v.data = deleteat!(v.data, st)
+        deleteat!(v.nzind, st)
+        deleteat!(v.data, st)
     elseif i == ifirst + lenchunk - 1  # last index in chunk
         v.data[st] -= 1
     elseif i == ifirst  # first element in chunk
         v.nzind[st] += 1
         v.data[st] -= 1
     else
-        v.nzind = insert!(v.nzind, st+1, Ti(i+1))
-        v.data  = insert!(v.data, st+1, lenchunk - (i-ifirst+1))
+        insert!(v.nzind, st+1, Ti(i+1))
+        insert!(v.data, st+1, lenchunk - (i-ifirst+1))
         v.data[st] -= (lenchunk-(i-ifirst+1)) + 1
     end
 
@@ -1532,7 +1562,7 @@ end
     end
 
     if chunklen == 1
-        v.data = delete!(v.data, i)
+        delete!(v.data, i)
     elseif i == ifirst + chunklen - 1  # last index in chunk
         v.data[st] -= 1
     elseif i == ifirst
@@ -1569,17 +1599,64 @@ end
 
     if lenchunk == 1
         deleteat!(v.data[st], 1)
-        v.nzind = deleteat!(v.nzind, st)
-        v.data = deleteat!(v.data, st)
+        deleteat!(v.nzind, st)
+        deleteat!(v.data, st)
     elseif i == ifirst + lenchunk - 1  # last index in chunk
         pop!(v.data[st])
     elseif i == ifirst  # first element in chunk
         v.nzind[st] += 1
         popfirst!(v.data[st])
     else
-        v.nzind = insert!(v.nzind, st+1, i+1)
-        v.data  = insert!(v.data, st+1, v.data[st][i-ifirst+1+1:end])
+        insert!(v.nzind, st+1, i+1)
+        insert!(v.data, st+1, v.data[st][i-ifirst+1+1:end])
         resize!(v.data[st], i-ifirst+1 - 1)
+    end
+
+    v.nnz -= 1
+    v.lastusedchunkindex = 0
+
+    return v
+end
+
+@inline function Base.delete!(v::DensedVLSparseVector, i::Integer)
+
+    v.nnz == 0 && return v
+
+    st = searchsortedlast(v.nzind, i)
+
+    if st == beforestartindex(v)  # the index `i` is before first index
+        return v
+    end
+
+    ifirst = v.nzind[st]
+    lenchunk = length(v.offsets[st]) - 1
+
+    if i >= ifirst + lenchunk  # the index `i` is outside of data chunk indices
+        return v
+    end
+
+    if lenchunk == 1
+        deleteat!(v.data[st], 1)
+        deleteat!(v.nzind, st)
+        deleteat!(v.data, st)
+        deleteat!(v.offsets, st)
+    elseif i == ifirst + lenchunk - 1  # last index in chunk
+        len = v.offsets[st][end] - v.offsets[st][end-1]
+        resize!(v.data[st], length(v.data[st]) - len)
+        pop!(v.offsets[st])
+    elseif i == ifirst  # first element in chunk
+        v.nzind[st] += 1
+        len = v.offsets[st][2] - v.offsets[st][1]
+        deleteat!(v.data[st], 1:len)
+        popfirst!(v.offsets[st])
+        v.offsets[st] .-= v.offsets[st][1] - 1
+    else
+        insert!(v.nzind, st+1, i+1)
+        insert!(v.data, st+1, v.data[st][v.offsets[st][i-ifirst+1+1]:end])
+        resize!(v.data[st], v.offsets[st][i-ifirst+1] - 1)
+        insert!(v.offsets, st+1, v.offsets[st][i-ifirst+1 + 1:end])
+        resize!(v.offsets[st], i-ifirst+1)
+        v.offsets[st+1] .-= v.offsets[st+1][1] - 1
     end
 
     v.nnz -= 1
@@ -1606,14 +1683,14 @@ end
 
     if length(chunk) == 1
         deleteat!(chunk, 1)
-        v.data = delete!(v.data, i)
+        delete!(v.data, i)
     elseif i == ifirst + length(chunk) - 1  # last index in chunk
         pop!(chunk)
         v.data[st] = chunk
     elseif i == ifirst
         popfirst!(chunk)
         v.data[i+1] = chunk
-        v.data = delete!(v.data, i)
+        delete!(v.data, i)
     else
         v.data[i+1] = chunk[i-ifirst+1+1:end]
         v.data[st] = resize!(chunk, i-ifirst+1 - 1)
@@ -1808,7 +1885,7 @@ function Base.show(io::IOContext, x::T) where {T<:Union{DensedSparseIndex,SDictD
     nzval = [v[2] for v in nzchunkpairs(x)]
     n = length(nzind)
     if isempty(nzind)
-        return Base.show(io, MIME("text/plain"), x)
+        return show(io, MIME("text/plain"), x)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
@@ -1820,7 +1897,7 @@ function Base.show(io::IOContext, x::T) where {T<:Union{DensedSparseIndex,SDictD
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
             print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                Base.show(io, nzval[k])
+                show(io, nzval[k])
             else
                 print(io, Base.undef_ref_str)
             end
@@ -1840,7 +1917,7 @@ function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
         println(io, ":")
-        Base.show(IOContext(io, :typeinfo => eltype(x)), x)
+        show(IOContext(io, :typeinfo => eltype(x)), x)
     end
 end
 function Base.show(io::IOContext, x::DensedSVSparseVector)
@@ -1853,7 +1930,7 @@ function Base.show(io::IOContext, x::DensedSVSparseVector)
         end
     end
     if isempty(nzind)
-        return Base.show(io, MIME("text/plain"), x)
+        return show(io, MIME("text/plain"), x)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
@@ -1865,7 +1942,7 @@ function Base.show(io::IOContext, x::DensedSVSparseVector)
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
             print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                Base.show(io, nzval[k])
+                show(io, nzval[k])
             else
                 print(io, Base.undef_ref_str)
             end
@@ -1885,21 +1962,20 @@ function Base.show(io::IO, ::MIME"text/plain", x::DensedVLSparseVector)
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
         println(io, ":")
-        Base.show(IOContext(io, :typeinfo => eltype(x)), x)
+        show(IOContext(io, :typeinfo => eltype(x)), x)
     end
 end
 function Base.show(io::IOContext, x::DensedVLSparseVector)
     n = length(x)
     nzind = nonzeroinds(x)
-    @show nzind
-    nzval = Vector{Vector{eltype(x.data)}}()
+    nzval = Vector{Vector{eltype(eltype(x.data))}}()
     for (offs,v) in zip(x.offsets, x.data)
         for i = 1:length(offs)-1
-            push!(nzval, [v[offs[i]:offs[i+1]-1]])
+            push!(nzval, v[offs[i]:offs[i+1]-1])
         end
     end
     if isempty(nzind)
-        return Base.show(io, MIME("text/plain"), x)
+        return show(io, MIME("text/plain"), x)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
@@ -1911,7 +1987,7 @@ function Base.show(io::IOContext, x::DensedVLSparseVector)
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
             print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                Base.show(io, nzval[k])
+                show(io, nzval[k])
             else
                 print(io, Base.undef_ref_str)
             end
@@ -1927,55 +2003,63 @@ end
 #
 
 function testfun_create(T::Type, n = 500_000, density = 0.9)
-    dsv = T(n)
+    v = T(n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
-        dsv[i] = rand()
+        v[i] = rand()
     end
-    dsv
+    v
 end
-function testfun_create2(T::Type, n = 500_000, density = 0.9)
-    dsv = T(5,n)
+function testfun_createSV(T::Type, n = 500_000, density = 0.9)
+    v = T(1,n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
-        for j = 1:5
-            dsv[i,j] = rand()
+        for j = 1:1
+            v[i,j] = rand()
         end
     end
-    dsv
+    v
+end
+function testfun_createVL(T::Type, n = 500_000, density = 0.9)
+    v = T(n)
+    Random.seed!(1234)
+    for i in shuffle(randsubseq(1:n, density))
+        v[i] = rand(rand(1:7))
+    end
+    v
 end
 
 function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
-    dsv = T(n)
+    v = T(n)
     Random.seed!(1234)
     for i in randsubseq(1:n, density)
-        dsv[i] = rand()
+        v[i] = rand()
     end
-    dsv
+    v
 end
 
 function testfun_create_dense(T::Type, n = 500_000, nchunks = 800, density = 0.95)
-    dsv = T(n)
+    v = T(n)
     chunklen = max(1, floor(Int, n / nchunks))
     Random.seed!(1234)
     for i = 0:nchunks-1
         len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
         len = max(1, min(chunklen-2, len))
         for j = 1:len
-            dsv[i*chunklen + j] = rand()
+            v[i*chunklen + j] = rand()
         end
     end
-    dsv
+    v
 end
 
 
-function testfun_delete!(dsv)
+function testfun_delete!(v)
     Random.seed!(1234)
-    indices = shuffle(nonzeroinds(dsv))
+    indices = shuffle(nonzeroinds(v))
     for i in indices
-        delete!(dsv, i)
+        delete!(v, i)
     end
-    dsv
+    v
 end
 
 
@@ -2060,4 +2144,4 @@ function testfun_findnz(sv)
 end
 
 
-end  # of module DensedSparseVectors
+#end  # of module DensedSparseVectors
