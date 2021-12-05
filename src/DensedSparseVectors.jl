@@ -1,9 +1,9 @@
 
-#module DensedSparseVectors
-#export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
-#export SDictDensedSparseVector, SDictDensedSparseIndex
-#export nzpairs, nzvals, nzvalsview, nzinds, nzchunks, nzchunkpairs
-##export iteratenzpairs, iteratenzpairsview, iteratenzvals, iteratenzvalsview, iteratenzinds
+module DensedSparseVectors
+export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
+export SDictDensedSparseVector, SDictDensedSparseIndex
+export nzpairs, nzvals, nzvalsview, nzinds, nzchunks, nzchunkpairs
+#export iteratenzpairs, iteratenzpairsview, iteratenzvals, iteratenzvalsview, iteratenzinds
 #export testfun_create, testfun_create2, testfun_create_seq, testfun_create_dense, testfun_delete!, testfun_getindex, testfun_nzgetindex, testfun_setindex, testfun_nzchunks, testfun_nzpairs, testfun_nzinds, testfun_nzvals, testfun_nzvalsRef, testfun_findnz
 
 
@@ -2217,4 +2217,4 @@ function testfun_findnz(sv)
 end
 
 
-#end  # of module DensedSparseVectors
+end  # of module DensedSparseVectors
