@@ -217,7 +217,7 @@ mutable struct SDictDensedSparseIndex{Ti} <: AbstractSDictDensedSparseVector{Boo
 end
 
 SDictDensedSparseIndex(n::Integer, data) = SDictDensedSparseIndex{keytype(data)}(n, data)
-SDictDensedSparseIndex{Ti}(n::Integer = 0) where {Ti} = SDictDensedSparseIndex{Ti}(n, SortedDict{Ti,Int,FOrd}(Forward))
+#SDictDensedSparseIndex{Ti}(n::Integer = 0) where {Ti} = SDictDensedSparseIndex{Ti}(n, SortedDict{Ti,Int,FOrd}(Forward))
 SDictDensedSparseIndex(n::Integer = 0) = SDictDensedSparseIndex{Int}(n)
 
 function SDictDensedSparseIndex(v::AbstractDensedSparseVector{Tv,Ti}) where {Tv,Ti}
