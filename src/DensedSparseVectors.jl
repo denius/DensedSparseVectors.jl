@@ -3,6 +3,7 @@ module DensedSparseVectors
 export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
 export SDictDensedSparseVector, SDictDensedSparseIndex
 export nzpairs, nzvals, nzvalsview, nzinds, nzchunks, nzchunkpairs
+export firstnz, lastnz, firstindexnz, lastindexnz
 #export iteratenzpairs, iteratenzpairsview, iteratenzvals, iteratenzvalsview, iteratenzinds
 #export testfun_create, testfun_create2, testfun_create_seq, testfun_create_dense, testfun_delete!, testfun_getindex, testfun_nzgetindex, testfun_setindex, testfun_nzchunks, testfun_nzpairs, testfun_nzinds, testfun_nzvals, testfun_nzvalsRef, testfun_findnz
 
@@ -485,6 +486,26 @@ function SparseArrays.nonzeroinds(v::DensedVLSparseVector{Tv,Ti}) where {Tv,Ti}
 end
 #SparseArrays.findnz(v::AbstractDensedSparseVector) = (nzinds(v), nzvals(v))
 SparseArrays.findnz(v::AbstractDensedSparseVector) = (nonzeroinds(v), nonzeros(v))
+
+"Returns the index of first non-zero element in sparse vector."
+@inline firstindexnz(v::SparseVector) = v.nzind[1]
+@inline firstindexnz(v::AbstractVectorDensedSparseVector) = v.nzind[1]
+@inline firstindexnz(v::AbstractSDictDensedSparseVector) = deref_key((v.data, startof(v.data)))
+
+"Returns the index of last non-zero element in sparse vector."
+@inline lastindexnz(v::SparseVector) = v.nzind[end]
+@inline lastindexnz(v::AbstractVectorDensedSparseVector) = v.nzind[end] + length_of_that_nzchunk(v, v.data[end]) - 1
+@inline function lastindexnz(v::AbstractSDictDensedSparseVector)
+    lasttoken = lastindex(v.data)
+    deref_key((v.data, lasttoken)) + length_of_that_nzchunk(v, deref_value((v.data, lasttoken))) - 1
+end
+
+"Returns value of first non-zero element in the sparse vector."
+@inline firstnz(v::AbstractSparseVector) = v[firstindexnz(v)]
+"Returns value of last non-zero element in the sparse vector."
+@inline lastnz(v::AbstractSparseVector) = v[lastindexnz(v)]
+
+
 
 # FIXME: Type piracy!!!
 Base.@propagate_inbounds SparseArrays.nnz(v::DenseArray) = length(v)
