@@ -761,13 +761,17 @@ end
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 end
 
-# start iterations from `i` index
+# start iterations from `i` index, i.e. `i` is `firstindex(v)`. It's purpose for `SubArray`
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractDensedSparseVector}
     st = searchsortedlast_nzchunk(v, i)
     if (ret = iteratenzchunks(v, st)) !== nothing
         idxchunk, next = ret
         key, chunk = get_key_and_nzchunk(v, idxchunk)
-        return ASDSVIteratorState{T}(next, max(1, i - key + 1), key, chunk, length_of_that_nzchunk(v, chunk))
+        if i > key # SubArray starts in middle of chunk
+            return ASDSVIteratorState{T}(next, i - key + 1, key, chunk, length_of_that_nzchunk(v, chunk))
+        else
+            return ASDSVIteratorState{T}(next, 1, key, chunk, length_of_that_nzchunk(v, chunk))
+        end
     else
         key, chunk = get_key_and_nzchunk(v)
         return ASDSVIteratorState{T}(1, 1, key, chunk, 0)
