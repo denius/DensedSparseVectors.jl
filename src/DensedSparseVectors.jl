@@ -31,6 +31,7 @@ abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVect
 
 
 # TODO: It needs `iterator` which only non-zeros, Set alike behaviour.
+# Needs `nzpairs` iterator with `idx -> true` Pairs
 """The `DensedSparseIndex` is for fast indices creating and saving for `DensedSparseVector`.
 It is almost the same as the `DensedSparseVector` but without data storing.
 In the case of not big vector length it is better to use `Set`.
@@ -735,29 +736,29 @@ Base.@propagate_inbounds iteratenzinds(v::Number, state = 1) = (state, state+1)
 #
 
 
-struct ASDSVIteratorState{Tn,Td}
+struct ASDSVIteratorState{Tn,Ti,Td}
     next::Tn         # index (Int or Semitoken) of next chunk
     nextpos::Int     # index in the current chunk of item will be get
-    currentkey::Int  # the start index of current chunk
+    currentkey::Ti  # the start index of current chunk
     chunk::Td        # current chunk
     chunklen::Int    # current chunk length
 end
 
 @inline function ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                                                            {T<:DensedSparseIndex{Ti}} where {Ti}
-    ASDSVIteratorState{Int, Int}(next, nextpos, currentkey, chunk, chunklen)
+    ASDSVIteratorState{Int,Ti,Int}(next, nextpos, currentkey, chunk, chunklen)
 end
 @inline function ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                                                            {T<:SDictDensedSparseIndex{Ti}} where {Ti}
-    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Int}(next, nextpos, currentkey, chunk, chunklen)
+    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Ti, Int}(next, nextpos, currentkey, chunk, chunklen)
 end
 @inline function ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                                                            {T<:AbstractVectorDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ASDSVIteratorState{Int, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
+    ASDSVIteratorState{Int, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 end
 @inline function ASDSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                                                            {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
+    ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 end
 
 # start iterations from `i` index
@@ -789,7 +790,7 @@ for (fn, ret1, ret2) in
         elseif (ret = iteratenzchunks(v, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_nzchunk(v, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_nzchunk(v, chunk)))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, key, chunk, length_of_that_nzchunk(v, chunk)))
         else
             return nothing
         end
@@ -822,7 +823,7 @@ for (fn, ret1, ret2) in
         elseif (ret = iteratenzchunks(v.parent, next)) !== nothing
             i, next = ret
             key, chunk = get_key_and_nzchunk(v.parent, i)
-            return ($ret2, ASDSVIteratorState{T}(next, 2, Int(key), chunk, length_of_that_nzchunk(v.parent, chunk)))
+            return ($ret2, ASDSVIteratorState{T}(next, 2, key, chunk, length_of_that_nzchunk(v.parent, chunk)))
         else
             return nothing
         end
@@ -1071,7 +1072,7 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
         v.nzind = push!(v.nzind, Ti(i))
         v.data = push!(v.data, 1)
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = 1
         return v
     end
@@ -1100,7 +1101,7 @@ function Base.setindex!(v::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
             v.data[st] += 1
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = length(v.nzind)
         return v
     end
@@ -1164,7 +1165,7 @@ end
     if v.nnz == 0
         v.data[i] = 1
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = startof(v.data)  # firstindex(v.data)
         return v
     end
@@ -1192,7 +1193,7 @@ end
             v.data[st] += 1
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = lastindex(v.data)
         return v
     end
@@ -1249,7 +1250,7 @@ end
         push!(v.nzind, Ti(i))
         push!(v.data, [val])
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = 1
         return v
     end
@@ -1278,7 +1279,7 @@ end
             push!(v.data[st], val)
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = length(v.nzind)
         return v
     end
@@ -1341,7 +1342,7 @@ end
         push!(v.nzind, Ti(i))
         push!(v.data, [sv])
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = 1
         return v
     end
@@ -1370,7 +1371,7 @@ end
             push!(v.data[st], sv)
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = length(v.nzind)
         return v
     end
@@ -1436,7 +1437,7 @@ end
         push!(v.nzind, Ti(i))
         push!(v.data, [sv])
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = 1
         return v
     end
@@ -1465,7 +1466,7 @@ end
             push!(v.data[st], sv)
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = length(v.nzind)
         return v
     end
@@ -1569,7 +1570,7 @@ end
         push!(v.offsets, [1])
         append!(v.offsets[1], length(value)+1)
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = 1
         return v
     end
@@ -1605,7 +1606,7 @@ end
             push!(v.offsets[st], v.offsets[st][end]+length(value))
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = length(v.nzind)
         return v
     end
@@ -1681,7 +1682,7 @@ end
     if v.nnz == 0
         v.data[i] = [val]
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = startof(v.data)  # firstindex(v.data)
         return v
     end
@@ -1709,7 +1710,7 @@ end
             v.data[st] = push!(chunk, val)
         end
         v.nnz += 1
-        v.n = max(v.n, Int(i))
+        v.n = max(v.n, i)
         v.lastusedchunkindex = lastindex(v.data)
         return v
     end
