@@ -448,7 +448,7 @@ end
 "Returns nzchunk is on `i`, or after `i`"
 @inline function searchsortedlast_nzchunk(v::AbstractDensedSparseVector, i::Integer)
     if i == 1 # most of use cases
-        return nnz(v) == 0 ? beforestartindex(v) : firstindex(v)
+        return nnz(v) == 0 ? pastendindex(v) : firstindex(v)
     elseif nnz(v) != 0
         st = searchsortedlastchunk(v, i)
         if st !== beforestartindex(v)
@@ -472,7 +472,7 @@ end
     if nnz(v) != 0
         return searchsortedlastchunk(v, i)
     else
-        return pastendindex(v)
+        return beforestartindex(v)
     end
 end
 
