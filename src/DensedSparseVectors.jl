@@ -1,6 +1,6 @@
 
 module DensedSparseVectors
-export DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
+export AbstractDensedSparseVector, DensedSparseIndex, DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector
 export SDictDensedSparseVector, SDictDensedSparseIndex
 export nzpairs, nzvals, nzvalsview, nzinds, nzchunks, nzchunkpairs
 export findfirstnz, findlastnz, findfirstindexnz, findlastindexnz
