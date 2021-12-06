@@ -511,7 +511,7 @@ SparseArrays.findnz(v::AbstractDensedSparseVector) = (nonzeroinds(v), nonzeros(v
     nnz(v) > 0 ? Ti(v.nzind[1]) : nothing
 @inline findfirstindexnz(v::AbstractSDictDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
     nnz(v) > 0 ? Ti(deref_key((v.data, startof(v.data)))) : nothing
-@inline function findfirstindexnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+function findfirstindexnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedlast_nzchunk(v.parent, ifirst)
@@ -539,7 +539,7 @@ end
         return nothing
     end
 end
-@inline function findlastindexnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+function findlastindexnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedfirst_nzchunk(v.parent, ilast)
@@ -557,7 +557,7 @@ end
 
 "Returns value of first non-zero element in the sparse vector."
 @inline findfirstnz(v::AbstractSparseVector) = nnz(v) > 0 ? v[findfirstindexnz(v)] : nothing
-@inline function findfirstnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+function findfirstnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedlast_nzchunk(v.parent, ifirst)
@@ -575,7 +575,7 @@ end
 
 "Returns value of last non-zero element in the sparse vector."
 @inline findlastnz(v::AbstractSparseVector) = nnz(v) > 0 ? v[findlastindexnz(v)] : nothing
-@inline function findlastnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+function findlastnz(v::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedfirst_nzchunk(v.parent, ilast)
@@ -590,6 +590,16 @@ end
         return nothing
     end
 end
+
+
+@inline function Base.findfirst(testf::Function, v::AbstractDensedSparseVector)
+    for p in nzpairs(v)
+        testf(last(p)) && return first(p)
+    end
+    return nothing
+end
+
+@inline Base.findall(testf::Function, v::AbstractDensedSparseVector) = collect(first(p) for p in nzpairs(v) if testf(last(p)))
 
 
 
