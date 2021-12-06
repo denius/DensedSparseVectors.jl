@@ -451,7 +451,7 @@ end
         return nnz(v) == 0 ? pastendindex(v) : firstindex(v)
     elseif nnz(v) != 0
         st = searchsortedlastchunk(v, i)
-        if st !== beforestartindex(v)
+        if st != beforestartindex(v)
             key = get_nzchunk_key(v, st)
             len = get_nzchunk_length(v, st)
             if i < key + len
@@ -515,7 +515,7 @@ SparseArrays.findnz(v::AbstractDensedSparseVector) = (nonzeroinds(v), nonzeros(v
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedlast_nzchunk(v.parent, ifirst)
-    st === pastendindex(v.parent) && return nothing
+    st == pastendindex(v.parent) && return nothing
     key = get_nzchunk_key(v.parent, st)
     len = get_nzchunk_length(v.parent, st)
     if key <= ifirst < key + len  # ifirst index within nzchunk range
@@ -543,7 +543,7 @@ end
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedfirst_nzchunk(v.parent, ilast)
-    st === beforestartindex(v.parent) && return nothing
+    st == beforestartindex(v.parent) && return nothing
     key = get_nzchunk_key(v.parent, st)
     len = get_nzchunk_length(v.parent, st)
     if key <= ilast < key + len  # ilast index within nzchunk range
@@ -561,7 +561,7 @@ end
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedlast_nzchunk(v.parent, ifirst)
-    st === pastendindex(v.parent) && return nothing
+    st == pastendindex(v.parent) && return nothing
     key, chunk = get_key_and_nzchunk(v.parent, st)
     len = length_of_that_nzchunk(v.parent, chunk)
     if key <= ifirst < key + len  # ifirst index within nzchunk range
@@ -579,7 +579,7 @@ end
     nnz(v.parent) == 0 && return nothing
     ifirst, ilast = first(v.indices[1]), last(v.indices[1])
     st = searchsortedfirst_nzchunk(v.parent, ilast)
-    st === beforestartindex(v.parent) && return nothing
+    st == beforestartindex(v.parent) && return nothing
     key, chunk = get_key_and_nzchunk(v.parent, st)
     len = length_of_that_nzchunk(v.parent, chunk)
     if key <= ilast < key + len  # ilast index within nzchunk range
@@ -613,7 +613,7 @@ Base.@propagate_inbounds function iteratenzchunks(v::AbstractSDictDensedSparseVe
     end
 end
 Base.@propagate_inbounds function iteratenzchunks(v::SubArray{<:Any,<:Any,<:T}, state = searchsortedlast_nzchunk(v.parent, first(v.indices[1]))) where {T<:AbstractDensedSparseVector}
-    if state !== pastendindex(v.parent)
+    if state != pastendindex(v.parent)
         key = get_nzchunk_key(v.parent, state)
         len = get_nzchunk_length(v.parent, state)
         if last(v.indices[1]) >= key + len
@@ -952,7 +952,7 @@ Base.reverse(it::NZPairs) = NZPairs(reverse(it.itr))
 
 @inline function Base.isstored(v::AbstractDensedSparseVector, i::Integer)
     st = searchsortedlastchunk(v, i)
-    if st === beforestartindex(v)  # the index `i` is before first index
+    if st == beforestartindex(v)  # the index `i` is before first index
         return false
     elseif i >= get_nzchunk_key(v, st) + get_nzchunk_length(v, st)
         # the index `i` is outside of data chunk indices
@@ -966,14 +966,14 @@ end
 
 
 @inline function Base.getindex(v::AbstractVectorDensedSparseVector, i::Integer)
-    if (st = v.lastusedchunkindex) !== beforestartindex(v)
+    if (st = v.lastusedchunkindex) != beforestartindex(v)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
             return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
     st = searchsortedlast(v.nzind, i)
-    if st !== beforestartindex(v)  # the index `i` is not before the first index
+    if st != beforestartindex(v)  # the index `i` is not before the first index
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if i < ifirst + length_of_that_nzchunk(v, chunk)  # is the index `i` inside of data chunk indices range
             v.lastusedchunkindex = st
@@ -987,7 +987,7 @@ end
 @inline Base.getindex(v::DensedSVSparseVector, i::Integer, j::Integer) = getindex(v, i)[j]
 
 @inline function Base.getindex(v::DensedVLSparseVector, i::Integer)
-    if (st = v.lastusedchunkindex) !== beforestartindex(v)
+    if (st = v.lastusedchunkindex) != beforestartindex(v)
         (ifirst, chunk, offsets) = v.nzind[st], v.data[st], v.offsets[st]
         if ifirst <= i < ifirst + length(offsets)-1
             offs = offsets[i-ifirst+1]
@@ -996,7 +996,7 @@ end
         end
     end
     st = searchsortedlast(v.nzind, i)
-    if st !== beforestartindex(v)  # the index `i` is not before the first index
+    if st != beforestartindex(v)  # the index `i` is not before the first index
         (ifirst, chunk, offsets) = v.nzind[st], v.data[st], v.offsets[st]
         if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
             v.lastusedchunkindex = st
@@ -1018,14 +1018,14 @@ end
 end
 
 @inline function Base.getindex(v::AbstractSDictDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
-    if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
+    if (st = v.lastusedchunkindex) != beforestartsemitoken(v.data)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(v, chunk)
             return getindex_nzchunk(v, chunk, i - ifirst + 1)
         end
     end
     st = searchsortedlast(v.data, i)
-    if st !== beforestartsemitoken(v.data)  # the index `i` is not before first index
+    if st != beforestartsemitoken(v.data)  # the index `i` is not before first index
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if i < ifirst + length_of_that_nzchunk(v, chunk)  # is the index `i` inside of data chunk indices range
             v.lastusedchunkindex = st
@@ -1128,7 +1128,7 @@ end
 
 @inline function Base.setindex!(v::SDictDensedSparseIndex{Ti}, value, i::Integer) where {Ti}
 
-    if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
+    if (st = v.lastusedchunkindex) != beforestartsemitoken(v.data)
         (ifirst, chunklen) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + chunklen
             return v
@@ -1554,7 +1554,7 @@ end
 @inline function Base.setindex!(v::SDictDensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = eltype(v)(value)
 
-    if (st = v.lastusedchunkindex) !== beforestartsemitoken(v.data)
+    if (st = v.lastusedchunkindex) != beforestartsemitoken(v.data)
         (ifirst, chunk) = get_key_and_nzchunk(v, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
@@ -2069,7 +2069,8 @@ function Base.show(io::IOContext, x::T) where {T<:Union{DensedSparseIndex,SDictD
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(n)
+    #pad = ndigits(n)
+    pad = quick_get_max_pad(x)
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
@@ -2087,6 +2088,44 @@ function Base.show(io::IOContext, x::T) where {T<:Union{DensedSparseIndex,SDictD
         end
     end
 end
+
+function quick_get_max_pad(v::AbstractDensedSparseVector)
+    pad = 0
+    for (key, chunk) in nzchunkpairs(v)
+        pad = max(pad, ndigits(key), ndigits(key+length_of_that_nzchunk(v, chunk)-1))
+    end
+    pad
+end
+
+function Base.show(io::IOContext, x::AbstractDensedSparseVector)
+    n = length(x)
+    nzind = nonzeroinds(x)
+    nzval = nonzeros(x)
+    if isempty(nzind)
+        return show(io, MIME("text/plain"), x)
+    end
+    limit = get(io, :limit, false)::Bool
+    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+    #pad = ndigits(n)
+    pad = quick_get_max_pad(x)
+    if !haskey(io, :compact)
+        io = IOContext(io, :compact => true)
+    end
+    for k = eachindex(nzind)
+        if k < half_screen_rows || k > length(nzind) - half_screen_rows
+            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+            if isassigned(nzval, Int(k))
+                show(io, nzval[k])
+            else
+                print(io, Base.undef_ref_str)
+            end
+            k != length(nzind) && println(io)
+        elseif k == half_screen_rows
+            println(io, "   ", " "^pad, "   \u22ee")
+        end
+    end
+end
+
 
 function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
     xnnz = 0
@@ -2114,7 +2153,8 @@ function Base.show(io::IOContext, x::DensedSVSparseVector)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(n)
+    #pad = ndigits(n)
+    pad = quick_get_max_pad(x)
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
@@ -2159,7 +2199,8 @@ function Base.show(io::IOContext, x::DensedVLSparseVector)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(n)
+    #pad = ndigits(n)
+    pad = quick_get_max_pad(x)
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
