@@ -449,7 +449,7 @@ end
 @inline searchsortedlastchunk(V::AbstractVectorDensedSparseVector, i) = searchsortedlast(V.nzind, i)
 @inline searchsortedlastchunk(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.data, i)
 
-"Returns nzchunk is on `i`, or after `i`"
+"Returns nzchunk which on vector index `i`, or after `i`"
 @inline function searchsortedlast_nzchunk(V::AbstractDensedSparseVector, i::Integer)
     if i == 1 # most of use cases
         return nnz(V) == 0 ? pastendindex(V) : firstindex(V)
@@ -471,7 +471,7 @@ end
     end
 end
 
-"Returns nzchunk is on `i`, or before `i`"
+"Returns nzchunk which on vector index `i`, or before `i`"
 @inline function searchsortedfirst_nzchunk(V::AbstractDensedSparseVector, i::Integer)
     if nnz(V) != 0
         return searchsortedlastchunk(V, i)
