@@ -994,15 +994,17 @@ end
 
 
 @inline function Base.getindex(V::AbstractDensedSparseVector, i::Integer)
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(V, chunk)
             return getindex_nzchunk(V, chunk, i - ifirst + 1)
         end
     end
+    # cached chunk index miss or index not stored
     st = searchsortedlastchunk(V, i)
     if st != beforestartindex(V)  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if i < ifirst + length_of_that_nzchunk(V, chunk)  # is the index `i` inside of data chunk indices range
             V.lastusedchunkindex = st
             return getindex_nzchunk(V, chunk, i - ifirst + 1)
@@ -1017,17 +1019,19 @@ end
 
 
 @inline function Base.getindex(V::DensedVLSparseVector, i::Integer)
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunk, offsets) = V.nzind[st], V.data[st], V.offsets[st]
+        ifirst, chunk, offsets = V.nzind[st], V.data[st], V.offsets[st]
         if ifirst <= i < ifirst + length(offsets)-1
             offs = offsets[i-ifirst+1]
             len = offsets[i-ifirst+1+1] - offsets[i-ifirst+1]
             return @view(chunk[offs:offs+len-1])
         end
     end
+    # cached chunk index miss or index not stored
     st = searchsortedlast(V.nzind, i)
     if st != beforestartindex(V)  # the index `i` is not before the first index
-        (ifirst, chunk, offsets) = V.nzind[st], V.data[st], V.offsets[st]
+        ifirst, chunk, offsets = V.nzind[st], V.data[st], V.offsets[st]
         if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
             V.lastusedchunkindex = st
             offs = offsets[i-ifirst+1]
@@ -1038,6 +1042,7 @@ end
     V.lastusedchunkindex = beforestartindex(V)
     return view(V.dummy, 1:0)
 end
+
 @inline function Base.getindex(V::DensedVLSparseVector, i::Integer, j::Integer)
     vv = getindex(V, i)
     if j <= length(vv)
@@ -1050,8 +1055,9 @@ end
 
 function Base.setindex!(V::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunklen) = get_key_and_nzchunk(V, st)
+        ifirst, chunklen = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + chunklen
             return V
         end
@@ -1139,8 +1145,9 @@ end
 
 @inline function Base.setindex!(V::SDictDensedSparseIndex{Ti}, value, i::Integer) where {Ti}
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartsemitoken(V.data)
-        (ifirst, chunklen) = get_key_and_nzchunk(V, st)
+        ifirst, chunklen = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + chunklen
             return V
         end
@@ -1155,7 +1162,7 @@ end
 
     # check the index exist and update its data
     if V.nnz > 0 && sstatus != 2  # the index `i` is not before the first index
-        (ifirst, chunklen) = deref((V.data, st))
+        ifirst, chunklen = deref((V.data, st))
         if ifirst + chunklen > i
             V.lastusedchunkindex = st
             return V
@@ -1226,8 +1233,9 @@ end
 @inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = Tv(value)
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
             return V
@@ -1314,11 +1322,12 @@ end
 
 
 
-@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, value, i::Integer) where {Tv,Ti,m}
-    sv = eltype(eltype(V.data))(value)
+@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti,m}
+    sv = eltype(eltype(V.data))(vectorvalue)
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = sv
             return V
@@ -1329,7 +1338,7 @@ end
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         #ifirst, chunk = V.nzind[st], V.data[st]
         if i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = sv
@@ -1407,8 +1416,9 @@ end
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, value, i::Integer, j::Integer) where {Tv,Ti,m}
     val = Tv(value)
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length(chunk)
             sv = chunk[i - ifirst + 1]
             chunk[i - ifirst + 1] = @set sv[j] = val
@@ -1420,8 +1430,7 @@ end
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
-        #ifirst, chunk = V.nzind[st], V.data[st]
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if i < ifirst + length(chunk)
             sv = chunk[i - ifirst + 1]
             chunk[i - ifirst + 1] = @set sv[j] = val
@@ -1499,31 +1508,32 @@ end
 
 end
 
-@inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, value::AbstractVector, i::Integer) where {Tv,Ti}
+@inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti}
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartindex(V)
         ifirst, chunk, offsets = V.nzind[st], V.data[st], V.offsets[st]
         if ifirst <= i < ifirst + length(offsets)-1
-            lenvalue = length(value)
+            lenvalue = length(vectorvalue)
             pos1 = i-ifirst+1
             offs1 = offsets[pos1]
             offs2 = offsets[pos1+1] - 1
             len = offs2 - offs1 + 1
             if lenvalue == len
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             elseif lenvalue < len
                 deleteat!(chunk, offs1+lenvalue-1:offs2-1)
-                offsets[pos1+1:end] .-= len - lenvalue
+                @view(offsets[pos1+1:end]) .-= len - lenvalue
                 offs2 = offsets[pos1+1] - 1
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             else
                 resize!(chunk, length(chunk) + lenvalue - len)
-                offsets[pos1+1:end] .+= lenvalue - len
+                @view(offsets[pos1+1:end]) .+= lenvalue - len
                 offs2 = offsets[pos1+1] - 1
                 for i = length(chunk):-1:offs2 + 1
                     chunk[i] = chunk[i - (lenvalue - len)]
                 end
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             end
             return V
         end
@@ -1535,40 +1545,37 @@ end
     if st != beforestartindex(V)  # the index `i` is not before the first index
         ifirst, chunk, offsets = V.nzind[st], V.data[st], V.offsets[st]
         if ifirst <= i < ifirst + length(offsets)-1
-            lenvalue = length(value)
+            lenvalue = length(vectorvalue)
             pos1 = i-ifirst+1
             offs1 = offsets[pos1]
             offs2 = offsets[pos1+1] - 1
             len = offs2 - offs1 + 1
             if lenvalue == len
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             elseif lenvalue < len
                 deleteat!(chunk, offs1+lenvalue-1:offs2-1)
-                offsets[pos1+1:end] .-= len - lenvalue
+                @view(offsets[pos1+1:end]) .-= len - lenvalue
                 offs2 = offsets[pos1+1] - 1
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             else
                 resize!(chunk, length(chunk) + lenvalue - len)
-                offsets[pos1+1:end] .+= lenvalue - len
+                @view(offsets[pos1+1:end]) .+= lenvalue - len
                 offs2 = offsets[pos1+1] - 1
                 for i = length(chunk):-1:offs2 + 1
                     chunk[i] = chunk[i - (lenvalue - len)]
                 end
-                chunk[offs1:offs2] .= value
+                chunk[offs1:offs2] .= vectorvalue
             end
             return V
         end
     end
 
-    #if length(value) == 0
-    #    return V
-    #end
 
     if V.nnz == 0
         push!(V.nzind, Ti(i))
-        push!(V.data, Vector(value))
+        push!(V.data, Vector(vectorvalue))
         push!(V.offsets, [1])
-        append!(V.offsets[1], length(value)+1)
+        append!(V.offsets[1], length(vectorvalue)+1)
         V.nnz += 1
         V.n = max(V.n, i)
         V.lastusedchunkindex = 1
@@ -1579,14 +1586,14 @@ end
         inextfirst = V.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(V.nzind, i)
-            pushfirst!(V.data, Vector(value))
+            pushfirst!(V.data, Vector(vectorvalue))
             pushfirst!(V.offsets, [1])
-            append!(V.offsets[1], length(value)+1)
+            append!(V.offsets[1], length(vectorvalue)+1)
         else
             V.nzind[1] -= 1
-            prepend!(V.data[1], value)
-            V.offsets[1][2:end] .+= length(value)
-            insert!(V.offsets[1], 2, length(value)+1)
+            prepend!(V.data[1], vectorvalue)
+            @view(V.offsets[1][2:end]) .+= length(vectorvalue)
+            insert!(V.offsets[1], 2, length(vectorvalue)+1)
         end
         V.nnz += 1
         V.lastusedchunkindex = 1
@@ -1598,12 +1605,12 @@ end
     if i >= V.nzind[end]  # the index `i` is after the last key index
         if i > ifirst + length(offsets)-1  # there is will be the gap in indices after inserting
             push!(V.nzind, i)
-            push!(V.data, Vector(value))
+            push!(V.data, Vector(vectorvalue))
             push!(V.offsets, [1])
-            push!(V.offsets[end], length(value)+1)
+            push!(V.offsets[end], length(vectorvalue)+1)
         else  # just append to last chunk
-            append!(V.data[st], value)
-            push!(V.offsets[st], V.offsets[st][end]+length(value))
+            append!(V.data[st], vectorvalue)
+            push!(V.offsets[st], V.offsets[st][end]+length(vectorvalue))
         end
         V.nnz += 1
         V.n = max(V.n, i)
@@ -1617,30 +1624,28 @@ end
     inextfirst = V.nzind[stnext]
 
     if inextfirst - ilast == 2  # join chunks
-        append!(V.data[st], value, V.data[stnext])
-        V.offsets[stnext] .+= V.offsets[st][end]-1 + length(value)
+        append!(V.data[st], vectorvalue, V.data[stnext])
+        V.offsets[stnext] .+= V.offsets[st][end]-1 + length(vectorvalue)
         append!(V.offsets[st], V.offsets[stnext])
-        #append!(V.offsets[st], [V.offsets[st][end]+length(value)], V.offsets[stnext])
         deleteat!(V.nzind, stnext)
         deleteat!(V.data, stnext)
         deleteat!(V.offsets, stnext)
         V.lastusedchunkindex = st
     elseif i - ilast == 1  # append to left chunk
-        append!(V.data[st], value)
-        push!(V.offsets[st], V.offsets[st][end]+length(value))
+        append!(V.data[st], vectorvalue)
+        push!(V.offsets[st], V.offsets[st][end]+length(vectorvalue))
         V.lastusedchunkindex = st
     elseif inextfirst - i == 1  # prepend to right chunk
         V.nzind[stnext] -= 1
-        prepend!(V.data[stnext], value)
-        V.offsets[stnext][2:end] .+= length(value)
-        insert!(V.offsets[stnext], 2, length(value)+1)
+        prepend!(V.data[stnext], vectorvalue)
+        @view(V.offsets[stnext][2:end]) .+= length(vectorvalue)
+        insert!(V.offsets[stnext], 2, length(vectorvalue)+1)
         V.lastusedchunkindex = stnext
     else  # insert single element chunk
         insert!(V.nzind, stnext, Ti(i))
-        insert!(V.data, stnext, Vector(value))
-        #insert!(V.data, stnext, [Vector(value)])
+        insert!(V.data, stnext, Vector(vectorvalue))
         insert!(V.offsets, stnext, [1])
-        push!(V.offsets[stnext], length(value)+1)
+        push!(V.offsets[stnext], length(vectorvalue)+1)
         V.lastusedchunkindex = stnext
     end
 
@@ -1654,8 +1659,9 @@ end
 @inline function Base.setindex!(V::SDictDensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = eltype(V)(value)
 
+    # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartsemitoken(V.data)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
+        ifirst, chunk = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length(chunk)
             chunk[i - ifirst + 1] = val
             return V
@@ -1671,7 +1677,7 @@ end
 
     # check the index exist and update its data
     if V.nnz > 0 && sstatus != 2  # the index `i` is not before the first index
-        (ifirst, chunk) = deref((V.data, st))
+        ifirst, chunk = deref((V.data, st))
         if ifirst + length(chunk) > i
             chunk[i - ifirst + 1] = val
             V.lastusedchunkindex = st
@@ -1701,7 +1707,7 @@ end
         return V
     end
 
-    (ifirst, chunk) = deref((V.data, st))
+    ifirst, chunk = deref((V.data, st))
 
     if i >= lastkey(V) # the index `i` is after the last key index
         if ifirst + length(chunk) < i  # there is will be the gap in indices after inserting
@@ -1740,20 +1746,20 @@ end
 
 end
 
-function Base.setindex!(V::AbstractDensedSparseVector{Tv,Ti}, data::AbstractDensedSparseVector, index::Integer) where {Tv,Ti}
-    i0 = Ti(index-1)
-    if V === data
-        cdata = deepcopy(data)
-        for (i,d) in nzpairs(cdata)
-            V[i0+i] = Tv(d)
-        end
-    else
-        for (i,d) in nzpairs(data)
-            V[i0+i] = Tv(d)
-        end
-    end
-    return V
-end
+#function Base.setindex!(V::AbstractDensedSparseVector{Tv,Ti}, data::AbstractDensedSparseVector, index::Integer) where {Tv,Ti}
+#    i0 = Ti(index-1)
+#    if V === data
+#        cdata = deepcopy(data)
+#        for (i,d) in nzpairs(cdata)
+#            V[i0+i] = Tv(d)
+#        end
+#    else
+#        for (i,d) in nzpairs(data)
+#            V[i0+i] = Tv(d)
+#        end
+#    end
+#    return V
+#end
 
 
 
@@ -1809,7 +1815,7 @@ end
         return V
     end
 
-    (ifirst, chunklen) = deref((V.data, st))
+    ifirst, chunklen = deref((V.data, st))
 
     if i >= ifirst + chunklen  # the index `i` is outside of data chunk indices
         return V
@@ -1933,7 +1939,7 @@ end
         return V
     end
 
-    (ifirst, chunk) = deref((V.data, st))
+    ifirst, chunk = deref((V.data, st))
 
     if i >= ifirst + length(chunk)  # the index `i` is outside of data chunk indices
         return V
@@ -2331,11 +2337,11 @@ function testfun_create(T::Type, n = 500_000, density = 0.9)
     end
     V
 end
-function testfun_createSV(T::Type, n = 500_000, density = 0.9)
-    V = T(1,n)
+function testfun_createSV(T::Type, n = 500_000, m = 5, density = 0.9)
+    V = T(m,n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
-        for j = 1:1
+        for j = 1:m
             V[i,j] = rand()
         end
     end
