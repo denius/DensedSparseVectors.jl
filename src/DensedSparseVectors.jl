@@ -30,7 +30,8 @@ abstract type AbstractVectorDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVec
 abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 
 
-# TODO: It needs `iterator` which only non-zeros, Set alike behaviour.
+# TODO: Redo as AbstractSet!
+# It needs `iterator` which only non-zeros, Set alike behaviour.
 # Needs `nzpairs` iterator with `idx -> true` Pairs
 """The `DensedSparseIndex` is for fast indices creating and saving for `DensedSparseVector`.
 It is almost the same as the `DensedSparseVector` but without data storing.
@@ -345,7 +346,8 @@ Base.@propagate_inbounds length_of_that_nzchunk(v::AbstractVectorDensedSparseVec
 Base.@propagate_inbounds length_of_that_nzchunk(v::SDictDensedSparseVector, chunk) = length(chunk)
 @inline get_nzchunk_length(v::DensedSparseIndex, i) = v.data[i]
 @inline get_nzchunk_length(v::SDictDensedSparseIndex, i) = deref_value((v.data, i))
-@inline get_nzchunk_length(v::DensedSparseVector, i) = size(v.data[i])[1]
+@inline get_nzchunk_length(v::AbstractVectorDensedSparseVector, i) = size(v.data[i])[1]
+@inline get_nzchunk_length(v::DensedVLSparseVector, i) = size(v.offsets[i])[1] - 1
 @inline get_nzchunk_length(v::SDictDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((v.data, i)))[1]
 @inline get_nzchunk(v::Number, i) = v
 @inline get_nzchunk(v::Vector, i) = v
@@ -382,7 +384,7 @@ end
 @inline get_nzchunk_key(v::SparseVector, i) = v.nzind[i]
 @inline get_nzchunk_key(v::DensedSparseIndex, i) = v.nzind[i]
 @inline get_nzchunk_key(v::SDictDensedSparseIndex, i) = deref_key((v.data, i))
-@inline get_nzchunk_key(v::DensedSparseVector, i) = v.nzind[i]
+@inline get_nzchunk_key(v::AbstractVectorDensedSparseVector, i) = v.nzind[i]
 @inline get_nzchunk_key(v::SDictDensedSparseVector, i) = deref_key((v.data, i))
 @inline function get_nzchunk_key(v::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractVectorDensedSparseVector}
     if v.parent.nzind[i] <= first(v.indices[1]) < v.parent.nzind[i] + length(v.parent.data[i])
@@ -761,7 +763,7 @@ end
     ASDSVIteratorState{DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk, chunklen)
 end
 
-# start iterations from `i` index, i.e. `i` is `firstindex(v)`. It's purpose for `SubArray`
+# Start iterations from `i` index, i.e. `i` is `firstindex(v)`. Thats option for `SubArray`
 function get_iterator_init_state(v::T, i::Integer = 1) where {T<:AbstractDensedSparseVector}
     st = searchsortedlast_nzchunk(v, i)
     if (ret = iteratenzchunks(v, st)) !== nothing
