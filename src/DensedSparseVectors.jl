@@ -858,7 +858,8 @@ end
 Base.eltype(::Type{NZChunks{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZChunks{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZChunks}) = Base.HasShape{1}()
-Base.length(it::NZChunks) = nnzchunks(it)
+Base.length(it::NZChunks) = nnzchunks(it.itr)
+Base.size(it::NZChunks) = (nnzchunks(it.itr),)
 Base.reverse(it::NZChunks) = NZChunks(reverse(it.itr))
 
 
@@ -879,7 +880,8 @@ end
 Base.eltype(::Type{NZChunksPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZChunksPairs{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZChunksPairs}) = Base.HasShape{1}()
-Base.length(it::NZChunksPairs) = nnzchunks(it)
+Base.length(it::NZChunksPairs) = nnzchunks(it.itr)
+Base.size(it::NZChunksPairs) = (nnzchunks(it.itr),)
 Base.reverse(it::NZChunksPairs) = NZChunksPairs(reverse(it.itr))
 
 
@@ -899,7 +901,8 @@ end
 Base.eltype(::Type{NZIndices{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZIndices{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZIndices}) = Base.HasShape{1}()
-Base.length(it::NZIndices) = nnz(it)
+Base.length(it::NZIndices) = nnz(it.itr)
+Base.size(it::NZIndices) = (nnz(it.itr),)
 Base.reverse(it::NZIndices) = NZIndices(reverse(it.itr))
 @inline Base.keys(V::AbstractDensedSparseVector) = nzindices(V)
 
@@ -920,7 +923,8 @@ end
 Base.eltype(::Type{NZValues{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZValues{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZValues}) = Base.HasShape{1}()
-Base.length(it::NZValues) = nnz(it)
+Base.length(it::NZValues) = nnz(it.itr)
+Base.size(it::NZValues) = (nnz(it.itr),)
 Base.reverse(it::NZValues) = NZValues(reverse(it.itr))
 
 
@@ -943,7 +947,8 @@ end
 Base.eltype(::Type{NZValuesView{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZValuesView{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZValuesView}) = Base.HasShape{1}()
-Base.length(it::NZValuesView) = nnz(it)
+Base.length(it::NZValuesView) = nnz(it.itr)
+Base.size(it::NZValuesView) = (nnz(it.itr),)
 Base.reverse(it::NZValuesView) = NZValuesView(reverse(it.itr))
 
 
@@ -963,7 +968,8 @@ end
 Base.eltype(::Type{NZPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZPairs{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZPairs}) = Base.HasShape{1}()
-Base.length(it::NZPairs) = nnz(it)
+Base.length(it::NZPairs) = nnz(it.itr)
+Base.size(it::NZPairs) = (nnz(it.itr),)
 Base.reverse(it::NZPairs) = NZPairs(reverse(it.itr))
 
 
