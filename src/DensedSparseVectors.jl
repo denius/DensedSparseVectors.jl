@@ -993,14 +993,14 @@ end
 @inline Base.in(i, V::AbstractDensedSparseVector) = Base.isstored(V, i)
 
 
-@inline function Base.getindex(V::AbstractVectorDensedSparseVector, i::Integer)
+@inline function Base.getindex(V::AbstractDensedSparseVector, i::Integer)
     if (st = V.lastusedchunkindex) != beforestartindex(V)
         (ifirst, chunk) = get_key_and_nzchunk(V, st)
         if ifirst <= i < ifirst + length_of_that_nzchunk(V, chunk)
             return getindex_nzchunk(V, chunk, i - ifirst + 1)
         end
     end
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlastchunk(V, i)
     if st != beforestartindex(V)  # the index `i` is not before the first index
         (ifirst, chunk) = get_key_and_nzchunk(V, st)
         if i < ifirst + length_of_that_nzchunk(V, chunk)  # is the index `i` inside of data chunk indices range
@@ -1012,7 +1012,9 @@ end
     return returnzero(V)
 end
 
+
 @inline Base.getindex(V::DensedSVSparseVector, i::Integer, j::Integer) = getindex(V, i)[j]
+
 
 @inline function Base.getindex(V::DensedVLSparseVector, i::Integer)
     if (st = V.lastusedchunkindex) != beforestartindex(V)
@@ -1043,25 +1045,6 @@ end
     else
         return returnzero(V)
     end
-end
-
-@inline function Base.getindex(V::AbstractSDictDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
-    if (st = V.lastusedchunkindex) != beforestartsemitoken(V.data)
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
-        if ifirst <= i < ifirst + length_of_that_nzchunk(V, chunk)
-            return getindex_nzchunk(V, chunk, i - ifirst + 1)
-        end
-    end
-    st = searchsortedlast(V.data, i)
-    if st != beforestartsemitoken(V.data)  # the index `i` is not before first index
-        (ifirst, chunk) = get_key_and_nzchunk(V, st)
-        if i < ifirst + length_of_that_nzchunk(V, chunk)  # is the index `i` inside of data chunk indices range
-            V.lastusedchunkindex = st
-            return getindex_nzchunk(V, chunk, i - ifirst + 1)
-        end
-    end
-    V.lastusedchunkindex = beforestartsemitoken(V.data)
-    return zero(Tv)
 end
 
 
