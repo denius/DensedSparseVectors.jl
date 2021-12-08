@@ -1075,8 +1075,8 @@ function Base.setindex!(V::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
     end
 
     if V.nnz == 0
-        V.nzind = push!(V.nzind, Ti(i))
-        V.nzchunks = push!(V.nzchunks, 1)
+        push!(V.nzind, Ti(i))
+        push!(V.nzchunks, 1)
         V.nnz += 1
         V.n = max(V.n, i)
         V.lastusedchunkindex = 1
