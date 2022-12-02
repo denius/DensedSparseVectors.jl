@@ -33,7 +33,8 @@ abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVect
 # TODO: Redo as AbstractSet!
 # It needs `iterator` which only non-zeros, Set alike behaviour.
 # Needs `nzpairs` iterator with `idx -> true` Pairs
-"""The `DensedSparseIndex` is for fast indices creating and saving for `DensedSparseVector`.
+"""
+The `DensedSparseIndex` is for fast indices creating and saving for `DensedSparseVector`.
 It is almost the same as the `DensedSparseVector` but without data storing.
 In the case of not big vector length it is better to use `Set`.
 $(TYPEDEF)
@@ -193,7 +194,8 @@ DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
 
 
 
-"""The `SDictDensedSparseIndex` is for fast indices creating and saving for `SDictDensedSparseVector`.
+"""
+The `SDictDensedSparseIndex` is for fast indices creating and saving for `SDictDensedSparseVector`.
 It is almost the same as the `SDictDensedSparseVector` but without data storing.
 In the case of not big vector length it is better to use `Set`.
 $(TYPEDEF)
@@ -446,8 +448,8 @@ end
 
 @inline DataStructures.advance(V::AbstractVectorDensedSparseVector, state) = state + 1
 @inline DataStructures.advance(V::AbstractSDictDensedSparseVector, state) = advance((V.nzchunks, state))
-@inline searchsortedlastchunk(V::AbstractVectorDensedSparseVector, i) = searchsortedlast(V.nzind, i)
-@inline searchsortedlastchunk(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
+@inline searchsortedlastchunk(V::AbstractVectorDensedSparseVector, i) = searchsortedlast(V.nzind, i; lt=<)
+@inline searchsortedlastchunk(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i; lt=<)
 
 "Returns nzchunk which on vector index `i`, or after `i`"
 @inline function searchsortedlast_nzchunk(V::AbstractDensedSparseVector, i::Integer)
@@ -1029,7 +1031,7 @@ end
         end
     end
     # cached chunk index miss or index not stored
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
     if st != beforestartindex(V)  # the index `i` is not before the first index
         ifirst, chunk, offsets = V.nzind[st], V.nzchunks[st], V.offsets[st]
         if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
@@ -1063,7 +1065,7 @@ function Base.setindex!(V::DensedSparseIndex{Ti}, value, i::Integer) where {Ti}
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
@@ -1153,7 +1155,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast(V.nzchunks, i; lt=<)
 
     sstatus = status((V.nzchunks, st))
     @boundscheck if sstatus == 0 # invalid semitoken
@@ -1242,7 +1244,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
@@ -1334,7 +1336,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
@@ -1426,7 +1428,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
@@ -1539,7 +1541,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     # check the index exist and update its data
     if st != beforestartindex(V)  # the index `i` is not before the first index
@@ -1668,7 +1670,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast(V.nzchunks, i; lt=<)
 
     sstatus = status((V.nzchunks, st))
     @boundscheck if sstatus == 0 # invalid semitoken
@@ -1772,7 +1774,7 @@ Base.@propagate_inbounds Base.fill!(V::SubArray{<:Any,<:Any,<:T}, value) where {
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     if st == beforestartindex(V)  # the index `i` is before first index
         return V
@@ -1809,7 +1811,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast(V.nzchunks, i; lt=<)
 
     if st == beforestartindex(V)  # the index `i` is before first index
         return V
@@ -1844,7 +1846,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     if st == beforestartindex(V)  # the index `i` is before first index
         return V
@@ -1882,7 +1884,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast(V.nzind, i; lt=<)
 
     if st == beforestartindex(V)  # the index `i` is before first index
         return V
@@ -1933,7 +1935,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast(V.nzchunks, i; lt=<)
 
     if st == beforestartindex(V)  # the index `i` is before first index
         return V
@@ -2124,7 +2126,8 @@ Note 2: The coincidence of vectors indices should be checked and provided by the
 end
 
 
-similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
+similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Base.tail(args))
+#similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
 similarlength(n, a) = ismathscalar(a) || n == nnz(a)
 similarlength(n, a::Tuple{}) = true
 
