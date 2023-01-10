@@ -14,7 +14,7 @@ import Base.Broadcast: BroadcastStyle
 using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DocStringExtensions
 using DataStructures
-using FillArrays
+#using FillArrays
 using IterTools
 using Setfield
 using SparseArrays
@@ -1619,40 +1619,40 @@ end
 #
 struct DensedSparseVectorStyle <: AbstractArrayStyle{1} end
 
-const AlSpVecStyle = DensedSparseVectorStyle
+const DnsSpVecStyle = DensedSparseVectorStyle
 
-AlSpVecStyle(::Val{0}) = AlSpVecStyle()
-AlSpVecStyle(::Val{1}) = AlSpVecStyle()
-AlSpVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
+DnsSpVecStyle(::Val{0}) = DnsSpVecStyle()
+DnsSpVecStyle(::Val{1}) = DnsSpVecStyle()
+DnsSpVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
 
-Base.Broadcast.BroadcastStyle(s::AlSpVecStyle, ::DefaultArrayStyle{0}) = s
-Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::AlSpVecStyle) = s
-Base.Broadcast.BroadcastStyle(s::AlSpVecStyle, ::DefaultArrayStyle{M}) where {M} = s
-Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{M}, s::AlSpVecStyle) where {M} = s
-Base.Broadcast.BroadcastStyle(s::AlSpVecStyle, ::AbstractArrayStyle{M}) where {M} = s
-Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::AlSpVecStyle) where {M} = s
+Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{0}) = s
+Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::DnsSpVecStyle) = s
+Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{M}) where {M} = s
+Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{M}, s::DnsSpVecStyle) where {M} = s
+Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::AbstractArrayStyle{M}) where {M} = s
+Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::DnsSpVecStyle) where {M} = s
 
-Base.Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = AlSpVecStyle()
-Base.Broadcast.BroadcastStyle(::Type{<:SubArray{<:Any,<:Any,<:T}}) where {T<:AbstractDensedSparseVector} = AlSpVecStyle()
+Base.Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSpVecStyle()
+Base.Broadcast.BroadcastStyle(::Type{<:SubArray{<:Any,<:Any,<:T}}) where {T<:AbstractDensedSparseVector} = DnsSpVecStyle()
 
-Base.similar(bc::Broadcasted{AlSpVecStyle}) = similar(find_AASV(bc))
-Base.similar(bc::Broadcasted{AlSpVecStyle}, ::Type{ElType}) where ElType = similar(find_AASV(bc), ElType)
+Base.similar(bc::Broadcasted{DnsSpVecStyle}) = similar(find_ADSV(bc))
+Base.similar(bc::Broadcasted{DnsSpVecStyle}, ::Type{ElType}) where ElType = similar(find_ADSV(bc), ElType)
 
-"`find_AASV(bc::Broadcasted)` returns the first of any `AbstractDensedSparseVector` in `bc`"
-find_AASV(bc::Base.Broadcast.Broadcasted) = find_AASV(bc.args)
-find_AASV(args::Tuple) = find_AASV(find_AASV(args[1]), Base.tail(args))
-find_AASV(x::Base.Broadcast.Extruded) = x.x  # expose internals of Broadcast but else don't work
-find_AASV(x) = x
-find_AASV(::Tuple{}) = nothing
-find_AASV(V::AbstractDensedSparseVector, rest) = V
-find_AASV(::Any, rest) = find_AASV(rest)
+"`find_ADSV(bc::Broadcasted)` returns the first of any `AbstractDensedSparseVector` in `bc`"
+find_ADSV(bc::Base.Broadcast.Broadcasted) = find_ADSV(bc.args)
+find_ADSV(args::Tuple) = find_ADSV(find_ADSV(args[1]), Base.tail(args))
+find_ADSV(x::Base.Broadcast.Extruded) = x.x  # expose internals of Broadcast but else don't work
+find_ADSV(x) = x
+find_ADSV(::Tuple{}) = nothing
+find_ADSV(V::AbstractDensedSparseVector, rest) = V
+find_ADSV(::Any, rest) = find_ADSV(rest)
 
 nzDimensionMismatchMsg(args)::String = "Number of nonzeros of vectors must be equal, but have nnz's:" *
                                        "$(map((a)->nnz(a), filter((a)->(isa(a,AbstractVector)&&!ismathscalar(a)), args)))"
 
-function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
+function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
     if bc.axes isa Nothing
-        v1 = find_AASV(bc)
+        v1 = find_ADSV(bc)
         bcf = Broadcast.flatten(bc)
         if !similarlength(nnz(v1), args)
             throw(DimensionMismatch(nzDimensionMismatchMsg(bcf.args)))
@@ -1664,10 +1664,10 @@ function Base.Broadcast.instantiate(bc::Broadcasted{AlSpVecStyle})
         # AbstractDensedSparseVector is flexible in assignment in any direction thus any sizes are allowed
         #check_broadcast_axes(axes, bc.args...)
     end
-    return Broadcasted{AlSpVecStyle}(bc.f, bc.args, bcaxes)
+    return Broadcasted{DnsSpVecStyle}(bc.f, bc.args, bcaxes)
 end
 
-function Base.copy(bc::Broadcasted{<:AlSpVecStyle})
+function Base.copy(bc::Broadcasted{<:DnsSpVecStyle})
     dest = similar(bc, Broadcast.combine_eltypes(bc.f, bc.args))
     bcf = Broadcast.flatten(bc)
     @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
@@ -1680,9 +1680,9 @@ Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:AbstractArraySt
 Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
 Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
 #Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AlSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
 
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
@@ -1691,7 +1691,7 @@ function nzcopyto!(dest, bc)
 end
 
 function nzcopyto_flatten!(f, dest, args)
-    if iterablenzchunks(dest, args) && issimilar_AASV(dest, args)
+    if iterablenzchunks(dest, args) && issimilar_ADSV(dest, args)
         nzbroadcastchunks!(f, dest, args)
     else
         nzbroadcast!(f, dest, args)
@@ -1756,13 +1756,13 @@ similarlength(n, a) = ismathscalar(a) || n == nnz(a)
 similarlength(n, a::Tuple{}) = true
 
 
-@inline isa_AASV(a) = isa(a, AbstractDensedSparseVector) ||
+@inline isa_ADSV(a) = isa(a, AbstractDensedSparseVector) ||
                      (isa(a, SubArray) && isa(a.parent, AbstractDensedSparseVector))
 
 "Are the vectors the similar in every non-zero chunk"
-function issimilar_AASV(dest, args::Tuple)
+function issimilar_ADSV(dest, args::Tuple)
 
-    args1 = filter(a->isa_AASV(a), args)
+    args1 = filter(a->isa_ADSV(a), args)
 
     iters = map(nzchunkspairs, (dest, args1...))
     for (dst, rest...) in zip(iters...)
@@ -1773,14 +1773,14 @@ function issimilar_AASV(dest, args::Tuple)
     end
     return true
 end
-issimilar_AASV(dest, args) = issimilar_AASV(dest, (args,))
+issimilar_ADSV(dest, args) = issimilar_ADSV(dest, (args,))
 
 "Are all vectors iterable by non-zero nzchunks"
-iterablenzchunks(a, args...) = isa_AASV_or_scalar(a) || iterablenzchunks(a, iterablenzchunks(args...))
-iterablenzchunks(a, b) = isa_AASV_or_scalar(a) || isa_AASV_or_scalar(b)
-iterablenzchunks(a) = isa_AASV_or_scalar(a)
+iterablenzchunks(a, args...) = isa_ADSV_or_scalar(a) || iterablenzchunks(a, iterablenzchunks(args...))
+iterablenzchunks(a, b) = isa_ADSV_or_scalar(a) || isa_ADSV_or_scalar(b)
+iterablenzchunks(a) = isa_ADSV_or_scalar(a)
 
-isa_AASV_or_scalar(a) = isa_AASV(a) || ismathscalar(a)
+isa_ADSV_or_scalar(a) = isa_ADSV(a) || ismathscalar(a)
 
 @inline function ismathscalar(a)
     return (isa(a, Number)                       ||
