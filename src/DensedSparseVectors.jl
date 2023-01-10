@@ -184,9 +184,28 @@ function DynamicDensedSparseVector(V::AbstractDensedSparseVector{Tv,Ti}) where {
     return DynamicDensedSparseVector{Tv,Ti}(V.n, nzchunks)
 end
 
-"Convert any `AbstractSparseVector`s to particular `AbstractDensedSparseVector`"
+"""
+Convert any particular `AbstractSparseVector`s to corresponding `AbstractDensedSparseVector`:
+
+    DensedSparseVector(sv)
+
+"""
 function (::Type{T})(V::AbstractSparseVector{Tv,Ti}) where {T<:AbstractDensedSparseVector,Tv,Ti}
     sv = T{Tv,Ti}(length(V))
+    for (i,d) in zip(nonzeroinds(V), nonzeros(V))
+        sv[i] = d
+    end
+    return sv
+end
+
+"""
+Convert any `AbstractSparseVector`s to particular `AbstractDensedSparseVector`:
+
+    DensedSparseVector{Float64,Int}(sv)
+
+"""
+function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+    sv = T(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
     end
