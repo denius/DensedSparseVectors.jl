@@ -864,7 +864,6 @@ Base.size(it::NZPairs) = (nnz(it.itr),)
     return true
 end
 
-@inline Base.haskey(V::AbstractDensedSparseVector, i) = Base.isstored(V, i)
 @inline Base.in(i, V::AbstractDensedSparseVector) = Base.isstored(V, i)
 
 
@@ -1371,7 +1370,7 @@ end
 
     sstatus = status((V.nzchunks, st))
     @boundscheck if sstatus == 0 # invalid semitoken
-        trow(KeyError(i))
+        throw(KeyError(i))
     end
 
     # check the index exist and update its data
@@ -1795,34 +1794,6 @@ end
 #
 # derived from stdlib/SparseArrays/src/sparsevector.jl
 #
-###function Base.show(io::IOContext, x::T) where {T<:Union{DensedSparseIndex,SDictDensedSparseIndex}}
-###    nzind = [v[1] for v in nzchunkspairs(x)]
-###    nzval = [v[2] for v in nzchunkspairs(x)]
-###    n = length(nzind)
-###    if isempty(nzind)
-###        return show(io, MIME("text/plain"), x)
-###    end
-###    limit = get(io, :limit, false)::Bool
-###    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-###    #pad = ndigits(n)
-###    pad = quick_get_max_pad(x)
-###    if !haskey(io, :compact)
-###        io = IOContext(io, :compact => true)
-###    end
-###    for k = eachindex(nzind)
-###        if k < half_screen_rows || k > length(nzind) - half_screen_rows
-###            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
-###            if isassigned(nzval, Int(k))
-###                show(io, nzval[k])
-###            else
-###                print(io, Base.undef_ref_str)
-###            end
-###            k != length(nzind) && println(io)
-###        elseif k == half_screen_rows
-###            println(io, "   ", " "^pad, "   \u22ee")
-###        end
-###    end
-###end
 
 function quick_get_max_pad(V::AbstractDensedSparseVector)
     pad = 0
@@ -1952,151 +1923,6 @@ function Base.show(io::IOContext, x::DensedVLSparseVector)
             println(io, "   ", " "^pad, "   \u22ee")
         end
     end
-end
-
-#
-#  Testing functions
-#
-
-function testfun_create(T::Type, n = 500_000, density = 0.9)
-    V = T(n)
-    Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
-        V[i] = rand()
-    end
-    V
-end
-function testfun_createSV(T::Type, n = 500_000, m = 5, density = 0.9)
-    V = T(m,n)
-    Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
-        for j = 1:m
-            V[i,j] = rand()
-        end
-    end
-    V
-end
-function testfun_createVL(T::Type, n = 500_000, density = 0.9)
-    V = T(n)
-    Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
-        V[i] = rand(rand(0:7))
-    end
-    V
-end
-
-function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
-    V = T(n)
-    Random.seed!(1234)
-    for i in randsubseq(1:n, density)
-        V[i] = rand()
-    end
-    V
-end
-
-function testfun_create_dense(T::Type, n = 500_000, nchunks = 800, density = 0.95)
-    V = T(n)
-    chunklen = max(1, floor(Int, n / nchunks))
-    Random.seed!(1234)
-    for i = 0:nchunks-1
-        len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
-        len = max(1, min(chunklen-2, len))
-        for j = 1:len
-            V[i*chunklen + j] = rand()
-        end
-    end
-    V
-end
-
-
-function testfun_delete!(V)
-    Random.seed!(1234)
-    indices = shuffle(nonzeroinds(V))
-    for i in indices
-        delete!(V, i)
-    end
-    V
-end
-
-
-function testfun_getindex(sv)
-    S = 0.0
-    for i in eachindex(sv)
-        S += sv[i]
-    end
-    (0, S)
-end
-
-function testfun_nzgetindex(sv)
-    S = 0.0
-    for i in nzindices(sv)
-        S += sv[i]
-    end
-    (0, S)
-end
-
-function testfun_setindex!(sv)
-    for i in nzindices(sv)
-        sv[i] = 0.0
-    end
-end
-
-
-function testfun_nzchunks(sv)
-    I = 0
-    S = 0.0
-    for (startindex,chunk) in nzchunkspairs(sv)
-        startindex -= 1
-        for i in axes(chunk,1)
-            I += startindex + i
-            S += chunk[i]
-        end
-    end
-    (I, S)
-end
-
-function testfun_nzpairs(sv)
-    I = 0
-    S = 0.0
-    for (k,v) in nzpairs(sv)
-        I += k
-        S += v
-    end
-    (I, S)
-end
-
-function testfun_nzindices(sv)
-    I = 0
-    for k in nzindices(sv)
-        I += k
-    end
-    (I, 0.0)
-end
-
-function testfun_nzvalues(sv)
-    S = 0.0
-    for v in nzvalues(sv)
-        S += v
-    end
-    (0, S)
-end
-
-function testfun_nzvaluesview(sv)
-    S = 0.0
-    for v in nzvaluesview(sv)
-        S += v[1]
-    end
-    (0, S)
-end
-
-function testfun_findnz(sv)
-    I = 0
-    S = 0.0
-    for (k,v) in zip(SparseArrays.findnz(sv)...)
-        I += k
-        S += v
-    end
-    (I, S)
 end
 
 
