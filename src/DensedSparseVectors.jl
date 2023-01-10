@@ -5,7 +5,6 @@ export DynamicDensedSparseVector
 export nzpairs, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
-export testfun_create, testfun_createSV, testfun_createVL, testfun_create_seq, testfun_create_dense, testfun_delete!, testfun_getindex, testfun_nzgetindex, testfun_setindex!, testfun_nzchunks, testfun_nzpairs, testfun_nzindices, testfun_nzvalues, testfun_nzvaluesview, testfun_findnz
 
 
 import Base: ForwardOrdering, Forward
