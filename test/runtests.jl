@@ -1,4 +1,5 @@
 using DensedSparseVectors
+using OffsetArrays
 using SparseArrays
 using Test
 
@@ -6,7 +7,7 @@ using Test
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 
 
-const list_of_Ti_to_test = (Int32, Int64)
+const list_of_Ti_to_test = (UInt32, Int64)
 const list_of_Tv_to_test = (Int, Float64)
 const list_of_containers_types_to_test = (DensedSparseVector, DynamicDensedSparseVector)
 #const list_of_containers_types_to_test = (DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector, DynamicDensedSparseVector)
@@ -18,18 +19,73 @@ const list_of_containers_types_to_test = (DensedSparseVector, DynamicDensedSpars
             for TypeDSV in list_of_containers_types_to_test
                 @eval begin
 
-                    @inferred $TypeDSV{$Tv,$Ti}()
-                    @test length($TypeDSV{$Tv,$Ti}()) == 0
-                    @test nnz($TypeDSV{$Tv,$Ti}()) == 0
+                    dsv = @inferred $TypeDSV{$Tv,$Ti}()
+                    @test length(dsv) == 0
+                    @test nnz(dsv) == 0
+                    @test length(nzchunks(dsv)) == 0
 
-                    @inferred $TypeDSV{$Tv,$Ti}(1)
-                    @test length($TypeDSV{$Tv,$Ti}(1)) == 1
-                    @test nnz($TypeDSV{$Tv,$Ti}(1)) == 0
+                    dsv = @inferred $TypeDSV{$Tv,$Ti}(1)
+                    @test length(dsv) == 1
+                    @test nnz(dsv) == 0
+                    @test length(nzchunks(dsv)) == 0
 
-                    sv = SparseVector{$Tv,$Ti}(10, $Ti.([0,1,2,5,6]), $Tv.([2,4,6,8,10]))
-                    @inferred $TypeDSV{$Tv,$Ti}(sv)
-                    @test length($TypeDSV{$Tv,$Ti}(sv)) == 10
-                    @test nnz($TypeDSV{$Tv,$Ti}(sv)) == 5
+                    sv = SparseVector{$Tv,$Ti}(10, $Ti.([1,2,3,6,7]), $Tv.([2,4,6,8,10]))
+                    dsv = @inferred $TypeDSV(sv)
+                    dsv = @inferred $TypeDSV{$Tv,$Ti}(sv)
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 5
+                    @test length(nzchunks(dsv)) == 2
+                    @test dsv == sv
+
+                    osv = OffsetArray(sv, 2:11)
+                    odsv = OffsetArray(dsv, 2:11)
+                    @test firstindex(odsv) == firstindex(osv) == 2
+                    @test lastindex(odsv) == lastindex(osv) == 11
+                    @test length(odsv) == 10
+                    @test nnz(odsv) == 5
+                    @test length(nzchunks(odsv)) == 2
+                    @test odsv == osv
+
+                    dsv[9] = 14
+                    sv[9] = 14
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 6
+                    @test length(nzchunks(dsv)) == 3
+                    @test dsv == sv
+
+                    dsv[8] = 12
+                    sv[8] = 12
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 7
+                    @test length(nzchunks(dsv)) == 2
+                    @test dsv == sv
+
+                    dsv[4] = 12
+                    sv[4] = 12
+                    dsv[5] = 12
+                    sv[5] = 12
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 9
+                    @test length(nzchunks(dsv)) == 1
+                    @test dsv == sv
+
+                    SparseArrays.dropstored!(dsv, 4)
+                    SparseArrays.dropstored!(sv, 4)
+                    for i = 1:8
+                        SparseArrays.dropstored!(dsv, i)
+                        SparseArrays.dropstored!(sv, i)
+                    end
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 1
+                    @test length(nzchunks(dsv)) == 1
+                    @test dsv == sv
+
+                    SparseArrays.dropstored!(dsv, 9)
+                    SparseArrays.dropstored!(sv, 9)
+                    @test length(dsv) == 10
+                    @test nnz(dsv) == 0
+                    @test length(nzchunks(dsv)) == 0
+                    @test dsv == sv
 
                 end
             end

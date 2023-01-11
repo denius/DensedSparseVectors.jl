@@ -16,6 +16,7 @@ using DocStringExtensions
 using DataStructures
 #using FillArrays
 using IterTools
+using OffsetArrays
 using Setfield
 using SparseArrays
 using StaticArrays
@@ -218,6 +219,7 @@ end
 
 Base.length(V::AbstractDensedSparseVector) = getfield(V, :n)
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedSparseVector} = foldl((s,c)->(s+length(c)), nzchunks(V); init=0)
+Base.@propagate_inbounds SparseArrays.nnz(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedSparseVector} = nnz(parent(V))
 SparseArrays.nnz(V::AbstractDensedSparseVector) = getfield(V, :nnz)
 Base.isempty(V::AbstractDensedSparseVector) = nnz(V) == 0
 Base.size(V::AbstractDensedSparseVector) = (length(V),)
@@ -257,9 +259,10 @@ function Base.collect(::Type{ElType}, V::AbstractDensedSparseVector) where ElTyp
 end
 Base.collect(V::AbstractDensedSparseVector) = collect(eltype(V), V)
 
-nnzchunks(V::AbstractDensedSparseVector) = length(V.nzchunks)
-Base.@propagate_inbounds length_of_that_nzchunk(V::AbstractVectorDensedSparseVector, chunk) = length(chunk)
-Base.@propagate_inbounds length_of_that_nzchunk(V::DynamicDensedSparseVector, chunk) = length(chunk)
+@inline nnzchunks(V::AbstractDensedSparseVector) = length(getfield(V, :nzchunks))
+@inline nnzchunks(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedSparseVector} = nnzchunks(parent(V))
+@inline length_of_that_nzchunk(V::AbstractVectorDensedSparseVector, chunk) = length(chunk)
+@inline length_of_that_nzchunk(V::DynamicDensedSparseVector, chunk) = length(chunk)
 @inline get_nzchunk_length(V::AbstractVectorDensedSparseVector, i) = size(V.nzchunks[i])[1]
 @inline get_nzchunk_length(V::DensedVLSparseVector, i) = size(V.offsets[i])[1] - 1
 @inline get_nzchunk_length(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((V.nzchunks, i)))[1]
@@ -1673,6 +1676,7 @@ function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
     if bc.axes isa Nothing
         v1 = find_ADSV(bc)
         bcf = Broadcast.flatten(bc)
+        # FIXME: TODO: see https://github.com/JuliaLang/julia/issues/37558 to have an some performance penalty
         if !similarlength(nnz(v1), args)
             throw(DimensionMismatch(nzDimensionMismatchMsg(bcf.args)))
         end
