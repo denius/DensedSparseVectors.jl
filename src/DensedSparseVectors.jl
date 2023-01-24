@@ -1674,15 +1674,14 @@ find_ADSV(::Any, rest) = find_ADSV(rest)
 
 nzDimensionMismatchMsg(args)::String = "Number of nonzeros of vectors must be equal, but have nnz's:" *
                                        "$(map((a)->nnz(a), filter((a)->(isa(a,AbstractVector)&&!ismathscalar(a)), args)))"
+throwDimensionMismatch(args) = throw(DimensionMismatch(nzDimensionMismatchMsg(args)))
 
 function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
     if bc.axes isa Nothing
         v1 = find_ADSV(bc)
         bcf = Broadcast.flatten(bc)
         # FIXME: TODO: see https://github.com/JuliaLang/julia/issues/37558 to have an some performance penalty
-        if !similarlength(nnz(v1), bcf.args)
-            throw(DimensionMismatch(nzDimensionMismatchMsg(bcf.args)))
-        end
+        @boundscheck similarlength(nnz(v1), bcf.args) || throwDimensionMismatch(bcf.args)
         bcaxes = axes(v1)
         #bcaxes = Broadcast.combine_axes(bc.args...)
     else
@@ -1696,7 +1695,7 @@ end
 function Base.copy(bc::Broadcasted{<:DnsSpVecStyle})
     dest = similar(bc, Broadcast.combine_eltypes(bc.f, bc.args))
     bcf = Broadcast.flatten(bc)
-    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
+    @boundscheck similarlength(nnz(dest), bcf.args) || throwDimensionMismatch((dest, bcf.args...))
     nzcopyto_flatten!(bcf.f, dest, bcf.args)
 end
 
@@ -1713,7 +1712,7 @@ Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broad
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
     # TODO: fix for `dsv1 .+ v::Vector`
-    @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
+    @boundscheck similarlength(nnz(dest), bcf.args) || throwDimensionMismatch((dest, bcf.args...))
     nzcopyto_flatten!(bcf.f, dest, bcf.args)
 end
 
@@ -1778,7 +1777,6 @@ end
 
 
 similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Base.tail(args))
-#similarlength(n, args::Tuple) = (ismathscalar(first(args)) || n == nnz(first(args))) && similarlength(n, Iterators.tail(args))
 similarlength(n, a) = ismathscalar(a) || n == nnz(a)
 similarlength(n, a::Tuple{}) = true
 
