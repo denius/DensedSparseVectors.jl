@@ -1,3 +1,4 @@
+using BenchmarkTools
 using DensedSparseVectors
 using OffsetArrays
 using SparseArrays
@@ -11,6 +12,29 @@ const list_of_Ti_to_test = (UInt32, Int64)
 const list_of_Tv_to_test = (Int, Float64)
 const list_of_containers_types_to_test = (DensedSparseVector, DynamicDensedSparseVector)
 #const list_of_containers_types_to_test = (DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector, DynamicDensedSparseVector)
+
+@testset "Broadcast" begin
+    for Ti in list_of_Ti_to_test
+        for Tv in list_of_Tv_to_test
+            for TypeDSV in list_of_containers_types_to_test
+
+                @eval sv = SparseVector{$Tv,$Ti}(10, $Ti[1,2,3,6,7], $Tv[2,4,6,8,10])
+                @eval v1 = Vector{$Tv}(sv)
+                @eval dsv1 = $TypeDSV(sv)
+                @eval dsv2 = $TypeDSV(sv)
+                @eval dsv3 = @inferred $TypeDSV(2.0 .* sv)
+
+                @test dsv1 .+ sv == dsv3
+                @test dsv1 .+ dsv2 == dsv3
+                @test 2 .* dsv1 == dsv3
+                @test dsv2 .* 2 == dsv3
+
+                @test (@ballocated($dsv3 .= $dsv1 .+ $dsv2)) == 0
+
+            end
+        end
+    end
+end
 
 
 @testset "Creating" begin
@@ -112,21 +136,6 @@ const list_of_containers_types_to_test = (DensedSparseVector, DynamicDensedSpars
 
                     @test isempty(dsv)
 
-                end
-            end
-        end
-    end
-end
-
-@testset "Broadcast" begin
-    for Ti in list_of_Ti_to_test
-        for Tv in list_of_Tv_to_test
-            for TypeDSV in list_of_containers_types_to_test
-                @eval begin
-                    sv = SparseVector{$Tv,$Ti}(10, $Ti[1,2,3,6,7], $Tv[2,4,6,8,10])
-                    dsv1 = $TypeDSV(sv)
-                    dsv2 = $TypeDSV(sv)
-                    dsv3 = $TypeDSV(sv)
                 end
             end
         end

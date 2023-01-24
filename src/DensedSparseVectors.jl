@@ -49,6 +49,9 @@ mutable struct DensedSparseVector{Tv,Ti} <: AbstractVectorDensedSparseVector{Tv,
     nzchunks::Vector{Vector{Tv}}
     "Vector length"
     n::Ti
+    #"Vector range, `firstindex(V) = first(V.axes1)` and so on"
+    # see https://github.com/JuliaArrays/CustomUnitRanges.jl
+    #axes1::UnitRange{Ti}
     "Number of stored non-zero elements"
     nnz::Int
 
@@ -1677,7 +1680,7 @@ function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
         v1 = find_ADSV(bc)
         bcf = Broadcast.flatten(bc)
         # FIXME: TODO: see https://github.com/JuliaLang/julia/issues/37558 to have an some performance penalty
-        if !similarlength(nnz(v1), args)
+        if !similarlength(nnz(v1), bcf.args)
             throw(DimensionMismatch(nzDimensionMismatchMsg(bcf.args)))
         end
         bcaxes = axes(v1)
@@ -1709,6 +1712,7 @@ Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broad
 
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
+    # TODO: fix for `dsv1 .+ v::Vector`
     @boundscheck similarlength(nnz(dest), bcf.args) || throw(DimensionMismatch(nzDimensionMismatchMsg((dest, bcf.args...))))
     nzcopyto_flatten!(bcf.f, dest, bcf.args)
 end
