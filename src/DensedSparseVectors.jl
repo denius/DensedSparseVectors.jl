@@ -271,7 +271,7 @@ Base.collect(V::AbstractDensedSparseVector) = collect(eltype(V), V)
 @inline get_nzchunk_length(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((V.nzchunks, i)))[1]
 @inline get_nzchunk(V::Number, i) = V
 @inline get_nzchunk(V::Vector, i) = V
-@inline get_nzchunk(V::SparseVector, i) = view(V.nzval, i:i)
+@inline get_nzchunk(V::SparseVector, i) = view(nonzeros(V), i[1]:i[1]+i[2]-1)
 @inline get_nzchunk(V::AbstractVectorDensedSparseVector, i) = V.nzchunks[i]
 @inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((V.nzchunks, i))
 @inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractVectorDensedSparseVector}
@@ -548,14 +548,31 @@ Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}, 
         return nothing
     end
 end
-Base.@propagate_inbounds function iteratenzchunks(V::SparseVector, state = (1, nnz(V)))
-    i, len = state
-    if i <= len
-        return (i, (i+1, len))
+
+Base.@propagate_inbounds function iteratenzchunks(V::SparseVector)
+    nn = nnz(V)
+    return nn == 0 ? nothing : iteratenzchunks(V, 1)
+end
+Base.@propagate_inbounds function iteratenzchunks(V::SparseVector, state)
+    nzinds = SparseArrays.nonzeroinds(V)
+    N = length(nzinds)
+    i1 = state
+    if i1 <= N
+        len = N + 1 - i1
+        val = nzinds[i1]
+        @inbounds for i = i1+1:N
+            if nzinds[i] - 1 > val
+                len = i - i1
+                break
+            end
+            val = nzinds[i]
+        end
+        return ((i1, len), i1+len)
     else
         return nothing
     end
 end
+
 Base.@propagate_inbounds function iteratenzchunks(V::Vector, state = (1, length(V)))
     i, len = state
     if len == 1
@@ -1641,6 +1658,8 @@ end
 
 #
 #  Broadcasting
+#
+# TODO: NZChunksStyle and NZValuesStyle
 #
 struct DensedSparseVectorStyle <: AbstractArrayStyle{1} end
 
