@@ -263,7 +263,19 @@ end
 Base.collect(V::AbstractDensedSparseVector) = collect(eltype(V), V)
 
 @inline nnzchunks(V::Vector) = 1
-@inline nnzchunks(V::SparseVector) = length(iteratenzchunks(V))
+#@inline nnzchunks(V::SparseVector) = length(iteratenzchunks(V))
+@inline function nnzchunks(V::SparseVector)
+    nnz(V) == 0 && return 0
+    nzinds = SparseArrays.nonzeroinds(V)
+    len = 1
+    prev = nzinds[1]
+    for i = 2:nnz(V)
+        if prev + 1 != (prev = nzinds[i])
+            len += 1
+        end
+    end
+    return len
+end
 @inline nnzchunks(V::AbstractDensedSparseVector) = length(getfield(V, :nzchunks))
 @inline nnzchunks(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedSparseVector} = nnzchunks(parent(V))
 @inline length_of_that_nzchunk(V::AbstractVectorDensedSparseVector, chunk) = length(chunk)
@@ -513,6 +525,10 @@ end
 end
 
 @inline Base.findall(testf::Function, V::AbstractDensedSparseVector) = collect(first(p) for p in nzpairs(V) if testf(last(p)))
+# from SparseArrays/src/sparsevector.jl:830
+@inline Base.findall(p::Base.Fix2{typeof(in)}, x::AbstractDensedSparseVector) =
+    invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
+
 
 
 
@@ -1677,6 +1693,7 @@ DnsSpVecStyle(::Val{0}) = DnsSpVecStyle()
 DnsSpVecStyle(::Val{1}) = DnsSpVecStyle()
 DnsSpVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
 
+Base.Broadcast.BroadcastStyle(::DnsSpVecStyle, ::DnsSpVecStyle) = DnsSpVecStyle
 Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{0}) = s
 Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::DnsSpVecStyle) = s
 Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{M}) where {M} = s
@@ -1726,15 +1743,8 @@ function Base.copy(bc::Broadcasted{<:DnsSpVecStyle})
     nzcopyto_flatten!(bcf.f, dest, bcf.args)
 end
 
-Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
-#Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{0}}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{1}}) = nzcopyto!(dest, bc)
-#Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:AbstractArrayStyle{2}}) = nzcopyto!(dest, bc)
+
 Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
-Base.copyto!(dest::SubArray{<:Any,<:Any,<:AbstractDensedSparseVector}, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
 
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)

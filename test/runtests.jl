@@ -153,6 +153,6 @@ end
 end
 
 
-#using Aqua
-#Aqua.test_all(DensedSparseVectors)
+using Aqua
+Aqua.test_all(DensedSparseVectors)
 
