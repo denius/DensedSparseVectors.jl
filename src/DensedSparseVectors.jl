@@ -1687,25 +1687,25 @@ end
 #
 struct DensedSparseVectorStyle <: AbstractArrayStyle{1} end
 
-const DnsSpVecStyle = DensedSparseVectorStyle
+const DnsSparseVecStyle = DensedSparseVectorStyle
 
-DnsSpVecStyle(::Val{0}) = DnsSpVecStyle()
-DnsSpVecStyle(::Val{1}) = DnsSpVecStyle()
-DnsSpVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
+DnsSparseVecStyle(::Val{0}) = DnsSparseVecStyle()
+DnsSparseVecStyle(::Val{1}) = DnsSparseVecStyle()
+DnsSparseVecStyle(::Val{N}) where N = DefaultArrayStyle{N}()
 
-Base.Broadcast.BroadcastStyle(::DnsSpVecStyle, ::DnsSpVecStyle) = DnsSpVecStyle
-Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{0}) = s
-Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::DnsSpVecStyle) = s
-Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::DefaultArrayStyle{M}) where {M} = s
-Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{M}, s::DnsSpVecStyle) where {M} = s
-Base.Broadcast.BroadcastStyle(s::DnsSpVecStyle, ::AbstractArrayStyle{M}) where {M} = s
-Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::DnsSpVecStyle) where {M} = s
+Base.Broadcast.BroadcastStyle(::DnsSparseVecStyle, ::DnsSparseVecStyle) = DnsSparseVecStyle
+Base.Broadcast.BroadcastStyle(s::DnsSparseVecStyle, ::DefaultArrayStyle{0}) = s
+Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{0}, s::DnsSparseVecStyle) = s
+Base.Broadcast.BroadcastStyle(s::DnsSparseVecStyle, ::DefaultArrayStyle{M}) where {M} = s
+Base.Broadcast.BroadcastStyle(::DefaultArrayStyle{M}, s::DnsSparseVecStyle) where {M} = s
+Base.Broadcast.BroadcastStyle(s::DnsSparseVecStyle, ::AbstractArrayStyle{M}) where {M} = s
+Base.Broadcast.BroadcastStyle(::AbstractArrayStyle{M}, s::DnsSparseVecStyle) where {M} = s
 
-Base.Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSpVecStyle()
-Base.Broadcast.BroadcastStyle(::Type{<:SubArray{<:Any,<:Any,<:T}}) where {T<:AbstractDensedSparseVector} = DnsSpVecStyle()
+Base.Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSparseVecStyle()
+Base.Broadcast.BroadcastStyle(::Type{<:SubArray{<:Any,<:Any,<:T}}) where {T<:AbstractDensedSparseVector} = DnsSparseVecStyle()
 
-Base.similar(bc::Broadcasted{DnsSpVecStyle}) = similar(find_ADSV(bc))
-Base.similar(bc::Broadcasted{DnsSpVecStyle}, ::Type{ElType}) where ElType = similar(find_ADSV(bc), ElType)
+Base.similar(bc::Broadcasted{DnsSparseVecStyle}) = similar(find_ADSV(bc))
+Base.similar(bc::Broadcasted{DnsSparseVecStyle}, ::Type{ElType}) where ElType = similar(find_ADSV(bc), ElType)
 
 "`find_ADSV(bc::Broadcasted)` returns the first of any `AbstractDensedSparseVector` in `bc`"
 find_ADSV(bc::Base.Broadcast.Broadcasted) = find_ADSV(bc.args)
@@ -1720,7 +1720,7 @@ nzDimensionMismatchMsg(args)::String = "Number of nonzeros of vectors must be eq
                                        "$(map((a)->nnz(a), filter((a)->(isa(a,AbstractVector)&&!ismathscalar(a)), args)))"
 throwDimensionMismatch(args) = throw(DimensionMismatch(nzDimensionMismatchMsg(args)))
 
-function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
+function Base.Broadcast.instantiate(bc::Broadcasted{DnsSparseVecStyle})
     if bc.axes isa Nothing
         v1 = find_ADSV(bc)
         bcf = Broadcast.flatten(bc)
@@ -1733,10 +1733,10 @@ function Base.Broadcast.instantiate(bc::Broadcasted{DnsSpVecStyle})
         # AbstractDensedSparseVector is flexible in assignment in any direction thus any sizes are allowed
         #check_broadcast_axes(axes, bc.args...)
     end
-    return Broadcasted{DnsSpVecStyle}(bc.f, bc.args, bcaxes)
+    return Broadcasted{DnsSparseVecStyle}(bc.f, bc.args, bcaxes)
 end
 
-function Base.copy(bc::Broadcasted{<:DnsSpVecStyle})
+function Base.copy(bc::Broadcasted{<:DnsSparseVecStyle})
     dest = similar(bc, Broadcast.combine_eltypes(bc.f, bc.args))
     bcf = Broadcast.flatten(bc)
     @boundscheck similarlength(nnz(dest), bcf.args) || throwDimensionMismatch((dest, bcf.args...))
@@ -1744,7 +1744,7 @@ function Base.copy(bc::Broadcasted{<:DnsSpVecStyle})
 end
 
 
-Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DnsSpVecStyle}) = nzcopyto!(dest, bc)
+Base.copyto!(dest::AbstractVector, bc::Broadcasted{<:DnsSparseVecStyle}) = nzcopyto!(dest, bc)
 
 function nzcopyto!(dest, bc)
     bcf = Broadcast.flatten(bc)
