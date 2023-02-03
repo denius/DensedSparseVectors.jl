@@ -1,27 +1,67 @@
-# This file is a part of Julia. License is MIT: https://julialang.org/license
+
+# derived from SparseArrays.jl's higherorderfns.jl
 
 module HigherOrderFns
 
 # This module provides higher order functions specialized for sparse arrays,
-# particularly map[!]/broadcast[!] for SparseVectors and SparseMatrixCSCs at present.
+# particularly map[!]/broadcast[!] for DensedSparseVectors at present.
 import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
 
-using SparseArrays: DensedSparseVector, SparseMatrixCSC, DensedSVSparseVector,
-                      AbstractDensedSparseVector, AbstractSparseVector, AbstractSparseMatrixCSC,
-                      AbstractSparseMatrix, AbstractSparseArray,
-                      DensedSparseVectorUnion, AdjOrTranDensedSparseVectorUnion,
-                      SorF, indtype, fixed, move_fixed, nnz, nzrange, spzeros,
-                      nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
-                      _iszero, _isnotzero, _is_fixed, @if_move_fixed
+
+
+using SparseArrays: SparseVector, SparseMatrixCSC, AbstractSparseVector, AbstractSparseMatrixCSC,
+                      AbstractSparseMatrix, AbstractSparseArray, indtype, nnz, nzrange, spzeros,
+                      SparseVectorUnion, AdjOrTransSparseVectorUnion, nonzeroinds, nonzeros,
+                      rowvals, getcolptr, widelength
+
+#using SparseArrays: SparseVector, SparseMatrixCSC,
+#                      AbstractSparseVector, AbstractSparseVector, #AbstractVVectorDensedSparseVector,
+#                      AbstractSparseMatrix, AbstractSparseArray,
+#                      SparseVectorUnion, AdjOrTransSparseVectorUnion,
+#                      indtype, nnz, nzrange, spzeros,
+#                      nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
+#                      _iszero, _isnotzero
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
+using StaticArrays
+
+using ..DensedSparseVectors
+using ..DensedSparseVectors: AbstractVectorDensedSparseVector, AbstractSDictDensedSparseVector, AbstractVVectorDensedSparseVector
+
 # Some Unions definitions
+
+#abstract type AbstractVVectorDensedSparseVector{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
+
+const SparseVector2 = DensedSparseVector
+
+mutable struct SparseMatrixCSC2{Tv,Ti,m} <: AbstractVVectorDensedSparseVector{Tv,Ti}
+   "Index of last used chunk"
+    lastusedchunkindex::Int
+    "Storage for indices of the first element of non-zero chunks"
+    nzind::Vector{Ti}  # Vector of chunk's first indices
+    "Storage for chunks of non-zero values as `Vector` of `Vector`s
+     The resulting matrix size is m by n"
+    nzchunks::Vector{Vector{SVector{m,Tv}}}
+    "Vector length"
+    n::Ti
+    "Number of stored non-zero elements"
+    nnz::Int
+end
+
+
 const DensedSparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractDensedSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const DensedSparseVectorUnion{Tv,Ti} = Union{AbstractDensedSparseVector{Tv,Ti}, DensedSparseVectorView{Tv,Ti}, SparseVectorUnion{Tv,Ti}}
+const DensedSparseVectorUnion{Tv,Ti} = Union{AbstractDensedSparseVector{Tv,Ti}, DensedSparseVectorView{Tv,Ti}}
 const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:DensedSparseVectorUnion{Tv,Ti}}
+
+###const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
+###const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
+###const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
+###const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
+###const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
+
 
 
 # This module is organized as follows:
@@ -44,13 +84,15 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 
 # (0) BroadcastStyle rules and convenience types for dispatch
 
-###AbstractDensedSparseVector = Union{AbstractDensedSparseVector,AbstractSparseMatrixCSC}
+###AbstractDensedSparseVector = Union{AbstractDensedSparseVector,AbstractVVectorDensedSparseVector}
+DensedSparseVecOrMat = Union{AbstractVectorDensedSparseVector,AbstractSDictDensedSparseVector,AbstractVVectorDensedSparseVector}
+SparseVecOrMat2 = Union{SparseVector2,AbstractVVectorDensedSparseVector}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
 struct DnsSparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
 struct DnsSparseMatStyle <: Broadcast.AbstractArrayStyle{2} end
-Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSparseVecStyle()
-Broadcast.BroadcastStyle(::Type{<:AbstractSparseMatrixCSC}) = DnsSparseMatStyle()
+Broadcast.BroadcastStyle(::Type{<:SparseVector2}) = DnsSparseVecStyle()
+Broadcast.BroadcastStyle(::Type{<:AbstractVVectorDensedSparseVector}) = DnsSparseMatStyle()
 const DSPVM = Union{DnsSparseVecStyle,DnsSparseMatStyle}
 
 # DnsSparseVecStyle handles 0-1 dimensions, DnsSparseMatStyle 0-2 dimensions.
@@ -77,9 +119,9 @@ PromoteToSparse(::Val{1}) = PromoteToSparse()
 PromoteToSparse(::Val{2}) = PromoteToSparse()
 PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
-const StructuredMatrix = Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal} # T.D. Is it need?
-Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{AbstractDensedSparseVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{AbstractDensedSparseVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
+const StructuredMatrix = Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal}
+Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{SparseVector2,SparseMatrixCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{SparseVector2,SparseMatrixCSC}} where T}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(s::DSPVM, ::Broadcast.AbstractArrayStyle{0}) = s
 Broadcast.BroadcastStyle(s::DSPVM, ::Broadcast.DefaultArrayStyle{0}) = s
@@ -105,14 +147,14 @@ is_supported_sparse_broadcast(x, rest...) = axes(x) === () && is_supported_spars
 is_supported_sparse_broadcast(x::Ref, rest...) = is_supported_sparse_broadcast(rest...)
 
 can_skip_sparsification(f, rest...) = false
-can_skip_sparsification(::typeof(*), ::DensedSparseVectorUnion, ::AdjOrTranDensedSparseVectorUnion) = true
+can_skip_sparsification(::typeof(*), ::DensedSparseVectorUnion, ::AdjOrTransDensedSparseVectorUnion) = true
 
 # Dispatch on broadcast operations by number of arguments
 const Broadcasted0{Style<:Union{Nothing,BroadcastStyle},Axes,F} =
     Broadcasted{Style,Axes,F,Tuple{}}
-const SpBroadcasted1{Style<:DSPVM,Axes,F,Args<:Tuple{AbstractDensedSparseVector}} =
+const SpBroadcasted1{Style<:DSPVM,Axes,F,Args<:Tuple{DensedSparseVecOrMat}} =
     Broadcasted{Style,Axes,F,Args}
-const SpBroadcasted2{Style<:DSPVM,Axes,F,Args<:Tuple{AbstractDensedSparseVector,AbstractDensedSparseVector}} =
+const SpBroadcasted2{Style<:DSPVM,Axes,F,Args<:Tuple{DensedSparseVecOrMat,DensedSparseVecOrMat}} =
     Broadcasted{Style,Axes,F,Args}
 
 # (1) The definitions below provide a common interface to sparse vectors and matrices
@@ -120,30 +162,30 @@ const SpBroadcasted2{Style<:DSPVM,Axes,F,Args<:Tuple{AbstractDensedSparseVector,
 # as n-by-one sparse matrices which, though technically incorrect, is how broacast[!] views
 # sparse vectors in practice.
 @inline numrows(A::AbstractDensedSparseVector) = length(A)
-@inline numrows(A::AbstractSparseMatrixCSC) = size(A, 1)
+@inline numrows(A::AbstractVVectorDensedSparseVector) = size(A, 1)
 @inline numcols(A::AbstractDensedSparseVector) = 1
-@inline numcols(A::AbstractSparseMatrixCSC) = size(A, 2)
+@inline numcols(A::AbstractVVectorDensedSparseVector) = size(A, 2)
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
 @inline columns(A::AbstractDensedSparseVector) = 1
-@inline columns(A::AbstractSparseMatrixCSC) = 1:size(A, 2)
+@inline columns(A::AbstractVVectorDensedSparseVector) = 1:size(A, 2)
 @inline colrange(A::AbstractDensedSparseVector, j) = 1:length(nonzeroinds(A))
-@inline colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
+@inline colrange(A::AbstractVVectorDensedSparseVector, j) = nzrange(A, j)
 @inline colstartind(A::AbstractDensedSparseVector, j) = one(indtype(A))
 @inline colboundind(A::AbstractDensedSparseVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
-@inline colstartind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j]
-@inline colboundind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j + 1]
+@inline colstartind(A::AbstractVVectorDensedSparseVector, j) = getcolptr(A)[j]
+@inline colboundind(A::AbstractVVectorDensedSparseVector, j) = getcolptr(A)[j + 1]
 @inline storedinds(A::AbstractDensedSparseVector) = nonzeroinds(A)
-@inline storedinds(A::AbstractSparseMatrixCSC) = rowvals(A)
-@inline storedvals(A::AbstractDensedSparseVector) = nonzeros(A)
+@inline storedinds(A::AbstractVVectorDensedSparseVector) = rowvals(A)
+@inline storedvals(A::DensedSparseVecOrMat) = nonzeros(A)
 @inline setcolptr!(A::AbstractDensedSparseVector, j, val) = val
-@inline setcolptr!(A::AbstractSparseMatrixCSC, j, val) = getcolptr(A)[j] = val
-function trimstorage!(A::AbstractDensedSparseVector, maxstored)
+@inline setcolptr!(A::AbstractVVectorDensedSparseVector, j, val) = getcolptr(A)[j] = val
+function trimstorage!(A::DensedSparseVecOrMat, maxstored)
     resize!(storedinds(A), maxstored)
     resize!(storedvals(A), maxstored)
     return maxstored
 end
 
-function expandstorage!(A::AbstractDensedSparseVector, maxstored)
+function expandstorage!(A::DensedSparseVecOrMat, maxstored)
     if length(storedinds(A)) < maxstored
         resize!(storedinds(A), maxstored)
         resize!(storedvals(A), maxstored)
@@ -151,56 +193,57 @@ function expandstorage!(A::AbstractDensedSparseVector, maxstored)
     return maxstored
 end
 
-_checkbuffers(S::AbstractSparseMatrixCSC) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
-_checkbuffers(S::AbstractDensedSparseVector) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
+_checkbuffers(S::SparseMatrixCSC2) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
+_checkbuffers(S::SparseVector2) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
 # (2) map[!] entry points
 map(f::Tf, A::AbstractDensedSparseVector) where {Tf} = _noshapecheck_map(f, A)
-map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
-map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
+map(f::Tf, A::AbstractVVectorDensedSparseVector) where {Tf} = _noshapecheck_map(f, A)
+map(f::Tf, A::AbstractVVectorDensedSparseVector, Bs::Vararg{SparseMatrixCSC2,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
-map(f::Tf, A::AbstractDensedSparseVector, Bs::Vararg{AbstractDensedSparseVector,N}) where {Tf,N} =
+map(f::Tf, A::DensedSparseVecOrMat, Bs::Vararg{DensedSparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
-map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
+map!(f::Tf, C::AbstractVVectorDensedSparseVector, A::AbstractVVectorDensedSparseVector, Bs::Vararg{SparseMatrixCSC2,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
-map!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, Bs::Vararg{AbstractDensedSparseVector,N}) where {Tf,N} =
+map!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, Bs::Vararg{DensedSparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
 
- _noshapecheck_map!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, Bs::Vararg{AbstractDensedSparseVector,N}) where {Tf,N} =
+_noshapecheck_map!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, Bs::Vararg{DensedSparseVecOrMat,N}) where {Tf,N} =
     # Avoid calculating f(zero) unless necessary as it may fail.
-    let r = if _haszeros(A) && all(_haszeros, Bs)
-            fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
-                _map_notzeropres!(f, fofzeros, C, A, Bs...)
-        else
+    if _haszeros(A) && all(_haszeros, Bs)
+        fofzeros = f(_zeros_eltypes(A, Bs...)...)
+        if _iszero(fofzeros)
             _map_zeropres!(f, C, A, Bs...)
+        else
+            _map_notzeropres!(f, fofzeros, C, A, Bs...)
         end
-    return @if_move_fixed A Bs... r
-end
+    else
+        _map_zeropres!(f, C, A, Bs...)
+    end
 
-function _noshapecheck_map(f::Tf, A::AbstractDensedSparseVector, Bs::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+
+function _noshapecheck_map(f::Tf, A::DensedSparseVecOrMat, Bs::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     # Avoid calculating f(zero) unless necessary as it may fail.
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
-    r = if _haszeros(A) && all(_haszeros, Bs)
-            fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            fpreszeros = _iszero(fofzeros)
-            maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
-            C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-            fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
-                            _map_notzeropres!(f, fofzeros, C, A, Bs...)
-        else
-            maxnnzC = Int(widelength(A))
-            C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-            _map_zeropres!(f, C, A, Bs...)
-        end
-    return @if_move_fixed A Bs... r
+    if _haszeros(A) && all(_haszeros, Bs)
+        fofzeros = f(_zeros_eltypes(A, Bs...)...)
+        fpreszeros = _iszero(fofzeros)
+        maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
+        C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
+                        _map_notzeropres!(f, fofzeros, C, A, Bs...)
+    else
+        maxnnzC = Int(widelength(A))
+        C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        return _map_zeropres!(f, C, A, Bs...)
+    end
 end
 
 # (3) broadcast[!] entry points
 copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
 
-@inline function copyto!(C::AbstractDensedSparseVector, bc::Broadcasted0{Nothing})
+@inline function copyto!(C::DensedSparseVecOrMat, bc::Broadcasted0{Nothing})
     isempty(C) && return _finishempty!(C)
     f = bc.f
     fofnoargs = f()
@@ -216,22 +259,33 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
 end
 
 
-function _diffshape_broadcast(f::Tf, A::AbstractDensedSparseVector, Bs::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+function _diffshape_broadcast(f::Tf, A::DensedSparseVecOrMat, Bs::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     fofzeros = f(_zeros_eltypes(A, Bs...)...)
     fpreszeros = _iszero(fofzeros)
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
-    shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
-    maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
-    C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
-    r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
+    axesC = Base.Broadcast.combine_axes(A, Bs...)
+    shapeC = to_shape(axesC)
+    if fpreszeros
+        C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
+    else
+        C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
+    end
+    ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
+    ###C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
+    return fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
-    return @if_move_fixed A Bs... r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _haszeros(A) = nnz(A) ≠ length(A)
 @inline _sumnnzs(A) = nnz(A)
 @inline _sumnnzs(A, Bs...) = nnz(A) + _sumnnzs(Bs...)
+@inline _iszero(x) = x == 0
+@inline _iszero(x::Number) = Base.iszero(x)
+@inline _iszero(x::AbstractArray) = Base.iszero(x)
+@inline _isnotzero(x) = iszero(x) !== true # like `!iszero(x)`, but handles `x::Missing`
+@inline _isnotzero(x::Number) = !iszero(x)
+@inline _isnotzero(x::AbstractArray) = !iszero(x)
 @inline _zeros_eltypes(A) = (zero(eltype(A)),)
 @inline _zeros_eltypes(A, Bs...) = (zero(eltype(A)), _zeros_eltypes(Bs...)...)
 @inline _promote_indtype(A) = indtype(A)
@@ -246,9 +300,9 @@ end
 @inline _all_args_isa(t::Tuple{Broadcasted,Vararg{Any}}, ::Type{T}) where T = _all_args_isa(t[1].args, T) & _all_args_isa(tail(t), T)
 @inline _densennz(shape::NTuple{1}) = shape[1]
 @inline _densennz(shape::NTuple{2}) = shape[1] * shape[2]
-_maxnnzfrom(shape::NTuple{1}, A::AbstractDensedSparseVector) = nnz(A) * div(shape[1], length(A))
-_maxnnzfrom(shape::NTuple{2}, A::AbstractDensedSparseVector) = nnz(A) * div(shape[1], length(A)) * shape[2]
-_maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1)) * div(shape[2], size(A, 2))
+_maxnnzfrom(shape::NTuple{1}, A::SparseVector2) = nnz(A) * div(shape[1], length(A))
+_maxnnzfrom(shape::NTuple{2}, A::SparseVector2) = nnz(A) * div(shape[1], length(A)) * shape[2]
+_maxnnzfrom(shape::NTuple{2}, A::AbstractVVectorDensedSparseVector) = nnz(A) * div(shape[1], size(A, 1)) * div(shape[2], size(A, 2))
 @inline _maxnnzfrom_each(shape, ::Tuple{}) = ()
 @inline _maxnnzfrom_each(shape, As) = (_maxnnzfrom(shape, first(As)), _maxnnzfrom_each(shape, tail(As))...)
 @inline _unchecked_maxnnzbcres(shape, As::Tuple) = min(_densennz(shape), sum(_maxnnzfrom_each(shape, As)))
@@ -261,18 +315,23 @@ _maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1
     resize!(storedvals(X), maxnnz)
     return X
 end
+# https://github.com/JuliaLang/julia/issues/39952
+basetype(::Type{T}) where T = Base.typename(T).wrapper
+@inline _promote_dest_arg(As::Tuple{Any}) = first(As)
+#@inline _promote_dest_arg(As::Tuple{Any,Any}) = first(As)
+@inline _promote_dest_arg(As::Tuple{Any,Any}) = first(As)
+@inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((first(As), first(last(As)))), last(last(As))...))
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
-function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector) where Tf
+function _map_zeropres!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat) where Tf
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(C, A)
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            if isfixed || _isnotzero(Cx)
+            if _isnotzero(Cx)
                 Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
                 storedinds(C)[Ck] = storedinds(A)[Ak]
                 storedvals(C)[Ck] = Cx
@@ -289,7 +348,7 @@ end
 Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 `f(A[i])`/`f(A[i,j])` in place of each stored entry `A[i]`/`A[i,j]` in `A`.
 """
-function _map_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector) where Tf
+function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
     # Populate values
@@ -306,13 +365,13 @@ function _map_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, A::A
 end
 # helper functions for these methods and some of those below
 @inline _densecoloffsets(A::AbstractDensedSparseVector) = 0
-@inline _densecoloffsets(A::AbstractSparseMatrixCSC) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
+@inline _densecoloffsets(A::AbstractVVectorDensedSparseVector) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
 function _densestructure!(A::AbstractDensedSparseVector)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
 end
-function _densestructure!(A::AbstractSparseMatrixCSC)
+function _densestructure!(A::AbstractVVectorDensedSparseVector)
     nnzA = size(A, 1) * size(A, 2)
     expandstorage!(A, nnzA)
     copyto!(getcolptr(A), 1:size(A, 1):(nnzA + 1))
@@ -324,8 +383,7 @@ end
 
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
-function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, B::AbstractDensedSparseVector) where Tf
-    isfixed = _is_fixed(C, A, B)
+function _map_zeropres!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, B::DensedSparseVecOrMat) where Tf
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
     rowsentinelB = convert(indtype(B), numrows(C) + 1)
@@ -355,7 +413,7 @@ function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedS
             # cases are equally or more likely than the Ai < Bi and Bi < Ai cases. Hence
             # the ordering of the conditional chain above differs from that in the
             # corresponding broadcast code (below).
-            if isfixed || _isnotzero(Cx)
+            if _isnotzero(Cx)
                 Ck > spaceC && (spaceC = expandstorage!(C, Ck + (nnz(A) - (Ak - 1)) + (nnz(B) - (Bk - 1))))
                 storedinds(C)[Ck] = Ci
                 storedvals(C)[Ck] = Cx
@@ -367,7 +425,7 @@ function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedS
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
-function _map_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, B::AbstractDensedSparseVector) where Tf
+function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, B::DensedSparseVecOrMat) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
     # Populate values
@@ -402,9 +460,8 @@ end
 
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
-function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+function _map_zeropres!(f::Tf, C::DensedSparseVecOrMat, As::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(As...)
     rowsentinel = numrows(C) + 1
     Ck = 1
     stopks = _colstartind_all(1, As)
@@ -417,7 +474,7 @@ function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{Abstrac
         while activerow < rowsentinel
             vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
             Cx = f(vals...)
-            if isfixed || _isnotzero(Cx)
+            if _isnotzero(Cx)
                 Ck > spaceC && (spaceC = expandstorage!(C, Int(min(widelength(C), Ck + _sumnnzs(As...) - (sum(ks) - N)))))
                 storedinds(C)[Ck] = activerow
                 storedvals(C)[Ck] = Cx
@@ -430,7 +487,7 @@ function _map_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{Abstrac
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
-function _map_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, As::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, As::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
     # Populate values
@@ -490,9 +547,8 @@ end
 
 
 # (7) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a single (input) sparse vector/matrix
-function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector) where Tf
+function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(A)
     spaceC::Int = length(nonzeros(C))
     # C and A cannot have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous C-A combinations where
@@ -509,7 +565,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
             bccolrangejA = numcols(A) == 1 ? colrange(A, 1) : colrange(A, j)
             for Ak in bccolrangejA
                 Cx = f(storedvals(A)[Ak])
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = storedinds(A)[Ak]
                     storedvals(C)[Ck] = Cx
@@ -528,7 +584,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
             # contains a nonzero value x but f(Ax) is nonetheless zero, so we need store
             # nothing in C's jth column. if to the contrary fofAx is nonzero, then we must
             # densely populate C's jth column with fofAx.
-            if isfixed || _isnotzero(fofAx)
+            if _isnotzero(fofAx)
                 for Ci::indtype(C) in 1:numrows(C)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = Ci
@@ -542,7 +598,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
-function _broadcast_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector) where Tf
+function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat) where Tf
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -576,9 +632,8 @@ end
 
 
 # (8) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a pair of (input) sparse vectors/matrices
-function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, B::AbstractDensedSparseVector) where Tf
+function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, B::DensedSparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(A, B)
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
     rowsentinelB = convert(indtype(B), numrows(C) + 1)
@@ -632,7 +687,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
                 # pattern) the Ai < Bi and Bi < Ai cases are equally or more likely than the
                 # Ai == Bi and termination cases. Hence the ordering of the conditional
                 # chain above differs from that in the corresponding map code.
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
@@ -649,7 +704,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             Cx = f(Ax, Bx)
-            if isfixed || _isnotzero(Cx)
+            if _isnotzero(Cx)
                 for Ci::indtype(C) in 1:numrows(C)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
@@ -671,7 +726,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
                 # B's jth column without storing every entry in C's jth column
                 while Bk < stopBk
                     Cx = f(Ax, storedvals(B)[Bk])
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(B)[Bk]
                         storedvals(C)[Ck] = Cx
@@ -690,7 +745,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
                     else
                         Cx = fvAzB
                     end
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
@@ -712,7 +767,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
                 # A's jth column without storing every entry in C's jth column
                 while Ak < stopAk
                     Cx = f(storedvals(A)[Ak], Bx)
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(A)[Ak]
                         storedvals(C)[Ck] = Cx
@@ -731,7 +786,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
                     else
                         Cx = fzAvB
                     end
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
@@ -745,7 +800,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, A::AbstractD
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
-function _broadcast_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, A::AbstractDensedSparseVector, B::AbstractDensedSparseVector) where Tf
+function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat, B::DensedSparseVecOrMat) where Tf
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -845,10 +900,10 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector
     return _checkbuffers(C)
 end
 _finishempty!(C::AbstractDensedSparseVector) = C
-_finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
+_finishempty!(C::AbstractVVectorDensedSparseVector) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::DensedSparseVectorUnion, y::AdjOrTranDensedSparseVectorUnion) = _outer(x, y)
+_copy(f::typeof(*), x::DensedSparseVectorUnion, y::AdjOrTransDensedSparseVectorUnion) = _outer(x, y)
 @inline _outer(x::DensedSparseVectorUnion, y::Adjoint) = return _outer(conj, x, parent(y))
 @inline _outer(x::DensedSparseVectorUnion, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
@@ -895,13 +950,12 @@ function _outer(trans::Tf, x, y) where Tf
     resize!(rowvalC, nnzC)
     resize!(nzvalsC, nnzC)
 
-    return SparseMatrixCSC(nx, ny, colptrC, rowvalC, nzvalsC)
+    return SparseMatrixCSC2(nx, ny, colptrC, rowvalC, nzvalsC)
 end
 
 # (9) _broadcast_zeropres!/_broadcast_notzeropres! for more than two (input) sparse vectors/matrices
-function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrMat, As::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(As...)
     spaceC::Int = length(nonzeros(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
@@ -922,7 +976,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{A
             while activerow < rowsentinel
                 args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = activerow
                     storedvals(C)[Ck] = Cx
@@ -939,7 +993,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{A
                 else
                     Cx = defaultCx
                 end
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
@@ -952,7 +1006,7 @@ function _broadcast_zeropres!(f::Tf, C::AbstractDensedSparseVector, As::Vararg{A
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
-function _broadcast_notzeropres!(f::Tf, fillvalue, C::AbstractDensedSparseVector, As::Vararg{AbstractDensedSparseVector,N}) where {Tf,N}
+function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, As::Vararg{DensedSparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -1054,8 +1108,8 @@ end
 end
 
 _copy(f, args::AbstractDensedSparseVector...) = _shapecheckbc(f, args...)
-_copy(f, args::AbstractSparseMatrixCSC...) = _shapecheckbc(f, args...)
-_copy(f, args::AbstractDensedSparseVector...) = _diffshape_broadcast(f, args...)
+_copy(f, args::AbstractVVectorDensedSparseVector...) = _shapecheckbc(f, args...)
+_copy(f, args::DensedSparseVecOrMat...) = _diffshape_broadcast(f, args...)
 # Otherwise, we incorporate scalars into the function and re-dispatch
 function _copy(f, args...)
     parevalf, passedargstup = capturescalars(f, args)
@@ -1068,7 +1122,7 @@ function _shapecheckbc(f, args...)
 end
 
 
-@inline function copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{<:DSPVM})
+@inline function copyto!(dest::DensedSparseVecOrMat, bc::Broadcasted{<:DSPVM})
     if bc.f === identity && bc isa SpBroadcasted1 && Base.axes(dest) == (A = bc.args[1]; Base.axes(A))
         return copyto!(dest, A)
     end
@@ -1077,7 +1131,7 @@ end
     return _copyto!(bcf.f, dest, As...)
 end
 
-@inline function _copyto!(f, dest, As::AbstractDensedSparseVector...)
+@inline function _copyto!(f, dest, As::DensedSparseVecOrMat...)
     _aresameshape(dest, As...) && return _noshapecheck_map!(f, dest, As...)
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
     fofzeros = f(_zeros_eltypes(As...)...)
@@ -1089,7 +1143,7 @@ end
 end
 
 @inline function _copyto!(f, dest, args...)
-    # args contains nothing but AbstractDensedSparseVector and scalars
+    # args contains nothing but DensedSparseVecOrMat and scalars
     # See below for capturescalars
     parevalf, passedsrcargstup = capturescalars(f, args)
     _copyto!(parevalf, dest, passedsrcargstup...)
@@ -1113,12 +1167,12 @@ end
     # This definition is identical to the one above and necessary only for
     # avoiding method ambiguity.
     capturescalars((args...)->f(T, args...), Base.tail(mixedargs))
-@inline capturescalars(f, mixedargs::Tuple{AbstractDensedSparseVector, Ref{Type{T}}, Vararg{Any}}) where {T} =
+@inline capturescalars(f, mixedargs::Tuple{DensedSparseVecOrMat, Ref{Type{T}}, Vararg{Any}}) where {T} =
     capturescalars((a1, args...)->f(a1, T, args...), (mixedargs[1], Base.tail(Base.tail(mixedargs))...))
 @inline capturescalars(f, mixedargs::Tuple{Union{Ref,AbstractArray{<:Any,0}}, Ref{Type{T}}, Vararg{Any}}) where {T} =
     capturescalars((args...)->f(mixedargs[1], T, args...), Base.tail(Base.tail(mixedargs)))
 
-nonscalararg(::AbstractDensedSparseVector) = true
+nonscalararg(::DensedSparseVecOrMat) = true
 nonscalararg(::Any) = false
 scalarwrappedarg(::Union{AbstractArray{<:Any,0},Ref}) = true
 scalarwrappedarg(::Any) = false
@@ -1154,8 +1208,8 @@ end
 end
 
 # NOTE: The following two method definitions work around #19096.
-broadcast(f::Tf, ::Type{T}, A::AbstractSparseMatrixCSC) where {Tf,T} = broadcast(y -> f(T, y), A)
-broadcast(f::Tf, A::AbstractSparseMatrixCSC, ::Type{T}) where {Tf,T} = broadcast(x -> f(x, T), A)
+broadcast(f::Tf, ::Type{T}, A::AbstractVVectorDensedSparseVector) where {Tf,T} = broadcast(y -> f(T, y), A)
+broadcast(f::Tf, A::AbstractVVectorDensedSparseVector, ::Type{T}) where {Tf,T} = broadcast(x -> f(x, T), A)
 
 
 # (11) broadcast[!] over combinations of scalars, sparse vectors/matrices, structured matrices,
@@ -1176,22 +1230,27 @@ function copy(bc::Broadcasted{PromoteToSparse})
     end
 end
 
-@inline function copyto!(dest::AbstractDensedSparseVector, bc::Broadcasted{PromoteToSparse})
+@inline function copyto!(dest::DensedSparseVecOrMat, bc::Broadcasted{PromoteToSparse})
     bcf = flatten(bc)
     broadcast!(bcf.f, dest, map(_sparsifystructured, bcf.args)...)
 end
 
-_sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
-_sparsifystructured(V::AbstractVector) = DensedSparseVector(V)
-_sparsifystructured(S::AbstractDensedSparseVector) = S
+_sparsifystructured(M::AbstractMatrix) = DensedSVSparseVector(M) # SparseMatrixCSC(M)
+_sparsifystructured(V::AbstractVector) = DensedSparseVector(V) # SparseVector2(V)
+#= # is it need?
+_sparsifystructured(M::AbstractSparseMatrix) = DensedSVSparseVector(M) # SparseMatrixCSC2(M)
+_sparsifystructured(V::AbstractSparseVector) = DensedSparseVector(V) # SparseVector2(V)
+=#
+_sparsifystructured(S::DensedSparseVecOrMat) = S
 _sparsifystructured(x) = x
 
 
 # (12) map[!] over combinations of sparse and structured matrices
-SparseOrStructuredMatrix = Union{DensedSVSparseVector,SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
+###SparseOrStructuredMatrix = Union{SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
+SparseOrStructuredMatrix = Union{AbstractVVectorDensedSparseVector,SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
-map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
+map!(f::Tf, C::AbstractVVectorDensedSparseVector, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 
 end
