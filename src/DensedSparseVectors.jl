@@ -29,6 +29,8 @@ abstract type AbstractDensedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} e
 abstract type AbstractVectorDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 
+abstract type AbstractVVectorDensedSparseVector{Tv,Ti} <: AbstractVectorDensedSparseVector{Tv,Ti} end
+
 
 
 """
@@ -92,7 +94,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractVectorDensedSparseVector{Tv,Ti}
+mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractVVectorDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -123,7 +125,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractVectorDensedSparseVector{Tv,Ti}
+mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractVVectorDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -235,8 +237,8 @@ SparseArrays.indtype(V::AbstractDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Ti
 Base.IndexStyle(::AbstractDensedSparseVector) = IndexLinear()
 
 Base.similar(V::AbstractDensedSparseVector{Tv,Ti}) where {Tv,Ti} = similar(V, Tv)
-Base.similar(V::AbstractDensedSparseVector{Tv,Ti}, ::Type{ElType}) where {Tv,Ti,ElType} = similar(V, Pair{Ti,ElType})
-function Base.similar(V::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
+Base.similar(V::AbstractDensedSparseVector{Tv,Ti}, ElType::Type) where {Tv,Ti} = similar(V, ElType, Ti)
+function Base.similar(V::DensedSparseVector, Tvn::Type, Tin::Type)
     nzind = similar(V.nzind, Tin)
     nzchunks = similar(V.nzchunks)
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
@@ -245,13 +247,14 @@ function Base.similar(V::DensedSparseVector, ::Type{ElType}) where {ElType<:Pair
     end
     return DensedSparseVector{Tvn,Tin}(length(V), nzind, nzchunks)
 end
-function Base.similar(V::DynamicDensedSparseVector, ::Type{ElType}) where {ElType<:Pair{Tin,Tvn}} where {Tin,Tvn}
+function Base.similar(V::DynamicDensedSparseVector, Tvn::Type, Tin::Type)
     nzchunks = SortedDict{Tin, Vector{Tvn}, FOrd}(Forward)
     for (k,d) in nzchunkspairs(V)
         nzchunks[k] = similar(d, Tvn)
     end
     return DynamicDensedSparseVector{Tvn,Tin}(length(V), nzchunks)
 end
+
 
 function Base.collect(::Type{ElType}, V::AbstractDensedSparseVector) where ElType
     res = zeros(ElType, length(V))
