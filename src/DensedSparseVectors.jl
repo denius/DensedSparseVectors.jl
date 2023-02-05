@@ -29,7 +29,7 @@ abstract type AbstractDensedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} e
 "Vector alike DensedSparseVector kind"
 abstract type AbstractVectorDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 "Matrix alike Vector of Vectors kind"
-abstract type AbstractVVectorDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
+abstract type AbstractBlockDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 
 "Simple VectorDensedSparseVector kind"
 abstract type AbstractSimpleDensedSparseVector{Tv,Ti} <: AbstractVectorDensedSparseVector{Tv,Ti} end
@@ -38,7 +38,7 @@ abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractVectorDensedSpar
 
 
 "All Vector alike types `<: AbstractDensedSparseVector`"
-const AbstractVecbasedDensedSparseVector{Tv,Ti} = Union{AbstractSimpleDensedSparseVector{Tv,Ti}, AbstractVVectorDensedSparseVector{Tv,Ti}}
+const AbstractVecbasedDensedSparseVector{Tv,Ti} = Union{AbstractSimpleDensedSparseVector{Tv,Ti}, AbstractBlockDensedSparseVector{Tv,Ti}}
 
 
 """
@@ -102,7 +102,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractVVectorDensedSparseVector{Tv,Ti}
+mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractBlockDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -133,7 +133,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractVVectorDensedSparseVector{Tv,Ti}
+mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractBlockDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
