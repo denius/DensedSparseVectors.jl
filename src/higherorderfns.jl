@@ -85,13 +85,15 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 # (0) BroadcastStyle rules and convenience types for dispatch
 
 ###AbstractDensedSparseVector = Union{AbstractDensedSparseVector,AbstractVVectorDensedSparseVector}
-DensedSparseVecOrMat = Union{AbstractVectorDensedSparseVector,AbstractSDictDensedSparseVector,AbstractVVectorDensedSparseVector}
+#DensedSparseVecOrMat = Union{AbstractVectorDensedSparseVector,AbstractSDictDensedSparseVector,AbstractVVectorDensedSparseVector}
+DensedSparseVecOrMat = Union{AbstractDensedSparseVector,AbstractVVectorDensedSparseVector}
 SparseVecOrMat2 = Union{SparseVector2,AbstractVVectorDensedSparseVector}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
 struct DnsSparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
 struct DnsSparseMatStyle <: Broadcast.AbstractArrayStyle{2} end
-Broadcast.BroadcastStyle(::Type{<:SparseVector2}) = DnsSparseVecStyle()
+###Broadcast.BroadcastStyle(::Type{<:SparseVector2}) = DnsSparseVecStyle()
+Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSparseVecStyle()
 Broadcast.BroadcastStyle(::Type{<:AbstractVVectorDensedSparseVector}) = DnsSparseMatStyle()
 const DSPVM = Union{DnsSparseVecStyle,DnsSparseMatStyle}
 
@@ -110,6 +112,7 @@ DnsSparseMatStyle(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 Broadcast.BroadcastStyle(::DnsSparseMatStyle, ::DnsSparseVecStyle) = DnsSparseMatStyle()
 
 # Tuples promote to dense
+# TODO: FIXME: Dense * View(DSV) should be DnsSparseVecStyle. Isn't it?
 Broadcast.BroadcastStyle(::DnsSparseVecStyle, ::Broadcast.Style{Tuple}) = Broadcast.DefaultArrayStyle{1}()
 Broadcast.BroadcastStyle(::DnsSparseMatStyle, ::Broadcast.Style{Tuple}) = Broadcast.DefaultArrayStyle{2}()
 
@@ -266,13 +269,13 @@ function _diffshape_broadcast(f::Tf, A::DensedSparseVecOrMat, Bs::Vararg{DensedS
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     axesC = Base.Broadcast.combine_axes(A, Bs...)
     shapeC = to_shape(axesC)
+    ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
+    ###C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     if fpreszeros
         C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
     else
         C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
     end
-    ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
-    ###C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     return fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
 end
@@ -318,8 +321,10 @@ end
 # https://github.com/JuliaLang/julia/issues/39952
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 @inline _promote_dest_arg(As::Tuple{Any}) = first(As)
-#@inline _promote_dest_arg(As::Tuple{Any,Any}) = first(As)
 @inline _promote_dest_arg(As::Tuple{Any,Any}) = first(As)
+@inline _promote_dest_arg(As::Tuple{AbstractDensedSparseVector,AbstractDensedSparseVector}) = first(As)
+@inline _promote_dest_arg(As::Tuple{AbstractDensedSparseVector,Any}) = first(As)
+@inline _promote_dest_arg(As::Tuple{Any,AbstractDensedSparseVector}) = last(As)
 @inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((first(As), first(last(As)))), last(last(As))...))
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
@@ -550,6 +555,7 @@ end
 function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrMat, A::DensedSparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
     spaceC::Int = length(nonzeros(C))
+
     # C and A cannot have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous C-A combinations where
     # one or both of C and A has at least one singleton dimension.
@@ -900,7 +906,8 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::D
     return _checkbuffers(C)
 end
 _finishempty!(C::AbstractDensedSparseVector) = C
-_finishempty!(C::AbstractVVectorDensedSparseVector) = (fill!(getcolptr(C), 1); C)
+###_finishempty!(C::AbstractVVectorDensedSparseVector) = (fill!(getcolptr(C), 1); C)
+_finishempty!(C::AbstractVVectorDensedSparseVector) = C
 
 # special case - vector outer product
 _copy(f::typeof(*), x::DensedSparseVectorUnion, y::AdjOrTransDensedSparseVectorUnion) = _outer(x, y)
