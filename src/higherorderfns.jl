@@ -8,9 +8,6 @@ module HigherOrderFns
 import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
-
-
-
 using SparseArrays: SparseVector, SparseMatrixCSC, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray, indtype, nnz, nzrange, spzeros,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion, nonzeroinds, nonzeros,
@@ -29,7 +26,7 @@ using LinearAlgebra
 using StaticArrays
 
 using ..DensedSparseVectors
-using ..DensedSparseVectors: AbstractVectorDensedSparseVector, AbstractSDictDensedSparseVector, AbstractVVectorDensedSparseVector
+using ..DensedSparseVectors: AbstractDensedSparseVector, AbstractVectorDensedSparseVector, AbstractVVectorDensedSparseVector, AbstractSDictDensedSparseVector
 
 # Some Unions definitions
 
@@ -86,14 +83,14 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 
 ###AbstractDensedSparseVector = Union{AbstractDensedSparseVector,AbstractVVectorDensedSparseVector}
 #DensedSparseVecOrMat = Union{AbstractVectorDensedSparseVector,AbstractSDictDensedSparseVector,AbstractVVectorDensedSparseVector}
-DensedSparseVecOrMat = Union{AbstractDensedSparseVector,AbstractVVectorDensedSparseVector}
-SparseVecOrMat2 = Union{SparseVector2,AbstractVVectorDensedSparseVector}
+DensedSparseVecOrMat = Union{AbstractVectorDensedSparseVector,AbstractVVectorDensedSparseVector}
+SparseVecOrMat2 = Union{SparseVector2,SparseMatrixCSC2}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
 struct DnsSparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
 struct DnsSparseMatStyle <: Broadcast.AbstractArrayStyle{2} end
 ###Broadcast.BroadcastStyle(::Type{<:SparseVector2}) = DnsSparseVecStyle()
-Broadcast.BroadcastStyle(::Type{<:AbstractDensedSparseVector}) = DnsSparseVecStyle()
+Broadcast.BroadcastStyle(::Type{<:AbstractVectorDensedSparseVector}) = DnsSparseVecStyle()
 Broadcast.BroadcastStyle(::Type{<:AbstractVVectorDensedSparseVector}) = DnsSparseMatStyle()
 const DSPVM = Union{DnsSparseVecStyle,DnsSparseMatStyle}
 
@@ -164,23 +161,23 @@ const SpBroadcasted2{Style<:DSPVM,Axes,F,Args<:Tuple{DensedSparseVecOrMat,Densed
 # sufficient for the purposes of map[!]/broadcast[!]. This interface treats sparse vectors
 # as n-by-one sparse matrices which, though technically incorrect, is how broacast[!] views
 # sparse vectors in practice.
-@inline numrows(A::AbstractDensedSparseVector) = length(A)
+@inline numrows(A::AbstractVectorDensedSparseVector) = length(A)
 @inline numrows(A::AbstractVVectorDensedSparseVector) = size(A, 1)
-@inline numcols(A::AbstractDensedSparseVector) = 1
+@inline numcols(A::AbstractVectorDensedSparseVector) = 1
 @inline numcols(A::AbstractVVectorDensedSparseVector) = size(A, 2)
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
-@inline columns(A::AbstractDensedSparseVector) = 1
+@inline columns(A::AbstractVectorDensedSparseVector) = 1
 @inline columns(A::AbstractVVectorDensedSparseVector) = 1:size(A, 2)
-@inline colrange(A::AbstractDensedSparseVector, j) = 1:length(nonzeroinds(A))
+@inline colrange(A::AbstractVectorDensedSparseVector, j) = 1:length(nonzeroinds(A))
 @inline colrange(A::AbstractVVectorDensedSparseVector, j) = nzrange(A, j)
-@inline colstartind(A::AbstractDensedSparseVector, j) = one(indtype(A))
-@inline colboundind(A::AbstractDensedSparseVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
+@inline colstartind(A::AbstractVectorDensedSparseVector, j) = one(indtype(A))
+@inline colboundind(A::AbstractVectorDensedSparseVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
 @inline colstartind(A::AbstractVVectorDensedSparseVector, j) = getcolptr(A)[j]
 @inline colboundind(A::AbstractVVectorDensedSparseVector, j) = getcolptr(A)[j + 1]
-@inline storedinds(A::AbstractDensedSparseVector) = nonzeroinds(A)
+@inline storedinds(A::AbstractVectorDensedSparseVector) = nonzeroinds(A)
 @inline storedinds(A::AbstractVVectorDensedSparseVector) = rowvals(A)
 @inline storedvals(A::DensedSparseVecOrMat) = nonzeros(A)
-@inline setcolptr!(A::AbstractDensedSparseVector, j, val) = val
+@inline setcolptr!(A::AbstractVectorDensedSparseVector, j, val) = val
 @inline setcolptr!(A::AbstractVVectorDensedSparseVector, j, val) = getcolptr(A)[j] = val
 function trimstorage!(A::DensedSparseVecOrMat, maxstored)
     resize!(storedinds(A), maxstored)
@@ -200,7 +197,7 @@ _checkbuffers(S::SparseMatrixCSC2) = (@assert length(getcolptr(S)) == size(S, 2)
 _checkbuffers(S::SparseVector2) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
 # (2) map[!] entry points
-map(f::Tf, A::AbstractDensedSparseVector) where {Tf} = _noshapecheck_map(f, A)
+map(f::Tf, A::AbstractVectorDensedSparseVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractVVectorDensedSparseVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractVVectorDensedSparseVector, Bs::Vararg{SparseMatrixCSC2,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
@@ -369,9 +366,9 @@ function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::DensedS
     return _checkbuffers(C)
 end
 # helper functions for these methods and some of those below
-@inline _densecoloffsets(A::AbstractDensedSparseVector) = 0
+@inline _densecoloffsets(A::AbstractVectorDensedSparseVector) = 0
 @inline _densecoloffsets(A::AbstractVVectorDensedSparseVector) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
-function _densestructure!(A::AbstractDensedSparseVector)
+function _densestructure!(A::AbstractVectorDensedSparseVector)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
@@ -905,7 +902,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrMat, A::D
     end
     return _checkbuffers(C)
 end
-_finishempty!(C::AbstractDensedSparseVector) = C
+_finishempty!(C::AbstractVectorDensedSparseVector) = C
 ###_finishempty!(C::AbstractVVectorDensedSparseVector) = (fill!(getcolptr(C), 1); C)
 _finishempty!(C::AbstractVVectorDensedSparseVector) = C
 
@@ -1114,7 +1111,7 @@ end
     return _copy(bcf.f, bcf.args...)
 end
 
-_copy(f, args::AbstractDensedSparseVector...) = _shapecheckbc(f, args...)
+_copy(f, args::AbstractVectorDensedSparseVector...) = _shapecheckbc(f, args...)
 _copy(f, args::AbstractVVectorDensedSparseVector...) = _shapecheckbc(f, args...)
 _copy(f, args::DensedSparseVecOrMat...) = _diffshape_broadcast(f, args...)
 # Otherwise, we incorporate scalars into the function and re-dispatch
