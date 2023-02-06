@@ -137,6 +137,11 @@ end
                 @test [2] .* dsv1 == dsv3
                 @test 2 .* dsv1 == dsv3
                 @test dsv2 .* 2 == dsv3
+                @test dsv2 .+ 2 == sv .+ 2
+                @test (dsv3 .= dsv2 .* 2; dsv3 == sv .* 2)
+                @test (dsv3 .= dsv2 .+ 2; dsv3 == sv .+ 2)
+                @test (dsv3 .= dsv2 .+ 2*dsv1; dsv3 == sv .* 3)
+                @test (dsv2 .= 2; dsv2 == fill!(copy(dsv3), 2))
                 #@test dsv1 .+ [2] == dsv3 .+ 2
 
 

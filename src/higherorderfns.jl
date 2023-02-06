@@ -207,12 +207,12 @@ _noshapecheck_map!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, Bs::
     if _haszeros(A) && all(_haszeros, Bs)
         fofzeros = f(_zeros_eltypes(A, Bs...)...)
         if _iszero(fofzeros)
-            _map_zeropres!(f, C, A, Bs...)
+            _map_similar_zeropres!(f, C, A, Bs...)
         else
-            _map_notzeropres!(f, fofzeros, C, A, Bs...)
+            _map_similar_notzeropres!(f, fofzeros, C, A, Bs...)
         end
     else
-        _map_zeropres!(f, C, A, Bs...)
+        _map_similar_zeropres!(f, C, A, Bs...)
     end
 
 
@@ -227,7 +227,7 @@ function _noshapecheck_map(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSpar
         ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
         if fpreszeros
             C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
-            return _map_zeropres!(f, C, A, Bs...)
+            return _map_similar_zeropres!(f, C, A, Bs...)
         else
             C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
             return _map_notzeropres!(f, fofzeros, C, A, Bs...)
@@ -322,7 +322,7 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 @inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,AbstractAllDensedSparseVector}) = first(As)
 @inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,Any}) = first(As)
 @inline _promote_dest_arg(As::Tuple{Any,AbstractAllDensedSparseVector}) = last(As)
-@inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((first(As), first(last(As)))), last(last(As))...))
+@inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
@@ -345,11 +345,25 @@ function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk)
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
+function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
+    for (dst, rest) in zip(nzchunks(C), nzchunks(A))
+        dst .= f.(rest)
+    end
+    return C
+end
 
 """
 Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 `f(A[i])`/`f(A[i,j])` in place of each stored entry `A[i]`/`A[i,j]` in `A`.
 """
+function _map_similar_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
+    fill!(C, fillvalue)
+    nzvalsC = first(nzchunks(C))
+    for (i,v) in nzpairs(A)
+        nzvalsC[i] = f(v)
+    end
+    return C
+end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -385,6 +399,12 @@ end
 
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
+function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
+    for (dst, rest...) in zip(nzchunks(C), nzchunks(A), nzchunks(B))
+        dst .= f.(rest...)
+    end
+    return C
+end
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
@@ -427,6 +447,14 @@ function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk,
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
+function _map_similar_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
+    fill!(C, fillvalue)
+    nzvalsC = first(nzchunks(C))
+    for ((iA,vA), (iB,vB)) in zip(nzpairs(A), nzpairs(B))
+        nzvalsC[iA] = f(vA, vB)
+    end
+    return C
+end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -462,6 +490,13 @@ end
 
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
+function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
+    nzchunksiters = (nzchunks(C), map(nzchunks, As)...)
+    for (dst, rest...) in zip(nzchunksiters...)
+        dst .= f.(rest...)
+    end
+    return C
+end
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     spaceC::Int = length(nonzeros(C))
     rowsentinel = numrows(C) + 1
