@@ -334,9 +334,11 @@ Base.eltype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Tv
 SparseArrays.indtype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Ti
 Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexLinear()
 
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = similar(V, Tv)
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}, ::Type{TvNew}) where {Tv,Ti,TvNew} = similar(V, TvNew, Ti)
-function Base.similar(V::DensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = similar(V, Tv, Ti, BZP)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}) where {Tv,Ti,BZP,TvNew} = similar(V, TvNew, Ti, BZP)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew} = similar(V, TvNew, TiNew, BZP)
+
+function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
     nzind = similar(V.nzind, TiNew)
     nzchunks = similar(V.nzchunks)
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
@@ -345,13 +347,13 @@ function Base.similar(V::DensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{Ti
     end
     return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks)
 end
-function Base.similar(V::FixedDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+function Base.similar(V::FixedDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
     nzind = Vector{TiNew}(V.nzind)
     nzchunks = similar(V.nzchunks, TvNew)
     offsets = Vector{Int}(V.offsets)
     return FixedDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks, offsets)
 end
-function Base.similar(V::DynamicDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
     nzchunks = SortedDict{TiNew, Vector{TvNew}, FOrd}(Forward)
     for (k,d) in nzchunkspairs(V)
         nzchunks[k] = similar(d, TvNew)
