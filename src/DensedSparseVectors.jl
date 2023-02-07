@@ -44,21 +44,21 @@ import SparseArrays: indtype, nonzeroinds, nonzeros
 using Random
 
 
-abstract type AbstractAllDensedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractAllDensedSparseVector{Tv,Ti,BZP} <: AbstractSparseVector{Tv,Ti} end
 
 "Vector alike DensedSparseVector kind"
-abstract type AbstractDensedSparseVector{Tv,Ti} <: AbstractAllDensedSparseVector{Tv,Ti} end
+abstract type AbstractDensedSparseVector{Tv,Ti,BZP} <: AbstractAllDensedSparseVector{Tv,Ti,BZP} end
 "Matrix alike Vector of Vectors kind"
-abstract type AbstractDensedBlockSparseVector{Tv,Ti} <: AbstractAllDensedSparseVector{Tv,Ti} end
+abstract type AbstractDensedBlockSparseVector{Tv,Ti,BZP} <: AbstractAllDensedSparseVector{Tv,Ti,BZP} end
 
 "Simple VectorDensedSparseVector kind"
-abstract type AbstractSimpleDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
+abstract type AbstractSimpleDensedSparseVector{Tv,Ti,BZP} <: AbstractDensedSparseVector{Tv,Ti,BZP} end
 "Based on SortedDict VectorDensedSparseVector kind"
-abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
+abstract type AbstractSDictDensedSparseVector{Tv,Ti,BZP} <: AbstractDensedSparseVector{Tv,Ti,BZP} end
 
 
 "All Vector alike types `<: AbstractAllDensedSparseVector`"
-const AbstractVecbasedDensedSparseVector{Tv,Ti} = Union{AbstractSimpleDensedSparseVector{Tv,Ti}, AbstractDensedBlockSparseVector{Tv,Ti}}
+const AbstractVecbasedDensedSparseVector{Tv,Ti,BZP} = Union{AbstractSimpleDensedSparseVector{Tv,Ti,BZP}, AbstractDensedBlockSparseVector{Tv,Ti,BZP}}
 
 
 """
@@ -70,7 +70,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
+mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -85,25 +85,31 @@ mutable struct DensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,
     "Number of stored non-zero elements"
     nnz::Int
 
-    DensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks) where {Tv,Ti} =
-        new{Tv,Ti}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
-    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = new{Tv,Ti}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
+    DensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n, nzind, nzchunks)
+    DensedSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
+
+    #DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
+    DensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} = new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
 end
 
-DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int}(n)
+DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Val{false}}(n)
+DensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(V)
 
-function DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti}
+DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DensedSparseVector{Tv,Ti,BZP}(V)
+
+function DensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
     nzind = Vector{Ti}(undef, nnzchunks(V))
     nzchunks = Vector{Vector{Tv}}(undef, length(nzind))
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
         nzind[i] = k
         nzchunks[i] = Vector{Tv}(d)
     end
-    return DensedSparseVector{Tv,Ti}(length(V), nzind, nzchunks)
+    return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
 end
 
 #"View for DensedSparseVector"
-#struct DensedSparseVectorView{Tv,Ti,T,Tc} <: AbstractVecbasedDensedSparseVector{Tv,Ti}
+#struct DensedSparseVectorView{Tv,Ti,T,Tc} <: AbstractVecbasedDensedSparseVector{Tv,Ti,BZP}
 #    "Index of first chunk in `view` V"
 #    firstnzchunk_index::Int
 #    "Index of last chunk in `view` V"
@@ -121,7 +127,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct FixedDensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
+mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -135,14 +141,15 @@ mutable struct FixedDensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVecto
     "Number of stored non-zero elements"
     nnz::Int
 
-    FixedDensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti} =
-        new{Tv,Ti}(0, nzind, nzchunks, offsets, n, length(nzchunks))
+    FixedDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(0, nzind, nzchunks, offsets, n, length(nzchunks))
 end
 
 
-FixedDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = FixedDensedSparseVector{Tv,Ti}(V)
+FixedDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = FixedDensedSparseVector{Tv,Ti,Val{false}}(V)
+FixedDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = FixedDensedSparseVector{Tv,Ti,BZP}(V)
 
-function FixedDensedSparseVector{Tv,Ti}(V::AbstractAllDensedSparseVector) where {Tv,Ti}
+function FixedDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
     nzind = Vector{Ti}(undef, nnzchunks(V))
     nzchunks = Vector{Tv}(undef, nnz(V))
     offsets = Vector{Int}(undef, nnzchunks(V)+1)
@@ -152,7 +159,7 @@ function FixedDensedSparseVector{Tv,Ti}(V::AbstractAllDensedSparseVector) where 
         offsets[i+1] = offsets[i] + length(d)
         @view(nzchunks[offsets[i]:offsets[i+1]-1]) .= Tv.(d)
     end
-    return FixedDensedSparseVector{Tv,Ti}(length(V), nzind, nzchunks, offsets)
+    return FixedDensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks, offsets)
 end
 
 
@@ -165,7 +172,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractDensedBlockSparseVector{Tv,Ti}
+mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -178,13 +185,14 @@ mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractDensedBlockSparseVector{
     "Number of stored non-zero elements"
     nnz::Int
 
-    DensedSVSparseVector{Tv,Ti,m}(n::Integer, nzind, nzchunks) where {Tv,Ti,m} =
-        new{Tv,Ti,m}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
-    DensedSVSparseVector{Tv,Ti,m}(n::Integer = 0) where {Tv,Ti,m} =
-        new{Tv,Ti,m}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
+    DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer, nzind, nzchunks) where {Tv,Ti,m,BZP} =
+        new{Tv,Ti,m,BZP}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
+    DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer = 0) where {Tv,Ti,m,BZP} =
+        new{Tv,Ti,m,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
 end
 
-DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m}(n)
+DensedSVSparseVector{Tv,Ti,m}(V) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(V)
+DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m,Val{false}}(n)
 
 
 
@@ -196,7 +204,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedBlockSparseVector{Tv,Ti}
+mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -213,11 +221,12 @@ mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedBlockSparseVector{Tv
     "Dummy for empty `getindex` returns"
     dummy::Vector{Tv}
 
-    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-        new{Tv,Ti}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
 end
 
-DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
+DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
+DensedVLSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(V)
 
 
 
@@ -232,7 +241,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DynamicDensedSparseVector{Tv,Ti} <: AbstractSDictDensedSparseVector{Tv,Ti}
+mutable struct DynamicDensedSparseVector{Tv,Ti,BZP} <: AbstractSDictDensedSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::DataStructures.Tokens.IntSemiToken
     "Storage for indices of the first element of non-zero chunks and corresponding chunks as `SortedDict(Int=>Vector)`"
@@ -242,22 +251,24 @@ mutable struct DynamicDensedSparseVector{Tv,Ti} <: AbstractSDictDensedSparseVect
     "Number of stored non-zero elements"
     nnz::Int
 
-    function DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
+    function DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP}
         nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
-        new{Tv,Ti}(beforestartsemitoken(nzchunks), nzchunks, n, 0)
+        new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, 0)
     end
-    DynamicDensedSparseVector{Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
-        new{Tv,Ti}(beforestartsemitoken(nzchunks), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0))
+    DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,BZP,K,V<:AbstractVector} =
+        new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0))
 end
 
 DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
+DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
 
-function DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti}
+DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DynamicDensedSparseVector{Tv,Ti,BZP}(V)
+function DynamicDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
     nzchunks = SortedDict{Ti, Vector{Tv}, FOrd}(Forward)
     for (k,d) in nzchunkspairs(V)
         nzchunks[k] = Vector{Tv}(d)
     end
-    return DynamicDensedSparseVector{Tv,Ti}(length(V), nzchunks)
+    return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
 end
 
 """
@@ -267,7 +278,7 @@ Convert any particular `AbstractSparseVector`s to corresponding `AbstractAllDens
 
 """
 function (::Type{T})(V::AbstractSparseVector{Tv,Ti}) where {T<:AbstractAllDensedSparseVector,Tv,Ti}
-    sv = T{Tv,Ti}(length(V))
+    sv = T{Tv,Ti,Val{false}}(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
     end
@@ -280,7 +291,8 @@ Convert any `AbstractSparseVector`s to particular `AbstractAllDensedSparseVector
     DensedSparseVector{Float64,Int}(sv)
 
 """
-function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = T{Tv,Ti,Val{false}}(V)
+function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti,BZP}} where {Tv,Ti,BZP}
     sv = T(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
@@ -289,8 +301,9 @@ function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseV
 end
 
 
-(::Type{T})(V::DenseVector{Tv}) where {T<:AbstractAllDensedSparseVector,Tv} = T{Tv,Int}(V)
-function (::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
+(::Type{T})(V::DenseVector{Tv}) where {T<:AbstractAllDensedSparseVector,Tv} = T{Tv,Int,Val{false}}(V)
+(::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}} = T{Tv,Ti,Val{false}}(V)
+function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparseVector{Tv,Ti,BZP}}
     dsv = T(length(V))
     for (i,d) in enumerate(V)
         dsv[i] = d
@@ -299,7 +312,7 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVect
     #nzind = ones(Ti, 1)
     #nzchunks = Vector{Vector{Tv}}(undef, length(nzind))
     #nzchunks[1] = Vector{Tv}(V)
-    #return DensedSparseVector{Tv,Ti}(length(V), nzind, nzchunks)
+    #return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
 end
 
 

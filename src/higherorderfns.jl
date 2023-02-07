@@ -28,7 +28,7 @@ using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparse
 
 const SparseVector2 = DensedSparseVector
 
-mutable struct SparseMatrixCSC2{Tv,Ti,m} <: AbstractDensedBlockSparseVector{Tv,Ti}
+mutable struct SparseMatrixCSC2{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
    "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
