@@ -1,12 +1,24 @@
 
-# TODO: Create ConsDensedSparseVector{Tv,Ti} with single consecuitive nzchunks and offsets[1:n+1]. Maybe FixedDensedSparseVector?
+# TODO:
+# *  Introduce offsets fields to all types to have indexable iterator
+#    nonzeros(::AbstractAllDensedSparseVector): getindex(it::NZValues, i)
 #
-# TODO: Introduce offsets fields to all types to have indexable iterator nonzeros(::AbstractAllDensedSparseVector): getindex(it::NZValues, i)
-#
-# TODO: Introduce ChainIndex: ((chain_ind, element_ind), LinearIndex) like CartesianIndex
+# * Introduce ChainIndex: ((chain_ind, element_ind), LinearIndex) like CartesianIndex
 #       for fast AbstractAllDensedSparseVector access without searchsortedlast and so on.
+#
+# * Test https://github.com/JuliaSIMD/StrideArrays.jl instead of StaticArrays.
+#
+# * Create `@zp` macro to force preserve zero structure in DensedSparseVectors broadcast:
+#   `@zp dest .= dsv .+ 2`
+#   Or create flag BradcastZeroPreserve=Val(false) in DensedSparseVectors types for this purpose:
+#       AbstractAllDensedSparseVector{Tv,Ti,BZP}
+#   Or introduce lazy wrapper `ZeroPres` like `Adjoint`. Or `Fixed` wrapper?
+#   Or may be use `FixedDensedSparseVector` for this purpose?
+#   Or may be use `AbstractAllBZPDensedSparseVector` for this purpose?
+#
 
 module DensedSparseVectors
+
 export AbstractAllDensedSparseVector
 export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
@@ -277,6 +289,19 @@ function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseV
 end
 
 
+(::Type{T})(V::DenseVector{Tv}) where {T<:AbstractAllDensedSparseVector,Tv} = T{Tv,Int}(V)
+function (::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
+    dsv = T(length(V))
+    for (i,d) in enumerate(V)
+        dsv[i] = d
+    end
+    return dsv
+    #nzind = ones(Ti, 1)
+    #nzchunks = Vector{Vector{Tv}}(undef, length(nzind))
+    #nzchunks[1] = Vector{Tv}(V)
+    #return DensedSparseVector{Tv,Ti}(length(V), nzind, nzchunks)
+end
+
 
 
 
@@ -305,6 +330,12 @@ function Base.similar(V::DensedSparseVector, Tvn::Type, Tin::Type)
         nzchunks[i] = similar(d, Tvn)
     end
     return DensedSparseVector{Tvn,Tin}(length(V), nzind, nzchunks)
+end
+function Base.similar(V::FixedDensedSparseVector, Tvn::Type, Tin::Type)
+    nzind = Vector{Tin}(V.nzind)
+    nzchunks = similar(V.nzchunks, Tvn)
+    offsets = Vector{Int}(V.offsets)
+    return FixedDensedSparseVector{Tvn,Tin}(length(V), nzind, nzchunks, offsets)
 end
 function Base.similar(V::DynamicDensedSparseVector, Tvn::Type, Tin::Type)
     nzchunks = SortedDict{Tin, Vector{Tvn}, FOrd}(Forward)
@@ -338,8 +369,8 @@ Base.collect(V::AbstractAllDensedSparseVector) = collect(eltype(V), V)
     end
     return len
 end
-@inline nnzchunks(V::AbstractAllDensedSparseVector) = length(getfield(V, :nzind))
-#@inline nnzchunks(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} = foldl((s,c)->(s+1), nzchunks(V); init=0)
+@inline nnzchunks(V::AbstractAllDensedSparseVector) = length(getfield(V, :nzchunks))
+@inline nnzchunks(V::FixedDensedSparseVector) = length(getfield(V, :nzind))
 function nnzchunks(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector}
     length(V) == 0 && return 0
     idx1 = searchsortedlast_nzchunk(V.parent, first(V.indices[1]))
@@ -416,9 +447,6 @@ end
 @inline is_in_nzchunk(V::AbstractVecbasedDensedSparseVector, i, key) = V.nzind[i] <= key < V.nzind[i] + length(V.nzchunks[i])
 @inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzind[i] <= key < V.nzind[i] + V.offsets[i+1]-V.offsets[i]
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, i, key) = ((ichunk, chunk) = deref((V.nzchunks, i)); return (ichunk <= key < ichunk + length(chunk)))
-
-@inline getindex_nzchunk(V::AbstractVecbasedDensedSparseVector, chunk, i) = chunk[i]
-@inline getindex_nzchunk(V::DynamicDensedSparseVector, chunk, i) = chunk[i]
 
 @inline firstnzchunk_index(V::AbstractVecbasedDensedSparseVector) = firstindex(V.nzind)
 @inline firstnzchunk_index(V::AbstractSDictDensedSparseVector) = startof(V.nzchunks)
@@ -615,6 +643,7 @@ Base.@propagate_inbounds SparseArrays.nnz(V::DenseArray) = length(V)
 
 "`iteratenzchunks(V::AbstractVector)` iterates over non-zero chunks and returns start index of elements in chunk and chunk"
 Base.@propagate_inbounds function iteratenzchunks(V::AbstractVecbasedDensedSparseVector, state = 1)
+    # TODO: incorporate `length(V.nzind)` into state if it will have performance improvements
     if state <= length(V.nzind)
         return (state, state + 1)
     else
@@ -800,7 +829,6 @@ end
 for (fn, ret1, ret2) in
         ((:iteratenzpairs    ,  :((Ti(key+nextpos-1), chunk[nextpos]))              , :((key, chunk[1]))         ),
          (:iteratenzpairsview,  :((Ti(key+nextpos-1), view(chunk, nextpos:nextpos))), :((key, view(chunk, 1:1))) ),
-         #(:(Base.iterate)    ,  :(chunk[nextpos])                                   , :(chunk[1])                ),
          (:iteratenzvalues   ,  :(chunk[nextpos])                                   , :(chunk[1])                ),
          (:iteratenzvaluesview, :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzindices  ,  :(Ti(key+nextpos-1))                                , :(key)                     ))
@@ -826,8 +854,6 @@ for (fn, ret1, ret2) in
                                 :((Ti(key-first(V.indices[1])+1), chunk[1]))                                 ),
          (:iteratenzpairsview,  :((Ti(key+nextpos-1-first(V.indices[1])+1), view(chunk, nextpos:nextpos))),
                                 :((Ti(key-first(V.indices[1])+1), view(chunk, 1:1)))                         ),
-         #(:(Base.iterate)    ,  :(chunk[nextpos])                                                         ,
-         #                       :(chunk[1])                                                                  ),
          (:iteratenzvalues   ,  :(chunk[nextpos])                                                         ,
                                 :(chunk[1])                                                                  ),
          (:iteratenzvaluesview, :(view(chunk, nextpos:nextpos))                                           ,
@@ -1021,7 +1047,7 @@ end
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
         ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
         if ifirst <= i < ifirst + len
-            return getindex_nzchunk(V, chunk, i - ifirst + 1)
+            return chunk[i - ifirst + 1]
         end
     end
     # cached chunk index miss or index not stored
@@ -1030,7 +1056,7 @@ end
         ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
         if i < ifirst + len  # is the index `i` inside of data chunk indices range
             V.lastusedchunkindex = st
-            return getindex_nzchunk(V, chunk, i - ifirst + 1)
+            return chunk[i - ifirst + 1]
         end
     end
     V.lastusedchunkindex = beforestartnzchunk_index(V)
@@ -1098,6 +1124,8 @@ end
             return V
         end
     end
+
+    V.lastusedchunkindex = beforestartnzchunk_index(V)
 
     throw(BoundsError(V, i))
 end

@@ -19,7 +19,8 @@ using StaticArrays
 
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
-                             AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector
+                             AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
+                             _are_similar_shape
 
 # Some Unions definitions
 
@@ -226,10 +227,12 @@ function _noshapecheck_map(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSpar
         ###maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
         ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
         if fpreszeros
-            C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
+            #C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
+            C = similar(A, entrytypeC, indextypeC)
             return _map_similar_zeropres!(f, C, A, Bs...)
         else
-            C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
+            #C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
+            C = basetype(typeof(A)){entrytypeC, indextypeC}(length(A))
             return _map_notzeropres!(f, fofzeros, C, A, Bs...)
         end
     else
@@ -318,8 +321,9 @@ end
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 # resolve arg for dest type promote
 @inline _promote_dest_arg(As::Tuple{Any}) = first(As)
-@inline _promote_dest_arg(As::Tuple{Any,Any}) = first(As)
-@inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,AbstractAllDensedSparseVector}) = first(As)
+@inline _promote_dest_arg(As::Tuple{Any,Any}) = length(first(As)) <= 1 ? last(As) : first(As)
+@inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,AbstractAllDensedSparseVector}) =
+        length(first(As)) <= 1 ? last(As) : first(As)
 @inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,Any}) = first(As)
 @inline _promote_dest_arg(As::Tuple{Any,AbstractAllDensedSparseVector}) = last(As)
 @inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
@@ -346,6 +350,10 @@ function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk)
     return _checkbuffers(C)
 end
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
+    #for ((kd,dst), (kr,rest)) in zip(nzchunkspairs(C), nzchunkspairs(A))
+    #    @assert kd == kr
+    #    dst .= f.(rest)
+    #end
     for (dst, rest) in zip(nzchunks(C), nzchunks(A))
         dst .= f.(rest)
     end
@@ -359,25 +367,27 @@ Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 function _map_similar_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
-    for (i,v) in nzpairs(A)
-        nzvalsC[i] = f(v)
+    #for (i,v) in nzpairs(A)
+    #    nzvalsC[i] = f(v)
+    for (Ai, Axs) in nzchunkspairs(A)
+        @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
     end
     return C
 end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
+    # DONE!
     # Build dense matrix structure in C, expanding storage if necessary
-    _densestructure!(C)
+    ###_densestructure!(C)
     # Populate values
-    fill!(storedvals(C), fillvalue)
-    @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
-        for Ak in colrange(A, j)
-            Cx = f(storedvals(A)[Ak])
-            Cx != fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
-        end
+    fill!(C, fillvalue)
+    nzvalsC = first(nzchunks(C))
+    for (Ai, Axs) in nzchunkspairs(A)
+        #@view(C[Ai:Ai+length(Axs)-1]) .= f.(Axs)
+        @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
     end
     # NOTE: Combining the fill! above into the loop above to avoid multiple sweeps over /
     # nonsequential access of storedvals(C) does not appear to improve performance.
-    return _checkbuffers(C)
+    return C
 end
 # helper functions for these methods and some of those below
 @inline _densecoloffsets(A::AbstractDensedSparseVector) = 0
@@ -672,9 +682,9 @@ end
 # (8) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a pair of (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     isempty(C) && return _finishempty!(C)
-    spaceC::Int = length(nonzeros(C))
-    rowsentinelA = convert(indtype(A), numrows(C) + 1)
-    rowsentinelB = convert(indtype(B), numrows(C) + 1)
+    ###spaceC::Int = length(nonzeros(C))
+    ###rowsentinelA = convert(indtype(A), numrows(C) + 1)
+    ###rowsentinelB = convert(indtype(B), numrows(C) + 1)
     # C, A, and B cannot all have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous combinations of mats/vecs
     # with no singleton dimensions, one singleton dimension, and two singleton dimensions.
@@ -690,7 +700,7 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVec
     # hurts performance appreciably in some cases.
     #
     # Cases without vertical expansion
-    Ck = 1
+    ###Ck = 1
     if numrows(A) == numrows(B) == numrows(C)
         @inbounds for j in columns(C)
             setcolptr!(C, j, Ck)
@@ -752,91 +762,78 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVec
             end
         end
     elseif numrows(A) == 1 # && numrows(B) == numrows(C) != 1 , vertically expand only A
-        @inbounds for j in columns(C)
-            setcolptr!(C, j, Ck)
-            Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
-            Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
-            Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
+        ###@inbounds for j in columns(C)
+            ###setcolptr!(C, j, Ck)
+            ###Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
+            ###Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
+            ###Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
+            Ax = nnz(A) != 0 ? first(A) : zero(eltype(A))
             fvAzB = f(Ax, zero(eltype(B)))
             if _iszero(fvAzB)
                 # either A's jth column is empty, or A's jth column contains a nonzero value
                 # Ax but f(Ax, zero(eltype(B))) is nonetheless zero, so we can scan through
                 # B's jth column without storing every entry in C's jth column
-                while Bk < stopBk
-                    Cx = f(Ax, storedvals(B)[Bk])
-                    if _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
-                        storedinds(C)[Ck] = storedinds(B)[Bk]
-                        storedvals(C)[Ck] = Cx
-                        Ck += 1
+                if _are_similar_shape(C, B)
+                    for (Cxs, Bxs) in zip(nzchunks(C), nzchunks(B))
+                        Cxs .= f.(Ax, Bxs)
                     end
-                    Bk += oneunit(Bk)
+                else
+                    empty!(C)
+                    for (Bi, Bx) in nzpairs(B)
+                        C[Bi] = f(Ax, Bx)
+                    end
                 end
             else
                 # A's jth column is nonempty and f(Ax, zero(eltype(B))) is not zero, so
                 # we must store (likely) every entry in C's jth column
-                Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-                for Ci::indtype(C) in 1:numrows(C)
-                    if Bi == Ci
-                        Cx = f(Ax, storedvals(B)[Bk])
-                        Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-                    else
-                        Cx = fvAzB
-                    end
+                empty!(C)
+                for (Bi, Bx) in enumerate(B)
+                    Cx = f(Ax, Bx)
                     if _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
-                        storedinds(C)[Ck] = Ci
-                        storedvals(C)[Ck] = Cx
-                        Ck += 1
+                        C[Bi] = Cx
                     end
                 end
             end
-        end
+        ###end
     else # numrows(B) == 1 && numrows(A) == numrows(C) != 1, vertically expand only B
-        @inbounds for j in columns(C)
-            setcolptr!(C, j, Ck)
-            Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
-            Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
-            Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
+        # DONE!
+        ###@inbounds for j in columns(C)
+            ###setcolptr!(C, j, Ck)
+            ###Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
+            ###Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
+            ###Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
+            Bx = nnz(B) != 0 ? first(B) : zero(eltype(B))
             fzAvB = f(zero(eltype(A)), Bx)
             if _iszero(fzAvB)
                 # either B's jth column is empty, or B's jth column contains a nonzero value
                 # Bx but f(zero(eltype(A)), Bx) is nonetheless zero, so we can scan through
                 # A's jth column without storing every entry in C's jth column
-                while Ak < stopAk
-                    Cx = f(storedvals(A)[Ak], Bx)
-                    if _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
-                        storedinds(C)[Ck] = storedinds(A)[Ak]
-                        storedvals(C)[Ck] = Cx
-                        Ck += 1
+                if _are_similar_shape(C, A)
+                    for (Cxs, Axs) in zip(nzchunks(C), nzchunks(A))
+                        Cxs .= f.(Axs, Bx)
                     end
-                    Ak += oneunit(Ak)
+                else
+                    empty!(C)
+                    for (Ai, Ax) in nzpairs(A)
+                        C[Ai] = f(Ax, Bx)
+                    end
                 end
             else
                 # B's jth column is nonempty and f(zero(eltype(A)), Bx) is not zero, so
                 # we must store (likely) every entry in C's jth column
-                Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                for Ci::indtype(C) in 1:numrows(C)
-                    if Ai == Ci
-                        Cx = f(storedvals(A)[Ak], Bx)
-                        Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                    else
-                        Cx = fzAvB
-                    end
+                empty!(C)
+                for (Ai, Ax) in enumerate(A)
+                    Cx = f(Ax, Bx)
                     if _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
-                        storedinds(C)[Ck] = Ci
-                        storedvals(C)[Ck] = Cx
-                        Ck += 1
+                        C[Ai] = Cx
                     end
                 end
             end
-        end
+        ###end
     end
-    @inbounds setcolptr!(C, numcols(C) + 1, Ck)
-    trimstorage!(C, Ck - 1)
-    return _checkbuffers(C)
+    ###@inbounds setcolptr!(C, numcols(C) + 1, Ck)
+    ###trimstorage!(C, Ck - 1)
+    return C
 end
 function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
