@@ -1,21 +1,32 @@
 
 # TODO:
-# *  Introduce offsets fields to all types to have indexable iterator
-#    nonzeros(::AbstractAllDensedSparseVector): getindex(it::NZValues, i)
+# * Introduce offsets fields to all types to have indexable iterator
+#   nonzeros(::AbstractAllDensedSparseVector): getindex(it::NZValues, i) and
+#   fast `_are_same_sparse_indices()`
 #
-# * Introduce ChainIndex: ((chain_ind, element_ind), LinearIndex) like CartesianIndex
-#       for fast AbstractAllDensedSparseVector access without searchsortedlast and so on.
+# * Introduce ChainIndex: ((chain_index, element_index), LinearIndex) like CartesianIndex
+#   for fast AbstractAllDensedSparseVector access without searchsortedlast and so on.
 #
 # * Test https://github.com/JuliaSIMD/StrideArrays.jl instead of StaticArrays.
 #
-# * Create `@zp` macro to force preserve zero structure in DensedSparseVectors broadcast:
-#   `@zp dest .= dsv .+ 2`
-#   Or create flag BradcastZeroPreserve=Val(false) in DensedSparseVectors types for this purpose:
-#       AbstractAllDensedSparseVector{Tv,Ti,BZP}
-#   Or introduce lazy wrapper `ZeroPres` like `Adjoint`. Or `Fixed` wrapper?
-#   Or may be use `FixedDensedSparseVector` for this purpose?
-#   Or may be use `AbstractAllBZPDensedSparseVector` for this purpose?
 #
+# Notes:
+# * Broadcast is more fragile than `map`. `map` should be more agile in terms of vectors dimensions and
+#   other differences in argumens.
+#   In broadcast axes should be same, sparse indices are not should be same! There will be two branches
+#   for same indices and not.
+#   The `map` try to calculate anyway: in complex cases map will `convert()` to Vector and apply function.
+#   ```julia
+#   julia> map(+, (2,3,4), [1,2])
+#   2-element Vector{Int64}:
+#    3
+#    5
+#   ```
+#   In both cases the `firstindex(v)` should be same. In broadcast length should be same.
+#
+# * Shape is an like (2,3) in tuple in `reshape(V, (2,3))` and same operations.
+#
+
 
 module DensedSparseVectors
 
@@ -1859,7 +1870,7 @@ function _similar_resize!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseV
     return C
 end
 
-function _similar_shape!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
+function _similar_sparse_indices!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
     isempty(C) && return _similar_resize!(C, A)
     C.n = A.n
     C.nnz = A.nnz == 0 && return empty!(C)
@@ -1902,26 +1913,48 @@ function _similar_shape!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVe
     return C
 end
 
+# derived from SparseArrays/src/higherorderfns.jl
+@inline _aresameshape(A) = true
+@inline _aresameshape(A, B) = size(A) == size(B)
+@inline _aresameshape(A, B, Cs...) = _aresameshape(A, B) ? _aresameshape(B, Cs...) : false
 
-@inline _are_similar_shape(A) = true
-@inline function _are_similar_shape(A, B)
-    if length(A) != length(B) || nnz(A) != nnz(B)
+#@inline function _are_same_sparse_indices(A, B, Cs...)
+#    if !reduce((a,b) -> length(a) == length(b)      , (A,B,Cs...)) ||
+#       !reduce((a,b) -> nnz(a) == nnz(b)            , (A,B,Cs...)) ||
+#       !reduce((a,b) -> nnzchunks(a) == nnzchunks(b), (A,B,Cs...))
+#        return false
+#    end
+#
+#    # WTF?????
+#    # there is the same number of chunks thus `zip` is enough
+#    for (ks, chunks) in zip(map(nzchunkspairs, (A,B,Cs...)))
+#        if !reduce(==, ks) || !reduce((a,b) -> length(a) == length(b), chunks)
+#            return false
+#        end
+#    end
+#    return true
+#end
+
+@inline _are_same_sparse_indices(A) = true
+@inline function _are_same_sparse_indices(A, B)
+    _aresameshape(A, B) || return false
+    if nnz(A) != nnz(B) || nnzchunks(A) != nnzchunks(B)
         return false
     end
-    for ((kA,cA), (kB,cB)) in zip(nzchunkspairs(A), nzchunkspairs(B))
+    for ((kA,cA), (kB,cB)) in zip(nzchunkspairs(A), nzchunkspairs(B)) # there is the same number of chunks thus `zip` is good
         if kA != kB || length(cA) != length(cB)
             return false
         end
     end
     return true
 end
-@inline _are_similar_shape(A, B, Cs...) = _are_similar_shape(A, B) ? _are_similar_shape(B, Cs...) : false
+@inline _are_same_sparse_indices(A, B, Cs...) = _are_same_sparse_indices(A, B) ? _are_same_sparse_indices(B, Cs...) : false
 
-_check_similar_shape(As...) = _are_similar_shape(As...) || throw(DimensionMismatch("argument shapes must match"))
+_check_same_sparse_indices(As...) = _are_same_sparse_indices(As...) || throw(DimensionMismatch("argument shapes must match"))
 
-_similar_shape!(C::FixedDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti} = (_check_similar_shape(C, A); return C)
+_similar_sparse_indices!(C::FixedDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti} = (_check_same_sparse_indices(C, A); return C)
 
-function _similar_shape!(C::DynamicDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
+function _similar_sparse_indices!(C::DynamicDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
     C.n = A.n
     C.nnz = A.nnz == 0 && return empty!(C)
 
@@ -1964,7 +1997,7 @@ end
 @inline _copy_chunk_to!(C::DynamicDensedSparseVector{Tv,Ti}, i, k, chunk) where {Tv,Ti} = C.nzchunks[Ti(k)] .= Tv.(chunk)
 
 function Base.copyto!(C::AbstractDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
-    _similar_shape!(C, A)
+    _similar_sparse_indices!(C, A)
     for (i, (k,chunk)) in enumerate(nzchunkspairs(A))
         _copy_chunk_to!(C, i, k, chunk)
     end

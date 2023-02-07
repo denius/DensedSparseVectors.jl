@@ -20,7 +20,7 @@ using StaticArrays
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
-                             _are_similar_shape
+                             _are_same_sparse_indices
 
 # Some Unions definitions
 
@@ -221,23 +221,27 @@ function _noshapecheck_map(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSpar
     # Avoid calculating f(zero) unless necessary as it may fail.
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
+    BZPness = _promote_args_zero_preserve(A, Bs...)
     if _haszeros(A) && all(_haszeros, Bs)
         fofzeros = f(_zeros_eltypes(A, Bs...)...)
         fpreszeros = _iszero(fofzeros)
         ###maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
         ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
         if fpreszeros
-            #C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
-            C = similar(A, entrytypeC, indextypeC)
+            C = similar(A, entrytypeC, indextypeC, Val{BZPness})
             return _map_similar_zeropres!(f, C, A, Bs...)
         else
-            #C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
-            C = basetype(typeof(A)){entrytypeC, indextypeC}(length(A))
+            if is_broadcast_zero_preserve(A)
+                C = similar(A, entrytypeC, indextypeC, Val{BZPness})
+            else
+                C = basetype(typeof(A)){entrytypeC, indextypeC, Val{BZPness}}(length(A))
+            end
             return _map_notzeropres!(f, fofzeros, C, A, Bs...)
         end
     else
-        maxnnzC = Int(widelength(A))
-        C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        ###maxnnzC = Int(widelength(A))
+        ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        C = similar(A, entrytypeC, indextypeC, Val{BZPness})
         return _map_zeropres!(f, C, A, Bs...)
     end
 end
@@ -250,12 +254,21 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
     f = bc.f
     fofnoargs = f()
     if _iszero(fofnoargs) # f() is zero, so empty C
-        trimstorage!(C, 0)
-        _finishempty!(C)
+        for c in nzchunks(C)
+            fill!(c, fofnoargs)
+        end
     else # f() is nonzero, so densify C and fill with independent calls to f()
-        _densestructure!(C)
-        storedvals(C)[1] = fofnoargs
-        broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
+        if is_broadcast_zero_preserve(C)
+            for c in nzchunks(C)
+                fill!(c, fofnoargs)
+            end
+        else
+            empty!(C) # TODO: _densestructure(C)
+            C[1] = fofnoargs
+            for i = 2:length(C)
+                C[i] = f()
+            end
+        end
     end
     return _checkbuffers(C)
 end
@@ -267,17 +280,21 @@ function _diffshape_broadcast(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedS
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     axesC = Base.Broadcast.combine_axes(A, Bs...)
-    shapeC = to_shape(axesC)
+    BZPness = _promote_args_zero_preserve(A, Bs...)
+    dest_arg = _promote_dest_arg((A, Bs...))
+    ###shapeC = to_shape(axesC)
     ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
     ###C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     if fpreszeros
-        C = similar(_promote_dest_arg((A, Bs...)), entrytypeC, indextypeC)
+        C = similar(dest_arg, entrytypeC, indextypeC, Val{BZPness})
+        return _broadcast_zeropres!(f, C, A, Bs...)
     else
-        C = basetype(typeof(_promote_dest_arg((A, Bs...)))){entrytypeC, indextypeC}(axesC)
+        typeC = basetype(typeof(dest_arg)){entrytypeC, indextypeC, Val{BZPness}}
+        C = typeC(axesC)
+        return _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
     end
-    return fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
-                        _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
 end
+
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _haszeros(A) = nnz(A) ≠ length(A)
 @inline _sumnnzs(A) = nnz(A)
@@ -327,6 +344,11 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 @inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,Any}) = first(As)
 @inline _promote_dest_arg(As::Tuple{Any,AbstractAllDensedSparseVector}) = last(As)
 @inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
+
+@inline _promote_args_zero_preserve(A) = false
+@inline _promote_args_zero_preserve(A::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
+@inline _promote_args_zero_preserve(A, Bs...) = _promote_args_zero_preserve(A) || _promote_args_zero_preserve(Bs...)
+
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
@@ -773,7 +795,7 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVec
                 # either A's jth column is empty, or A's jth column contains a nonzero value
                 # Ax but f(Ax, zero(eltype(B))) is nonetheless zero, so we can scan through
                 # B's jth column without storing every entry in C's jth column
-                if _are_similar_shape(C, B)
+                if _are_same_sparse_indices(C, B)
                     for (Cxs, Bxs) in zip(nzchunks(C), nzchunks(B))
                         Cxs .= f.(Ax, Bxs)
                     end
@@ -808,7 +830,7 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVec
                 # either B's jth column is empty, or B's jth column contains a nonzero value
                 # Bx but f(zero(eltype(A)), Bx) is nonetheless zero, so we can scan through
                 # A's jth column without storing every entry in C's jth column
-                if _are_similar_shape(C, A)
+                if _are_same_sparse_indices(C, A)
                     for (Cxs, Axs) in zip(nzchunks(C), nzchunks(A))
                         Cxs .= f.(Axs, Bx)
                     end
