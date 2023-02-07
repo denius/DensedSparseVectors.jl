@@ -25,6 +25,7 @@ export DensedSVSparseVector, DensedVLSparseVector
 export nzpairs, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
+export is_broadcast_zero_preserve
 
 
 import Base: ForwardOrdering, Forward
@@ -316,7 +317,7 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
 end
 
 
-
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
 
 Base.length(V::AbstractAllDensedSparseVector) = getfield(V, :n)
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} =
@@ -334,28 +335,28 @@ SparseArrays.indtype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Ti
 Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexLinear()
 
 Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = similar(V, Tv)
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}, ElType::Type) where {Tv,Ti} = similar(V, ElType, Ti)
-function Base.similar(V::DensedSparseVector, Tvn::Type, Tin::Type)
-    nzind = similar(V.nzind, Tin)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}, ::Type{TvNew}) where {Tv,Ti,TvNew} = similar(V, TvNew, Ti)
+function Base.similar(V::DensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+    nzind = similar(V.nzind, TiNew)
     nzchunks = similar(V.nzchunks)
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
         nzind[i] = k
-        nzchunks[i] = similar(d, Tvn)
+        nzchunks[i] = similar(d, TvNew)
     end
-    return DensedSparseVector{Tvn,Tin}(length(V), nzind, nzchunks)
+    return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks)
 end
-function Base.similar(V::FixedDensedSparseVector, Tvn::Type, Tin::Type)
-    nzind = Vector{Tin}(V.nzind)
-    nzchunks = similar(V.nzchunks, Tvn)
+function Base.similar(V::FixedDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+    nzind = Vector{TiNew}(V.nzind)
+    nzchunks = similar(V.nzchunks, TvNew)
     offsets = Vector{Int}(V.offsets)
-    return FixedDensedSparseVector{Tvn,Tin}(length(V), nzind, nzchunks, offsets)
+    return FixedDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks, offsets)
 end
-function Base.similar(V::DynamicDensedSparseVector, Tvn::Type, Tin::Type)
-    nzchunks = SortedDict{Tin, Vector{Tvn}, FOrd}(Forward)
+function Base.similar(V::DynamicDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew}
+    nzchunks = SortedDict{TiNew, Vector{TvNew}, FOrd}(Forward)
     for (k,d) in nzchunkspairs(V)
-        nzchunks[k] = similar(d, Tvn)
+        nzchunks[k] = similar(d, TvNew)
     end
-    return DynamicDensedSparseVector{Tvn,Tin}(length(V), nzchunks)
+    return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
 end
 
 
