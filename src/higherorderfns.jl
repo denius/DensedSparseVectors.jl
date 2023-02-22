@@ -20,7 +20,7 @@ using StaticArrays
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
-                             _are_same_sparse_indices
+                             _are_same_sparse_indices, _similar_full!
 
 # Some Unions definitions
 
@@ -75,9 +75,12 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 
 # (0) BroadcastStyle rules and convenience types for dispatch
 
-###AbstractAllDensedSparseVector = Union{AbstractAllDensedSparseVector,AbstractDensedBlockSparseVector}
-#DensedSparseVecOrBlk = Union{AbstractDensedSparseVector,AbstractSDictDensedSparseVector,AbstractDensedBlockSparseVector}
-DensedSparseVecOrBlk = Union{AbstractDensedSparseVector,AbstractDensedBlockSparseVector}
+#ADensedSparseVectorOrSpV = Union{AbstractDensedSparseVector,SparseVector}
+#DensedSparseVecOrBlk = Union{ADensedSparseVectorOrSpV,AbstractDensedBlockSparseVector}
+
+ADensedSparseVectorOrSpV = Union{AbstractDensedSparseVector,SparseVector}
+DensedSparseVecOrBlk = Union{ADensedSparseVectorOrSpV,AbstractDensedBlockSparseVector}
+
 SparseVecOrMat2 = Union{SparseVector2,SparseMatrixCSC2}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
@@ -204,45 +207,45 @@ map!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, Bs::Vararg{DensedS
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
 
 _noshapecheck_map!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N} =
+    # Args have same shape (axes). But Args can have different sparse indices.
     # Avoid calculating f(zero) unless necessary as it may fail.
     if _haszeros(A) && all(_haszeros, Bs)
         fofzeros = f(_zeros_eltypes(A, Bs...)...)
         if _iszero(fofzeros)
+            _similar_sparse_indices!(C, A, Bs...)
             _map_similar_zeropres!(f, C, A, Bs...)
         else
-            _map_similar_notzeropres!(f, fofzeros, C, A, Bs...)
+            _map_notzeropres!(f, fofzeros, C, A, Bs...)
         end
     else
-        _map_similar_zeropres!(f, C, A, Bs...)
+        _map_zeropres!(f, C, A, Bs...)
     end
 
 
 function _noshapecheck_map(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
+    # Args have same shape (axes). But Args can have different sparse indices.
     # Avoid calculating f(zero) unless necessary as it may fail.
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
-    BZPness = _promote_args_zero_preserve(A, Bs...)
+    BZPness = _are_broadcast_zero_preserve(A, Bs...)
     if _haszeros(A) && all(_haszeros, Bs)
         fofzeros = f(_zeros_eltypes(A, Bs...)...)
         fpreszeros = _iszero(fofzeros)
         ###maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
         ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-        if fpreszeros
+        if fpreszeros || _are_broadcast_zero_preserve(A, Bs...)
             C = similar(A, entrytypeC, indextypeC, Val{BZPness})
+            _similar_sparse_indices!(C, A, Bs...)
             return _map_similar_zeropres!(f, C, A, Bs...)
         else
-            if is_broadcast_zero_preserve(A)
-                C = similar(A, entrytypeC, indextypeC, Val{BZPness})
-            else
-                C = basetype(typeof(A)){entrytypeC, indextypeC, Val{BZPness}}(length(A))
-            end
+            C = basetype(typeof(A)){entrytypeC, indextypeC, Val{BZPness}}(length(A))
             return _map_notzeropres!(f, fofzeros, C, A, Bs...)
         end
-    else
+    else # some of A,Bs... has full shape
         ###maxnnzC = Int(widelength(A))
         ###C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
         C = similar(A, entrytypeC, indextypeC, Val{BZPness})
-        return _map_zeropres!(f, C, A, Bs...)
+        return _map_full_zeropres!(f, C, A, Bs...)
     end
 end
 
@@ -253,39 +256,34 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
     isempty(C) && return _finishempty!(C)
     f = bc.f
     fofnoargs = f()
-    if _iszero(fofnoargs) # f() is zero, so empty C
+    if _iszero(fofnoargs) || is_broadcast_zero_preserve(C)
         for c in nzchunks(C)
             fill!(c, fofnoargs)
         end
     else # f() is nonzero, so densify C and fill with independent calls to f()
-        if is_broadcast_zero_preserve(C)
-            for c in nzchunks(C)
-                fill!(c, fofnoargs)
-            end
-        else
-            empty!(C) # TODO: _densestructure(C)
-            C[1] = fofnoargs
-            for i = 2:length(C)
-                C[i] = f()
-            end
-        end
+        _expand_full!(C)
+        nzvalsC = first(nzchunks(C))
+        nzvalsC[1] = fofnoargs
+        broadcast!(f, view(nzvalsC, 2:length(nzvalsC)))
     end
-    return _checkbuffers(C)
+    return C
 end
 
 
 function _diffshape_broadcast(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
+    # this routine used in _copy() for operations with args which can have length() == 1,
+    # i.e. as scalar (sp)vectors and matrices.
     fofzeros = f(_zeros_eltypes(A, Bs...)...)
     fpreszeros = _iszero(fofzeros)
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     axesC = Base.Broadcast.combine_axes(A, Bs...)
-    BZPness = _promote_args_zero_preserve(A, Bs...)
+    BZPness = _are_broadcast_zero_preserve(A, Bs...)
     dest_arg = _promote_dest_arg((A, Bs...))
     ###shapeC = to_shape(axesC)
     ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
     ###C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
-    if fpreszeros
+    if fpreszeros || BZPness
         C = similar(dest_arg, entrytypeC, indextypeC, Val{BZPness})
         return _broadcast_zeropres!(f, C, A, Bs...)
     else
@@ -343,33 +341,52 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
         length(first(As)) <= 1 ? last(As) : first(As)
 @inline _promote_dest_arg(As::Tuple{AbstractAllDensedSparseVector,Any}) = first(As)
 @inline _promote_dest_arg(As::Tuple{Any,AbstractAllDensedSparseVector}) = last(As)
-@inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) = _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
+@inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) =
+            _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
 
-@inline _promote_args_zero_preserve(A) = false
-@inline _promote_args_zero_preserve(A::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
-@inline _promote_args_zero_preserve(A, Bs...) = _promote_args_zero_preserve(A) || _promote_args_zero_preserve(Bs...)
+@inline _are_broadcast_zero_preserve(A) = false
+@inline _are_broadcast_zero_preserve(A::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
+@inline _are_broadcast_zero_preserve(A, Bs...) = _are_broadcast_zero_preserve(A) || _are_broadcast_zero_preserve(Bs...)
 
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
-    spaceC::Int = length(nonzeros(C))
-    Ck = 1
-    @inbounds for j in columns(C)
-        setcolptr!(C, j, Ck)
-        for Ak in colrange(A, j)
-            Cx = f(storedvals(A)[Ak])
-            if _isnotzero(Cx)
-                Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
-                storedinds(C)[Ck] = storedinds(A)[Ak]
-                storedvals(C)[Ck] = Cx
-                Ck += 1
-            end
+    # C and A have same shape, but can have different sparse indices
+    nzpairsC = nzpairsview(view(C, :))
+    nzpairsA = nzpairs(A)
+    itrC = iterate(nzpairsC)
+    itrA = iterate(nzpairsA)
+    while itrC != nothing && itrA != nothing
+        ((iC, vC), stateC) = itrC
+        ((iA, vA), stateA) = itrA
+        if iC < iA
+            itrC = iterate(nzpairsC, stateC)
+        elseif iC == iA
+            vC = f(vA)
+            itrC = iterate(nzpairsC, stateC)
+            itrA = iterate(nzpairsA, stateA)
+        else #if iC > iA
+            C[iA] = f(vA)
+            # after inserting new element in C iterator can be broken: recreate
+            nzpairsC = nzpairsview(@view(C[iA:end]))
+            itrC = iterate(nzpairsC)
+            itrA = iterate(nzpairsA, stateA)
         end
     end
-    @inbounds setcolptr!(C, numcols(C) + 1, Ck)
-    trimstorage!(C, Ck - 1)
-    return _checkbuffers(C)
+    while itrA != nothing
+        ((iA, vA), stateA) = itrA
+        C[iA] = f(vA)
+        itrA = iterate(nzpairsA, stateA)
+    end
+
+    return C
+    #if _iszero(f(zero(eltype(A))))
+    #    _similar_sparse_indices!(C, A)
+    #    return @inbounds _map_similar_zeropres!(f, C, A)
+    #else
+    #    return _map_notzeropres!(f, C, A)
+    #end
 end
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     #for ((kd,dst), (kr,rest)) in zip(nzchunkspairs(C), nzchunkspairs(A))
@@ -404,7 +421,6 @@ function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedS
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
     for (Ai, Axs) in nzchunkspairs(A)
-        #@view(C[Ai:Ai+length(Axs)-1]) .= f.(Axs)
         @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
     end
     # NOTE: Combining the fill! above into the loop above to avoid multiple sweeps over /
