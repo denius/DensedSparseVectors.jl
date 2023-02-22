@@ -54,7 +54,8 @@ module DensedSparseVectors
 export AbstractAllDensedSparseVector
 export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
-export nzpairs, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
+export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
+export startitfrom
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
@@ -370,7 +371,9 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
 end
 
 
-is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
+#is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
 
 Base.length(V::AbstractAllDensedSparseVector) = getfield(V, :n)
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} =
@@ -879,7 +882,7 @@ end
 end
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. Thats option for `SubArray`
-function get_iterator_init_state(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
+function startitfrom(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
     st = searchsortedlast_nzchunk(V, i)
     if (ret = iteratenzchunks(V, st)) !== nothing
         idxchunk, next = ret
@@ -902,7 +905,7 @@ for (fn, ret1, ret2) in
          (:iteratenzvaluesview, :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzindices  ,  :(Ti(key+nextpos-1))                                , :(key)                     ))
 
-    @eval Base.@propagate_inbounds function $fn(V::T, state = get_iterator_init_state(V)) where
+    @eval Base.@propagate_inbounds function $fn(V::T, state = startitfrom(V)) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Ti,Tv}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
@@ -931,7 +934,7 @@ for (fn, ret1, ret2) in
                                 :(Ti(key-first(V.indices[1])+1))                                             ))
 
     @eval Base.@propagate_inbounds function $fn(V::SubArray{<:Any,<:Any,<:T},
-                                                state = get_iterator_init_state(V.parent, first(V.indices[1]))) where
+                                                state = startitfrom(V.parent, first(V.indices[1]))) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(V.indices[1])

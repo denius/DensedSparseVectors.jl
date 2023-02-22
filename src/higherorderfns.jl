@@ -20,7 +20,7 @@ using StaticArrays
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
-                             _are_same_sparse_indices, _similar_full!
+                             _are_same_sparse_indices, _expand_full!
 
 # Some Unions definitions
 
@@ -78,8 +78,9 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 #ADensedSparseVectorOrSpV = Union{AbstractDensedSparseVector,SparseVector}
 #DensedSparseVecOrBlk = Union{ADensedSparseVectorOrSpV,AbstractDensedBlockSparseVector}
 
-ADensedSparseVectorOrSpV = Union{AbstractDensedSparseVector,SparseVector}
-DensedSparseVecOrBlk = Union{ADensedSparseVectorOrSpV,AbstractDensedBlockSparseVector}
+UnionDensedSparseVectorOrSpV = Union{DensedSparseVector,FixedDensedSparseVector,DynamicDensedSparseVector,SparseVector}
+UnionDensedBlockSparseVector = Union{DensedSVSparseVector,DensedVLSparseVector}
+DensedSparseVecOrBlk = Union{UnionDensedSparseVectorOrSpV,UnionDensedBlockSparseVector}
 
 SparseVecOrMat2 = Union{SparseVector2,SparseMatrixCSC2}
 
@@ -353,6 +354,7 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     # C and A have same shape, but can have different sparse indices
+    fzero = f(eltype(A)(0))
     nzpairsC = nzpairsview(view(C, :))
     nzpairsA = nzpairs(A)
     itrC = iterate(nzpairsC)
@@ -361,6 +363,7 @@ function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk)
         ((iC, vC), stateC) = itrC
         ((iA, vA), stateA) = itrA
         if iC < iA
+            vC = fzero
             itrC = iterate(nzpairsC, stateC)
         elseif iC == iA
             vC = f(vA)
