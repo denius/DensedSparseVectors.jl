@@ -59,6 +59,7 @@ export startindex
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
+export get_iterable
 
 
 import Base: ForwardOrdering, Forward
@@ -900,6 +901,7 @@ function startindex(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVecto
     end
 end
 
+# TODO: FIXME: Add simple :iterate
 for (fn, ret1, ret2) in
         ((:iteratenzpairs    ,  :((Ti(key+nextpos-1), chunk[nextpos]))              , :((key, chunk[1]))         ),
          (:iteratenzpairsview,  :((Ti(key+nextpos-1), view(chunk, nextpos:nextpos))), :((key, view(chunk, 1:1))) ),
@@ -958,6 +960,14 @@ end
 #
 # TODO: Try IterTools.@ifsomething
 
+"""
+    get_iterable(it) = getfield(it, 1)
+
+Get Iterator's iterable object.
+This simple function just get first field of Iterator.
+"""
+@inline get_iterable(it) = getfield(it, 1)
+
 struct NZChunks{It}
     itr::It
 end
@@ -972,6 +982,7 @@ end
         return nothing
     end
 end
+SparseArrays.indtype(it::NZChunks) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZChunks{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZChunks{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZChunks}) = Base.HasShape{1}()
@@ -996,6 +1007,7 @@ end
         return nothing
     end
 end
+SparseArrays.indtype(it::NZChunksPairs) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZChunksPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZChunksPairs{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZChunksPairs}) = Base.HasShape{1}()
@@ -1018,6 +1030,7 @@ nzindices(itr) = NZIndices(itr)
         return nothing
     end
 end
+SparseArrays.indtype(it::NZIndices) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZIndices{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZIndices{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZIndices}) = Base.HasShape{1}()
@@ -1041,6 +1054,7 @@ nzvalues(itr) = NZValues(itr)
         return nothing
     end
 end
+SparseArrays.indtype(it::NZValues) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZValues{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZValues{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZValues}) = Base.HasShape{1}()
@@ -1067,6 +1081,7 @@ nzvaluesview(itr) = NZValuesView(itr)
         return nothing
     end
 end
+SparseArrays.indtype(it::NZValuesView) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZValuesView{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZValuesView{It}}) where {It} = Base.IteratorEltype(It)
 Base.IteratorSize(::Type{<:NZValuesView}) = Base.HasShape{1}()
@@ -1090,6 +1105,7 @@ end
         return nothing
     end
 end
+SparseArrays.indtype(it::NZPairs) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZPairs{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZPairs}) = Base.HasShape{1}()
@@ -1113,6 +1129,7 @@ end
         return nothing
     end
 end
+SparseArrays.indtype(it::NZPairsView) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZPairsView{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZPairsView{It}}) where {It} = Base.EltypeUnknown()
 Base.IteratorSize(::Type{<:NZPairsView}) = Base.HasShape{1}()
