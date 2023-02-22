@@ -576,32 +576,20 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
     end
     return C
 end
-function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
-    spaceC::Int = length(nonzeros(C))
+function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = numrows(C) + 1
-    Ck = 1
     stopks = _colstartind_all(1, As)
-    @inbounds for j in columns(C)
-        setcolptr!(C, j, Ck)
-        ks = stopks
-        stopks = _colboundind_all(j, As)
-        rows = _rowforind_all(rowsentinel, ks, stopks, As)
+    ks = stopks
+    stopks = _colboundind_all(1, As) # nnz+1 ???
+    rows = _rowforind_all(rowsentinel, ks, stopks, As)
+    activerow = min(rows...)
+    @inbounds while activerow < rowsentinel
+        vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
+        Cx = f(vals...)
+        _isnotzero(Cx) && (C[activerow] = Cx)
         activerow = min(rows...)
-        while activerow < rowsentinel
-            vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
-            Cx = f(vals...)
-            if _isnotzero(Cx)
-                Ck > spaceC && (spaceC = expandstorage!(C, Int(min(widelength(C), Ck + _sumnnzs(As...) - (sum(ks) - N)))))
-                storedinds(C)[Ck] = activerow
-                storedvals(C)[Ck] = Cx
-                Ck += 1
-            end
-            activerow = min(rows...)
-        end
     end
-    @inbounds setcolptr!(C, numcols(C) + 1, Ck)
-    trimstorage!(C, Ck - 1)
-    return _checkbuffers(C)
+    return C
 end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     # Build dense matrix structure in C, expanding storage if necessary
