@@ -954,6 +954,7 @@ end
 #
 #  Iterators
 #
+# TODO: Try IterTools.@ifsomething
 
 struct NZChunks{It}
     itr::It
@@ -1073,6 +1074,7 @@ Base.size(it::NZValuesView) = (nnz(it.itr),)
 #Iterators.reverse(it::NZValuesView) = NZValuesView(Iterators.reverse(it.itr))
 
 
+# TODO: Create multiargs version of NZPairs like zip, zip_longest?
 struct NZPairs{It}
     itr::It
 end

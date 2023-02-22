@@ -11,7 +11,7 @@ using Base: front, tail, to_shape
 using SparseArrays: SparseVector, SparseMatrixCSC, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray, indtype, nnz, nzrange, spzeros,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion, nonzeroinds, nonzeros,
-                      rowvals, getcolptr, widelength
+                      rowvals, getcolptr, widelength, dropstored!
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
@@ -354,23 +354,25 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     # C and A have same shape, but can have different sparse indices
-    fzero = f(eltype(A)(0))
+    fzeroA = f(eltype(A)(0))
     nzpairsC = nzpairsview(C)
     nzpairsA = nzpairs(A)
     itrC = iterate(nzpairsC)
     itrA = iterate(nzpairsA)
-    while itrC != nothing && itrA != nothing
-        ((iC, vC), stateC) = itrC
-        ((iA, vA), stateA) = itrA
+    @inbounds while itrC != nothing && itrA != nothing
+        ((iC, xC), stateC) = itrC
+        ((iA, xA), stateA) = itrA
         if iC == iA
-            vC[1] = f(vA)
+            xC[1] = f(xA)
             itrC = iterate(nzpairsC, stateC)
             itrA = iterate(nzpairsA, stateA)
         elseif iC < iA
-            vC[1] = fzero
-            itrC = iterate(nzpairsC, stateC)
+            dropstored!(C, iC)
+            # after deleteing element in C iterator can be broken: recreate
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iC))
         else #if iC > iA
-            C[iA] = f(vA)
+            C[iA] = f(xA)
             # after inserting new element in C iterator can be broken: recreate
             nzpairsC = nzpairsview(C)
             itrC = iterate(nzpairsC, startindex(C, iA))
@@ -378,26 +380,20 @@ function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk)
             itrA = iterate(nzpairsA, stateA)
         end
     end
-    while itrA != nothing
-        ((iA, vA), stateA) = itrA
-        C[iA] = f(vA)
+    @inbounds while itrA != nothing
+        ((iA, xA), stateA) = itrA
+        C[iA] = f(xA)
         itrA = iterate(nzpairsA, stateA)
     end
 
     return C
-    #if _iszero(f(zero(eltype(A))))
-    #    _similar_sparse_indices!(C, A)
-    #    return @inbounds _map_similar_zeropres!(f, C, A)
-    #else
-    #    return _map_notzeropres!(f, C, A)
-    #end
 end
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     #for ((kd,dst), (kr,rest)) in zip(nzchunkspairs(C), nzchunkspairs(A))
     #    @assert kd == kr
     #    dst .= f.(rest)
     #end
-    for (dst, rest) in zip(nzchunks(C), nzchunks(A))
+    @inbounds for (dst, rest) in zip(nzchunks(C), nzchunks(A))
         dst .= f.(rest)
     end
     return C
@@ -407,28 +403,12 @@ end
 Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 `f(A[i])`/`f(A[i,j])` in place of each stored entry `A[i]`/`A[i,j]` in `A`.
 """
-function _map_similar_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
-    fill!(C, fillvalue)
-    nzvalsC = first(nzchunks(C))
-    #for (i,v) in nzpairs(A)
-    #    nzvalsC[i] = f(v)
-    for (Ai, Axs) in nzchunkspairs(A)
-        @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
-    end
-    return C
-end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
-    # DONE!
-    # Build dense matrix structure in C, expanding storage if necessary
-    ###_densestructure!(C)
-    # Populate values
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
-    for (Ai, Axs) in nzchunkspairs(A)
+    @inbounds for (Ai, Axs) in nzchunkspairs(A)
         @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
     end
-    # NOTE: Combining the fill! above into the loop above to avoid multiple sweeps over /
-    # nonsequential access of storedvals(C) does not appear to improve performance.
     return C
 end
 # helper functions for these methods and some of those below
@@ -452,99 +432,146 @@ end
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
-    for (dst, rest...) in zip(nzchunks(C), nzchunks(A), nzchunks(B))
+    @inbounds for (dst, rest...) in zip(nzchunks(C), nzchunks(A), nzchunks(B))
         dst .= f.(rest...)
     end
     return C
 end
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
-    spaceC::Int = length(nonzeros(C))
-    rowsentinelA = convert(indtype(A), numrows(C) + 1)
-    rowsentinelB = convert(indtype(B), numrows(C) + 1)
-    Ck = 1
-    @inbounds for j in columns(C)
-        setcolptr!(C, j, Ck)
-        Ak, stopAk = colstartind(A, j), colboundind(A, j)
-        Bk, stopBk = colstartind(B, j), colboundind(B, j)
-        Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-        Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-        while true
-            if Ai == Bi
-                Ai == rowsentinelA && break # column complete
-                Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-            elseif Ai < Bi
-                Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-            else # Bi < Ai
-                Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-            end
-            # NOTE: The ordering of the conditional chain above impacts which matrices this
-            # method performs best for. In the map situation (arguments have same shape, and
-            # likely same or similar stored entry pattern), the Ai == Bi and termination
-            # cases are equally or more likely than the Ai < Bi and Bi < Ai cases. Hence
-            # the ordering of the conditional chain above differs from that in the
-            # corresponding broadcast code (below).
-            if _isnotzero(Cx)
-                Ck > spaceC && (spaceC = expandstorage!(C, Ck + (nnz(A) - (Ak - 1)) + (nnz(B) - (Bk - 1))))
-                storedinds(C)[Ck] = Ci
-                storedvals(C)[Ck] = Cx
-                Ck += 1
-            end
+    # A and B have same shape, but can have different sparse indices
+    zeroA = eltype(A)(0)
+    zeroB = eltype(B)(0)
+
+    nzpairsC = nzpairsview(C)
+    nzpairsA = nzpairs(A)
+    nzpairsB = nzpairs(B)
+    itrC = iterate(nzpairsC)
+    itrA = iterate(nzpairsA)
+    itrB = iterate(nzpairsB)
+    @inbounds while itrC != nothing && itrA != nothing && itrB != nothing
+        ((iC, xC), stateC) = itrC
+        ((iA, xA), stateA) = itrA
+        ((iB, xB), stateB) = itrB
+        if iC == iA == iB
+            xC[1] = f(xA, xB)
+            itrC = iterate(nzpairsC, stateC)
+            itrA = iterate(nzpairsA, stateA)
+            itrB = iterate(nzpairsB, stateB)
+        elseif iC == iA < iB
+            xC[1] = f(xA, zeroB)
+            itrC = iterate(nzpairsC, stateC)
+            itrA = iterate(nzpairsA, stateA)
+        elseif iC == iB < iA
+            xC[1] = f(zeroA, xB)
+            itrC = iterate(nzpairsC, stateC)
+            itrB = iterate(nzpairsB, stateB)
+        elseif iC > iA == iB
+            C[iA] = f(xA, xB)
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iA))
+            itrC = iterate(nzpairsC, last(itrC))
+            itrA = iterate(nzpairsA, stateA)
+            itrB = iterate(nzpairsB, stateB)
+        elseif iC < iA && iC < iB
+            dropstored!(C, iC)
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iC))
+        elseif iC > iA < iB
+            C[iA] = f(xA, zeroB)
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iA))
+            itrC = iterate(nzpairsC, last(itrC))
+            itrA = iterate(nzpairsA, stateA)
+        elseif iC > iB < iA
+            C[iB] = f(zeroA, xB)
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iB))
+            itrC = iterate(nzpairsC, last(itrC))
+            itrB = iterate(nzpairsB, stateB)
+        else
+            throw(AssertionError("FIXME: Should be unreachable."))
         end
     end
-    @inbounds setcolptr!(C, numcols(C) + 1, Ck)
-    trimstorage!(C, Ck - 1)
-    return _checkbuffers(C)
+
+    @inbounds while itrA != nothing && itrB != nothing
+        ((iA, xA), stateA) = itrA
+        ((iB, xB), stateB) = itrB
+        if iA == iB
+            C[iA] = f(xA, xB)
+            itrA = iterate(nzpairsA, stateA)
+            itrB = iterate(nzpairsB, stateB)
+        elseif iA < iB
+            C[iA] = f(xA, zeroB)
+            itrA = iterate(nzpairsA, stateA)
+        else #if iB < iA
+            C[iB] = f(zeroA, xB)
+            itrB = iterate(nzpairsB, stateB)
+        end
+    end
+    @inbounds while itrA != nothing
+        ((iA, xA), stateA) = itrA
+        C[iA] = f(xA, zeroB)
+        itrA = iterate(nzpairsA, stateA)
+    end
+    @inbounds while itrB != nothing
+        ((iB, xB), stateB) = itrB
+        C[iB] = f(zeroA, xB)
+        itrB = iterate(nzpairsB, stateB)
+    end
+    return C
 end
 function _map_similar_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
-    for ((iA,vA), (iB,vB)) in zip(nzpairs(A), nzpairs(B))
-        nzvalsC[iA] = f(vA, vB)
+    @inbounds for ((iA,xA), (iB,xB)) in zip(nzpairs(A), nzpairs(B))
+        #@assert iA == iB
+        nzvalsC[iA] = f(xA, xB)
     end
     return C
 end
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
-    # Build dense matrix structure in C, expanding storage if necessary
-    _densestructure!(C)
-    # Populate values
-    fill!(storedvals(C), fillvalue)
-    # NOTE: Combining this fill! into the loop below to avoid multiple sweeps over /
-    # nonsequential access of storedvals(C) does not appear to improve performance.
-    rowsentinelA = convert(indtype(A), numrows(A) + 1)
-    rowsentinelB = convert(indtype(B), numrows(B) + 1)
-    @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
-        Ak, stopAk = colstartind(A, j), colboundind(A, j)
-        Bk, stopBk = colstartind(B, j), colboundind(B, j)
-        Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-        Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-        while true
-            if Ai == Bi
-                Ai == rowsentinelA && break # column complete
-                Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-            elseif Ai < Bi
-                Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-            else # Bi < Ai
-                Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-            end
-            Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+    # A and B have same shape, but can have different sparse indices
+    zeroA = eltype(A)(0)
+    zeroB = eltype(B)(0)
+    fill!(C, fillvalue)
+    nzvalsC = first(nzchunks(C))
+    nzpairsA = nzpairs(A)
+    nzpairsB = nzpairs(B)
+    itrA = iterate(nzpairsA)
+    itrB = iterate(nzpairsB)
+    @inbounds while itrA != nothing && itrB != nothing
+        ((iA, xA), stateA) = itrA
+        ((iB, xB), stateB) = itrB
+        if iA == iB
+            nzvalsC[iA] = f(xA, xB)
+            itrA = iterate(nzpairsA, stateA)
+            itrB = iterate(nzpairsB, stateB)
+        elseif iA < iB
+            nzvalsC[iA] = f(xA, zeroB)
+            itrA = iterate(nzpairsA, stateA)
+        else #if iA > iB
+            nzvalsC[iB] = f(zeroA, xB)
+            itrB = iterate(nzpairsB, stateB)
         end
     end
-    return _checkbuffers(C)
+    @inbounds while itrA != nothing
+        ((iA, xA), stateA) = itrA
+        nzvalsC[iA] = f(xA, zeroB)
+        itrA = iterate(nzpairsA, stateA)
+    end
+    @inbounds while itrB != nothing
+        ((iB, xB), stateB) = itrB
+        nzvalsC[iB] = f(zeroA, xB)
+        itrB = iterate(nzpairsB, stateB)
+    end
+    return C
 end
 
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     nzchunksiters = (nzchunks(C), map(nzchunks, As)...)
-    for (dst, rest...) in zip(nzchunksiters...)
+    @inbounds for (dst, rest...) in zip(nzchunksiters...)
         dst .= f.(rest...)
     end
     return C
