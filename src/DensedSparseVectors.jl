@@ -864,9 +864,6 @@ Base.@propagate_inbounds iteratenzindices(V::Number, state = 1) = (state, state+
 # `AbstractAllDensedSparseVector` iteration functions
 #
 
-SparseArrays.indtype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = Ti
-Base.eltype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
-
 struct ADSVIteratorState{Tn,Ti,Td}
     next::Tn         # index (Int or Semitoken) of next chunk
     nextpos::Int     # position in the current chunk of element will be get
@@ -874,6 +871,9 @@ struct ADSVIteratorState{Tn,Ti,Td}
     chunk::Td        # current chunk
     chunklen::Int    # current chunk length
 end
+
+SparseArrays.indtype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = Ti
+Base.eltype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
 
 @inline function ADSVIteratorState{T}(next, nextpos, currentkey, chunk, chunklen) where
                                           {T<:AbstractVecbasedDensedSparseVector{Tv,Ti}} where {Tv,Ti}

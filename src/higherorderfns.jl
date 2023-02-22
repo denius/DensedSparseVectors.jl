@@ -20,7 +20,8 @@ using StaticArrays
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
-                             _are_same_sparse_indices, _expand_full!
+                             _are_same_sparse_indices, _expand_full!,
+                             NZPairsView, NZChunks
 
 # Some Unions definitions
 
@@ -577,25 +578,26 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
     return C
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
-    nzpairsiters = (nzpairsview(C), map(nzpairs, As)...)
-    ks = map(iterate, nzpairsiters) # tuple of nzpairs iterators for (C, As...)
+    itersCAs = (nzpairsview(C), map(nzpairs, As)...)
+    #  tuple of nextstates of nzpairs iterators for (C, As...)
+    @inbounds nextstates = map(iterate, itersCAs)
 
-    rows = __rowforind_all(ks, nzpairsiters) # iA for A in As
-    activerow = min(rows...)
+    #  tuple of current index for (CAs...)
+    niCAs = _fusedindices(itersCAs, nextstates)
+    current_i = min(niCAs...)
 
-    while any(!isnothing, ks)
-        iC = first(rows)
-        vals, ks, rows = __fusedupdate_all(activerow, rows, ks, nzpairsiters)
-        Cx = f(tail(vals)...)
-        if iC == activerow
-            first(vals)[1] = Cx
-        elseif _isnotzero(Cx)
-            C[activerow] = Cx
-            # Note: `ks` is the `nextstates`, as the `rows` also.
-            ks = (iterate(first(nzpairsiters), last(iterate(first(nzpairsiters), startindex(C, activerow)))),
-                  tail(ks)...)
+    @inbounds while any(!isnothing, nextstates)
+        iC = first(niCAs)
+        xCAs, niCAs, nextstates = _fusediterate(itersCAs, nextstates, niCAs, current_i)
+        xC = f(tail(xCAs)...)
+        if iC == current_i
+            first(xCAs)[] = xC
+        elseif _isnotzero(xC)
+            C[current_i] = xC
+            nextstates = (iterate(first(itersCAs), last(iterate(first(itersCAs), startindex(C, current_i)))),
+                  tail(nextstates)...)
         end
-        activerow = min(rows...)
+        current_i = min(niCAs...)
     end
     return C
 end
@@ -658,28 +660,37 @@ end
 end
 
 
-@inline __rowforind(state, itrA) =
+@inline _fusedindex(itrA, state) =
     !isnothing(state) ? first(first(state)) : typemax(indtype(itrA))
-@inline __rowforind_all(::Tuple{}, ::Tuple{}) = ()
-@inline __rowforind_all(states, itrAs) = (
-    __rowforind(first(states), first(itrAs)),
-    __rowforind_all(tail(states), tail(itrAs))...)
+@inline _fusedindices(::Tuple{}, ::Tuple{}) = ()
+@inline _fusedindices(itrAs, states) = (
+    _fusedindex(first(itrAs), first(states)),
+    _fusedindices(tail(itrAs), tail(states))...)
 
-@inline function __fusedupdate(activerow, row, state, itrA)
-    # returns (val, nextstate, nextrow)
-    if row == activerow
+@inline function _fusediterate_single(itrA::NZPairsView, state, index, current_index)
+    # returns (val, nextindex, nextstate)
+    if index == current_index
         nextstate = iterate(itrA, last(state))
-        (last(first(state)), nextstate, #= iA =#
-            (!isnothing(nextstate) ? first(first(nextstate)) : typemax(indtype(itrA))))
+        (last(first(state)), (!isnothing(nextstate) ? first(first(nextstate)) : typemax(indtype(itrA))), nextstate)
     else
-        (zero(eltype(itrA)), state, row)
+        (@view(first(nzchunks(get_iterable(itrA)))[begin:begin-1]), index, state)
+        #(zero(eltype(itrA)), index, state)
     end
 end
-@inline __fusedupdate_all(activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextstates=#), (#=nextrows=#))
-@inline function __fusedupdate_all(activerow, rows, states, itrAs)
-    val, nextstate, nextrow = __fusedupdate(activerow, first(rows), first(states), first(itrAs))
-    vals, nextstates, nextrows = __fusedupdate_all(activerow, tail(rows), tail(states), tail(itrAs))
-    return ((val, vals...), (nextstate, nextstates...), (nextrow, nextrows...))
+@inline function _fusediterate_single(itrA, state, index, current_index)
+    # returns (val, nextindex, nextstate)
+    if index == current_index
+        nextstate = iterate(itrA, last(state))
+        (last(first(state)), (!isnothing(nextstate) ? first(first(nextstate)) : typemax(indtype(itrA))), nextstate)
+    else
+        (zero(eltype(itrA)), index, state)
+    end
+end
+@inline _fusediterate(::Tuple{}, ::Tuple{}, ::Tuple{}, current_index) = ((#=vals=#), (#=nextindices=#), (#=nextstates=#))
+@inline function _fusediterate(itrAs, states, indices, current_index)
+    val, nextindex, nextstate = _fusediterate_single(first(itrAs), first(states), first(indices), current_index)
+    vals, nextindices, nextstates = _fusediterate(tail(itrAs), tail(states), tail(indices), current_index)
+    return ((val, vals...), (nextindex, nextindices...), (nextstate, nextstates...))
 end
 
 
