@@ -577,16 +577,23 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
     return C
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
-    rowsentinel = numrows(C) + 1
-    stopks = _colstartind_all(1, As)
-    ks = stopks
-    stopks = _colboundind_all(1, As) # nnz+1 ???
-    rows = _rowforind_all(rowsentinel, ks, stopks, As)
+    rowsentinel = length(C) + 1
+    nzpairsiters = (nzpairsview(C), map(nzpairs, As)...)
+    ks = map(iterate, nzpairsiters) # tuple of nzpairs iterators for (C, As...)
+
+    rows = __rowforind_all(rowsentinel, ks) # iA for A in As
     activerow = min(rows...)
-    @inbounds while activerow < rowsentinel
-        vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
-        Cx = f(vals...)
-        _isnotzero(Cx) && (C[activerow] = Cx)
+
+    while any(!isnothing, ks)
+        iC = first(rows)
+        vals, ks, rows = __fusedupdate_all(rowsentinel, activerow, rows, ks, nzpairsiters)
+        Cx = f(tail(vals)...)
+        if iC == activerow
+            first(vals)[1] = Cx
+        elseif _isnotzero(Cx)
+            C[activerow] = Cx
+            ks = (iterate(nzpairsview(C), startindex(C, activerow)), tail(ks)...)
+        end
         activerow = min(rows...)
     end
     return C
@@ -647,6 +654,30 @@ end
     val, nextk, nextrow = _fusedupdate(rowsentinel, activerow, first(rows), first(ks), first(stopks), first(As))
     vals, nextks, nextrows = _fusedupdate_all(rowsentinel, activerow, tail(rows), tail(ks), tail(stopks), tail(As))
     return ((val, vals...), (nextk, nextks...), (nextrow, nextrows...))
+end
+
+
+@inline __rowforind(rowsentinel, state) =
+    !isnothing(state) ? first(first(state)) : convert(indtype(last(state)), rowsentinel)
+@inline __rowforind_all(rowsentinel, ::Tuple{}) = ()
+@inline __rowforind_all(rowsentinel, states) = (
+    __rowforind(rowsentinel, first(states)),
+    __rowforind_all(rowsentinel, tail(states))...)
+
+@inline function __fusedupdate(rowsentinel, activerow, row, state, itrA)
+    # returns (val, nextstate, nextrow)
+    if row == activerow
+        nextstate = iterate(itrA, last(state))
+        (last(first(state)), nextstate, (!isnothing(nextstate) ? first(first(nextstate)) : oftype(row, rowsentinel)))
+    else
+        (zero(eltype(itrA)), state, row)
+    end
+end
+@inline __fusedupdate_all(rowsentinel, activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextstates=#), (#=nextrows=#))
+@inline function __fusedupdate_all(rowsentinel, activerow, rows, states, itrAs)
+    val, nextstate, nextrow = __fusedupdate(rowsentinel, activerow, first(rows), first(states), first(itrAs))
+    vals, nextstates, nextrows = __fusedupdate_all(rowsentinel, activerow, tail(rows), tail(states), tail(itrAs))
+    return ((val, vals...), (nextstate, nextstates...), (nextrow, nextrows...))
 end
 
 

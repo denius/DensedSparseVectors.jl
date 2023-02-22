@@ -863,6 +863,8 @@ Base.@propagate_inbounds iteratenzindices(V::Number, state = 1) = (state, state+
 # `AbstractAllDensedSparseVector` iteration functions
 #
 
+SparseArrays.indtype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = Ti
+Base.eltype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
 
 struct ADSVIteratorState{Tn,Ti,Td}
     next::Tn         # index (Int or Semitoken) of next chunk
