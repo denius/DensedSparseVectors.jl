@@ -55,7 +55,7 @@ export AbstractAllDensedSparseVector
 export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
 export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
-export startitfrom
+export startindex
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
@@ -882,7 +882,7 @@ end
 end
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. Thats option for `SubArray`
-function startitfrom(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
+function startindex(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
     st = searchsortedlast_nzchunk(V, i)
     if (ret = iteratenzchunks(V, st)) !== nothing
         idxchunk, next = ret
@@ -905,7 +905,7 @@ for (fn, ret1, ret2) in
          (:iteratenzvaluesview, :(view(chunk, nextpos:nextpos))                     , :(view(chunk, 1:1))        ),
          (:iteratenzindices  ,  :(Ti(key+nextpos-1))                                , :(key)                     ))
 
-    @eval Base.@propagate_inbounds function $fn(V::T, state = startitfrom(V)) where
+    @eval Base.@propagate_inbounds function $fn(V::T, state = startindex(V)) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Ti,Tv}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if nextpos <= chunklen
@@ -934,7 +934,7 @@ for (fn, ret1, ret2) in
                                 :(Ti(key-first(V.indices[1])+1))                                             ))
 
     @eval Base.@propagate_inbounds function $fn(V::SubArray{<:Any,<:Any,<:T},
-                                                state = startitfrom(V.parent, first(V.indices[1]))) where
+                                                state = startindex(V.parent, first(V.indices[1]))) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
         next, nextpos, key, chunk, chunklen = fieldvalues(state)
         if key+nextpos-1 > last(V.indices[1])
@@ -1906,7 +1906,7 @@ _expand_full!(V::FixedDensedSparseVector) = throw(MethodError("attempt to reshap
 
 
 function Base.fill!(V::AbstractAllDensedSparseVector{Tv,Ti}, value) where {Tv,Ti}
-    nnz(V) == length(V) != 0 || _expand_full!(V, Tv(value))
+    nnz(V) == length(V) != 0 || _expand_full!(V)
     fill!(first(nzchunks(V)), Tv(value))
     V
 end

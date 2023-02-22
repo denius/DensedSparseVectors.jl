@@ -355,25 +355,26 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 function _map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     # C and A have same shape, but can have different sparse indices
     fzero = f(eltype(A)(0))
-    nzpairsC = nzpairsview(view(C, :))
+    nzpairsC = nzpairsview(C)
     nzpairsA = nzpairs(A)
     itrC = iterate(nzpairsC)
     itrA = iterate(nzpairsA)
     while itrC != nothing && itrA != nothing
         ((iC, vC), stateC) = itrC
         ((iA, vA), stateA) = itrA
-        if iC < iA
-            vC = fzero
-            itrC = iterate(nzpairsC, stateC)
-        elseif iC == iA
-            vC = f(vA)
+        if iC == iA
+            vC[1] = f(vA)
             itrC = iterate(nzpairsC, stateC)
             itrA = iterate(nzpairsA, stateA)
+        elseif iC < iA
+            vC[1] = fzero
+            itrC = iterate(nzpairsC, stateC)
         else #if iC > iA
             C[iA] = f(vA)
             # after inserting new element in C iterator can be broken: recreate
-            nzpairsC = nzpairsview(@view(C[iA:end]))
-            itrC = iterate(nzpairsC)
+            nzpairsC = nzpairsview(C)
+            itrC = iterate(nzpairsC, startindex(C, iA))
+            itrC = iterate(nzpairsC, last(itrC))
             itrA = iterate(nzpairsA, stateA)
         end
     end
