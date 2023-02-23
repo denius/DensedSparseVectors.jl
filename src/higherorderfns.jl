@@ -584,8 +584,9 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
 
     ##tst = map(nzvalues, As)
     ##tst2 = map(iterate, tst)
-    #tst = nzvalues.(As)
-    #tst2 = iterate.(tst)
+    #tst1 = nzvalues.(As)
+    #tst2 = iterate.(tst1)
+    #tst3 = tuple.(tst2)
 
     #  tuple of current index for (CAs...)
     niCAs = _fusedindices(itersCAs, nextstates)
@@ -672,16 +673,6 @@ end
     _fusedindex(first(itrAs), first(states)),
     _fusedindices(tail(itrAs), tail(states))...)
 
-@inline function _fusediterate_single(itrA::NZPairsView, state, index, current_index)
-    # returns (val, nextindex, nextstate)
-    if index == current_index
-        nextstate = iterate(itrA, last(state))
-        (last(first(state)), (!isnothing(nextstate) ? first(first(nextstate)) : typemax(indtype(itrA))), nextstate)
-    else
-        (@view(first(nzchunks(get_iterable(itrA)))[begin:begin-1]), index, state)
-        #(zero(eltype(itrA)), index, state)
-    end
-end
 @inline function _fusediterate_single(itrA, state, index, current_index)
     # returns (val, nextindex, nextstate)
     if index == current_index
