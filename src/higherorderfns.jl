@@ -582,8 +582,10 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
     #  tuple of nextstates of nzpairs iterators for (C, As...)
     @inbounds nextstates = map(iterate, itersCAs)
 
-    tst = map(nzvalues, As)
-    tst2 = map(iterate, tst)
+    ##tst = map(nzvalues, As)
+    ##tst2 = map(iterate, tst)
+    #tst = nzvalues.(As)
+    #tst2 = iterate.(tst)
 
     #  tuple of current index for (CAs...)
     niCAs = _fusedindices(itersCAs, nextstates)

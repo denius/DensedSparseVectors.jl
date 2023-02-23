@@ -734,7 +734,7 @@ Base.@propagate_inbounds SparseArrays.nnz(V::DenseArray) = length(V)
 Base.@propagate_inbounds function iteratenzchunks(V::AbstractVecbasedDensedSparseVector, state = 0)
     state += 1
     if state <= length(V.nzind)
-        return (get_key_and_nzchunk(V, state), state)
+        return (get_nzchunk_key(V, state) => get_nzchunk(V, state), state)
     else
         return nothing
     end
@@ -750,7 +750,7 @@ end
 Base.@propagate_inbounds function iteratenzchunks(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
-        return (get_key_and_nzchunk(V, state), state)
+        return (get_nzchunk_key(V, state) => get_nzchunk(V, state), state)
     else
         return nothing
     end
@@ -775,9 +775,9 @@ Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}, 
         key = get_nzchunk_key(V.parent, state)
         len = get_nzchunk_length(V.parent, state)
         if last(V.indices[1]) >= key + len
-            return ((get_nzchunk_key(V, state), get_nzchunk(V, state)), state)
+            return ((get_nzchunk_key(V, state) => get_nzchunk(V, state)), state)
         elseif key <= last(V.indices[1]) < key + len
-            return ((get_nzchunk_key(V, state), get_nzchunk(V, state)), state)
+            return ((get_nzchunk_key(V, state) => get_nzchunk(V, state)), state)
         else
             return nothing
         end
@@ -937,41 +937,52 @@ Base.@propagate_inbounds iteratenzindices(V::Number, state = 0) = (state+1, stat
 # `AbstractAllDensedSparseVector` iteration functions
 #
 
-struct ADSVIteratorState{Tn,Ti,Td}
+struct ADSVIteratorState{T,Tn,Ti,Td}
     idxchunk::Tn     # index position (Int or Semitoken) of current chunk in nzchunks
-    nextpos::Int     # position in the current chunk of element will be get
+    position::Int    # position in the current chunk of current element
     currentkey::Ti   # the index of first element in current chunk
-    chunk::Td        # current chunk
+    chunk::Td        # current chunk (or view into nzchunk)
 end
 
-SparseArrays.indtype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = Ti
-Base.eltype(it::ADSVIteratorState{Tn,Ti,Td}) where {Tn,Ti,Td} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
+SparseArrays.indtype(it::ADSVIteratorState{T,Tn,Ti,Td}) where {T,Tn,Ti,Td} = Ti
+Base.eltype(it::ADSVIteratorState{T,Tn,Ti,Td}) where {T,Tn,Ti,Td} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
 
-@inline function ADSVIteratorState{T}(next, nextpos, currentkey, chunk) where
+@inline function nziteratorstate(V::T, idxchunk, position, currentkey, chunk) where
                                           {T<:AbstractVecbasedDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ADSVIteratorState{Int, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk)
+    ADSVIteratorState{T,Int,Ti,Vector{Tv}}(idxchunk, position, currentkey, chunk)
 end
-@inline function ADSVIteratorState{T}(next, nextpos, currentkey, chunk) where
+@inline function nziteratorstate(V::T, idxchunk, position, currentkey, chunk) where
                                           {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ADSVIteratorState{DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(next, nextpos, currentkey, chunk)
+    ADSVIteratorState{T, DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(idxchunk, position, currentkey, chunk)
 end
+@inline function nziteratorstate(V::SubArray{<:Any,<:Any,<:T}, idxchunk, position, currentkey, chunk) where
+                                          {T<:AbstractVecbasedDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+    Tvv = typeof(view(Tv[], 1:0))
+    ADSVIteratorState{T,Int,Ti,Tvv}(idxchunk, position, currentkey, chunk)
+end
+@inline function nziteratorstate(V::SubArray{<:Any,<:Any,<:T}, idxchunk, position, currentkey, chunk) where
+                                          {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti}
+    Tvv = typeof(view(Tv[], 1:0))
+    ADSVIteratorState{T, DataStructures.Tokens.IntSemiToken, Ti, Tvv}(idxchunk, position, currentkey, chunk)
+end
+
+#@inline nziteratorstate(V, idxchunk, position, key, chunk) = (idxchunk=idxchunk, position=position, key=key, chunk=chunk)
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. That's option for `SubArray` and restarts.
 function startindex(V::T, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
     idxchunk = searchsortedlast_nzchunk(V, i)
     if idxchunk != pastendnzchunk_index(V)
         key, chunk = get_key_and_nzchunk(V, idxchunk)
-        len = length(chunk)
-        if key <= i < key + len
-            return ADSVIteratorState{T}(idxchunk, i - key, key, chunk)
+        if key <= i < key + length(chunk)
+            return nziteratorstate(V, idxchunk, Int(i - key), key, chunk)
         else
             #idxchunk = advance(V, idxchunk)
             #key, chunk = get_key_and_nzchunk(V, idxchunk)
-            return ADSVIteratorState{T}(idxchunk, 0, key, chunk)
+            return nziteratorstate(V, idxchunk, 0, key, chunk)
         end
     else
         key, chunk = get_key_and_nzchunk(V)
-        return ADSVIteratorState{T}(0, 0, key, chunk, 0)
+        return nziteratorstate(V, idxchunk, 0, key, chunk)
     end
 end
 
@@ -988,11 +999,11 @@ for (fn, ret1) in
         idxchunk, position, key, chunk = fieldvalues(state)
         position += 1
         if position <= length(chunk)
-            return ($ret1, ADSVIteratorState{T}(idxchunk, position, key, chunk))
+            return ($ret1, nziteratorstate(V, idxchunk, position, key, chunk))
         elseif (st = iteratenzchunks(V, idxchunk)) !== nothing
             ((key, chunk), idxchunk) = st
             position = 1
-            return ($ret1, ADSVIteratorState{T}(idxchunk, position, key, chunk))
+            return ($ret1, nziteratorstate(V, idxchunk, position, key, chunk))
         else
             return nothing
         end
@@ -1001,7 +1012,7 @@ end
 
 
 for (fn, ret1) in
-        ((:iteratenzpairs    ,  :(Ti(key+position-1-first(V.indices[1])+1) => chunk[position])            ),
+        ((:iteratenzpairs    ,  :(Ti(key+position-1-first(V.indices[1])+1) => chunk[position])                ),
          (:iteratenzpairsview,  :(Ti(key+position-1-first(V.indices[1])+1) => view(chunk, position:position)) ),
          (:iteratenzvalues   ,  :(chunk[position])                                                            ),
          (:iteratenzvaluesview, :(view(chunk, position:position))                                             ),
@@ -1015,11 +1026,11 @@ for (fn, ret1) in
         if key+position-1 > last(V.indices[1])
             return nothing
         elseif position <= length(chunk)
-            return ($ret1, ADSVIteratorState{T}(idxchunk, position, key, chunk))
+            return ($ret1, nziteratorstate(V, idxchunk, position, key, chunk))
         elseif (st = iteratenzchunks(V.parent, idxchunk)) !== nothing
             ((key, chunk), idxchunk) = st
             position = 1
-            return ($ret1, ADSVIteratorState{T}(idxchunk, position, key, chunk))
+            return ($ret1, nziteratorstate(V, idxchunk, position, key, chunk))
         else
             return nothing
         end
