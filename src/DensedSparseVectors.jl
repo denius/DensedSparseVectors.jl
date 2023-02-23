@@ -59,7 +59,7 @@ export startindex
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
-export get_iterable
+export get_iterable, iterateempty
 
 
 import Base: ForwardOrdering, Forward
@@ -498,7 +498,7 @@ end
     end
 end
 @inline get_key_and_nzchunk(V::Vector, i) = (i, V)
-@inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i))
+@inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], V.nzchunks[i])
 @inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) = deref((V.nzchunks, i))
@@ -1046,13 +1046,24 @@ struct NZValues{It}
 end
 "`nzvalues(V::AbstractVector)` is the `Iterator` over non-zero values of `V`."
 nzvalues(itr) = NZValues(itr)
-@inline function Base.iterate(it::NZValues, state...)
-    y = iteratenzvalues(it.itr, state...)
-    if y !== nothing
-        return (y[1], y[2])
-    else
-        return nothing
-    end
+#@inline function Base.iterate(it::NZValues, state...)
+#function Base.iterate(it::NZValues, state...)
+#    y = iteratenzvalues(it.itr, state...)
+#    if y !== nothing
+#        return (y[1], y[2])
+#    else
+#        return nothing
+#    end
+#end
+function Base.iterate(it::NZValues)
+    y = iteratenzvalues(it.itr)
+    y === nothing && return nothing
+    return (y[1], y[2])
+end
+function Base.iterate(it::NZValues, state)
+    y = iteratenzvalues(it.itr, state)
+    y === nothing && return nothing
+    return (y[1], y[2])
 end
 SparseArrays.indtype(it::NZValues) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZValues{It}}) where {It} = eltype(It)
@@ -1105,6 +1116,14 @@ end
         return nothing
     end
 end
+@inline function iterateempty(it::NZPairs, state...)
+    y = iteratenzpairs(it.itr, state...)
+    if y !== nothing
+        return (Pair(y[1]...), y[2])
+    else
+        return ()
+    end
+end
 SparseArrays.indtype(it::NZPairs) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZPairs{It}}) where {It} = Base.EltypeUnknown()
@@ -1127,6 +1146,14 @@ end
         return (Pair(y[1]...), y[2])
     else
         return nothing
+    end
+end
+@inline function iterateempty(it::NZPairsView, state...)
+    y = iteratenzpairsview(it.itr, state...)
+    if y !== nothing
+        return (Pair(y[1]...), y[2])
+    else
+        return ()
     end
 end
 SparseArrays.indtype(it::NZPairsView) = SparseArrays.indtype(it.itr)
