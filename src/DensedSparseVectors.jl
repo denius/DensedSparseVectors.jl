@@ -13,6 +13,11 @@
 #
 # * Test https://github.com/JuliaSIMD/StrideArrays.jl instead of StaticArrays.
 #
+# * May be all iterators should returns `view(chunk, :)`?
+#
+# * May be `nzchunkspairs()` should returns `axes(), chunk` instead of `firstindex, chunk`?
+#   (But `nzpairs()` returns `key,value`.)
+#
 #
 # Notes:
 # * Broadcast is more fragile than `map`. `map` should be more agile in terms of vectors dimensions and
@@ -446,7 +451,6 @@ end
 Base.collect(V::AbstractAllDensedSparseVector) = collect(eltype(V), V)
 
 @inline nnzchunks(V::Vector) = 1
-#@inline nnzchunks(V::SparseVector) = length(iteratenzchunks(V))
 @inline function nnzchunks(V::SparseVector)
     nnz(V) == 0 && return 0
     nzinds = SparseArrays.nonzeroinds(V)
@@ -479,12 +483,12 @@ end
 @inline get_nzchunk_length(V::DensedVLSparseVector, i) = size(V.offsets[i])[1] - 1
 @inline get_nzchunk_length(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((V.nzchunks, i)))[1]
 @inline get_nzchunk_length(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractAllDensedSparseVector} = length(get_nzchunk(V, i))
-@inline get_nzchunk(V::Number, i) = V
-@inline get_nzchunk(V::Vector, i) = V
+@inline get_nzchunk(V::Number, i) = Ref(V)
+@inline get_nzchunk(V::Vector, i) = view(V, :)
 @inline get_nzchunk(V::SparseVector, i) = view(nonzeros(V), i[1]:i[1]+i[2]-1)
-@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = V.nzchunks[i]
+@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = view(V.nzchunks[i], :)
 @inline get_nzchunk(V::FixedDensedSparseVector, i) = @view( V.nzchunks[ V.offsets[i]:V.offsets[i+1] - 1 ] )
-@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((V.nzchunks, i))
+@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = view(deref_value((V.nzchunks, i)), :)
 @inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
     idx1 = first(V.indices[1])
     idx2 = last(V.indices[1])
@@ -514,23 +518,23 @@ end
         return key
     end
 end
-@inline get_key_and_nzchunk(V::Vector, i) = (i, V)
+@inline get_key_and_nzchunk(V::Vector, i) = (i, view(V, :))
 @inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
-@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], V.nzchunks[i])
+@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], view(V.nzchunks[i], :))
 @inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
-@inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) = deref((V.nzchunks, i))
+@inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) = view(deref((V.nzchunks, i)), :)
 
-@inline get_key_and_nzchunk(V::Vector) = (1, eltype(V)[])
+@inline get_key_and_nzchunk(V::Vector) = (1, view(eltype(V)[], 1:0))
 @inline get_key_and_nzchunk(V::SparseVector) = (eltype(V.nzind)(1), view(V.nzchunks, 1:0))
-@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector) = (valtype(V.nzind)(1), valtype(V.nzchunks)())
-@inline get_key_and_nzchunk(V::DynamicDensedSparseVector) = (keytype(V.nzchunks)(1), valtype(V.nzchunks)())
+@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector) = (eltype(V.nzind)(1), view(eltype(V.nzchunks)[], 1:0))
+@inline get_key_and_nzchunk(V::DynamicDensedSparseVector) = (keytype(V.nzchunks)(1), view(valtype(V.nzchunks)[], 1:0))
 
-@inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, V, length(V))
+@inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, view(V, :), length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
 @inline get_key_and_nzchunk_and_length(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], V.nzchunks[i], length(V.nzchunks[i]))
 @inline get_key_and_nzchunk_and_length(V::FixedDensedSparseVector, i) =
         (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]), V.offsets[i+1]-V.offsets[i])
-@inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, chunk, length(chunk)))
+        @inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, view(chunk, :), length(chunk)))
 
 @inline is_in_nzchunk(V::Vector, i, key) = key in first(axes(V))
 @inline is_in_nzchunk(V::SparseVector, i, key) = V.nzind[i] == key
@@ -949,11 +953,13 @@ Base.eltype(it::ADSVIteratorState{T,Tn,Ti,Td}) where {T,Tn,Ti,Td} = eltype(Td) #
 
 @inline function nziteratorstate(V::T, idxchunk, position, currentkey, chunk) where
                                           {T<:AbstractVecbasedDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ADSVIteratorState{T,Int,Ti,Vector{Tv}}(idxchunk, position, currentkey, chunk)
+    Tvv = typeof(view(Tv[], 1:0))
+    ADSVIteratorState{T,Int,Ti,Tvv}(idxchunk, position, currentkey, chunk)
 end
 @inline function nziteratorstate(V::T, idxchunk, position, currentkey, chunk) where
                                           {T<:AbstractSDictDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    ADSVIteratorState{T, DataStructures.Tokens.IntSemiToken, Ti, Vector{Tv}}(idxchunk, position, currentkey, chunk)
+    Tvv = typeof(view(Tv[], 1:0))
+    ADSVIteratorState{T, DataStructures.Tokens.IntSemiToken, Ti, Tvv}(idxchunk, position, currentkey, chunk)
 end
 @inline function nziteratorstate(V::SubArray{<:Any,<:Any,<:T}, idxchunk, position, currentkey, chunk) where
                                           {T<:AbstractVecbasedDensedSparseVector{Tv,Ti}} where {Tv,Ti}
