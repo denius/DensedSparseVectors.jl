@@ -407,8 +407,8 @@ Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
-    @inbounds for (Ai, Axs) in nzchunkspairs(A)
-        @view(nzvalsC[Ai:Ai+length(Axs)-1]) .= f.(Axs)
+    @inbounds for (Ainds, Axs) in nzchunkspairs(A)
+        @view(nzvalsC[Ainds]) .= f.(Axs)
     end
     return C
 end

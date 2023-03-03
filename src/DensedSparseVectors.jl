@@ -898,9 +898,9 @@ function iteratenzpairsview end
 "`iteratenzvalues(V::AbstractAllDensedSparseVector)` iterates over non-zero elements of vector and returns value"
 function iteratenzvalues end
 "`iteratenzvaluesview(V::AbstractAllDensedSparseVector)` iterates over non-zero elements
- of vector and returns pair of index and `view` of value"
+ of vector and returns `view` of value"
 function iteratenzvaluesview end
-"`iteratenzindices(V::AbstractAllDensedSparseVector)` iterates over non-zero elements of vector and returns indices"
+"`iteratenzindices(V::AbstractAllDensedSparseVector)` iterates over non-zero elements of vector and returns its indices"
 function iteratenzindices end
 
 #
@@ -1023,12 +1023,10 @@ end
 #    (position=position, indices=indices, chunk=chunk, idxchunk=idxchunk)
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. That's option for `SubArray` and restarts.
-#startindex(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} = startindex(parent(V), first(parentindices(V)[1]))
-function startindex(V::{T,SubArray{<:Any,<:Any,<:T}}, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
-    VV = parent(V)
-    i = first(parentindices(V)[1])
-    idxchunk = searchsortedlast_nzchunk(VV, i)
-    if idxchunk != pastendnzchunk_index(VV)
+startindex(V) = startindex(parent(V), first(parentindices(V)[1]))
+function startindex(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
         indices, chunk = get_indices_and_nzchunk(V, idxchunk)
         if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
             return nziteratorstate(V, Int(i - first(indices)), indices, chunk, idxchunk)
@@ -1036,7 +1034,7 @@ function startindex(V::{T,SubArray{<:Any,<:Any,<:T}}, i::Integer = 1) where {T<:
             return nziteratorstate(V, 0, indices, chunk, idxchunk)
         end
     else
-        indices, chunk = get_indices_and_nzchunk(VV)
+        indices, chunk = get_indices_and_nzchunk(V)
         return nziteratorstate(V, 0, indices, chunk, idxchunk)
     end
 end
@@ -1136,7 +1134,7 @@ struct NZChunksPairs{It}
     itr::It
 end
 "`nzchunkspairs(V::AbstractAllDensedSparseVector)` is the `Iterator` over non-zero chunks,
- returns tuple of start index and vector of non-zero values."
+ returns `Pair` of `UnitRange` first-last indices and view to vector of non-zero values."
 @inline nzchunkspairs(itr) = NZChunksPairs(itr)
 @inline Base.iterate(it::NZChunksPairs, state...) = iteratenzchunks(it.itr, state...)
 SparseArrays.indtype(it::NZChunksPairs) = SparseArrays.indtype(it.itr)
