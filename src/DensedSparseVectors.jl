@@ -467,8 +467,8 @@ end
 @inline nnzchunks(V::FixedDensedSparseVector) = length(getfield(V, :nzind))
 function nnzchunks(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector}
     length(V) == 0 && return 0
-    idx1 = searchsortedlast_nzchunk(V.parent, first(V.indices[1]))
-    idx2 = searchsortedlast_nzchunk(V.parent, last(V.indices[1]))
+    idx1 = searchsortedlast_nzchunk(parent(V), first(parentindices(V)[1]))
+    idx2 = searchsortedlast_nzchunk(parent(V), last(parentindices(V)[1]))
     if idx1 == idx2
         return get_nzchunk_length(V, idx1) == 0 ? 0 : 1
     else
@@ -490,9 +490,9 @@ end
 @inline get_nzchunk(V::FixedDensedSparseVector, i) = @view( V.nzchunks[ V.offsets[i]:V.offsets[i+1] - 1 ] )
 @inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = view(deref_value((V.nzchunks, i)), :)
 ###@inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
-###    idx1 = first(V.indices[1])
-###    idx2 = last(V.indices[1])
-###    key, chunk = get_key_and_nzchunk(V.parent, i)
+###    idx1 = first(parentindices(V)[1])
+###    idx2 = last(parentindices(V)[1])
+###    key, chunk = get_key_and_nzchunk(parent(V), i)
 ###    len = Ti(length(chunk))
 ###    if key <= idx1 < key+len && key <= idx2 < key+len
 ###        return view(chunk, idx1-key+Ti(1):idx2-key+Ti(1))
@@ -507,9 +507,9 @@ end
 ###    end
 ###end
 @inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
-    idx1 = first(V.indices[1])
-    idx2 = last(V.indices[1])
-    indices, chunk = get_indices_and_nzchunk(V.parent, i)
+    idx1 = first(parentindices(V)[1])
+    idx2 = last(parentindices(V)[1])
+    indices, chunk = get_indices_and_nzchunk(parent(V), i)
     index1 = first(indices)
     index1 = last(indices)
     if checkindex(Bool, indices, idx1) && checkindex(Bool, indices, idx2)
@@ -529,9 +529,9 @@ end
 @inline get_nzchunk_key(V::AbstractVecbasedDensedSparseVector, i) = V.nzind[i]
 @inline get_nzchunk_key(V::DynamicDensedSparseVector, i) = deref_key((V.nzchunks, i))
 @inline function get_nzchunk_key(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractAllDensedSparseVector}
-    indices = get_nzchunk_indices(V.parent, i)
-    if checkindex(Bool, indices, first(V.indices[1]))
-        return first(V.indices[1])
+    indices = get_nzchunk_indices(parent(V), i)
+    if checkindex(Bool, indices, first(parentindices(V)[1]))
+        return first(parentindices(V)[1])
     else
         return key
     end
@@ -547,9 +547,9 @@ end
     ((key, chunk) = deref((V.nzchunks, i));
      return UnitRange{Ti}(key, key+length(chunk)-1))
 @inline function get_nzchunk_indices(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
-    idx1 = first(V.indices[1])
-    idx2 = last(V.indices[1])
-    indices = get_nzchunk_indices(V.parent, i)
+    idx1 = first(parentindices(V)[1])
+    idx2 = last(parentindices(V)[1])
+    indices = get_nzchunk_indices(parent(V), i)
     index1 = first(indices)
     index1 = last(indices)
     if checkindex(Bool, indices, idx1) && checkindex(Bool, indices, idx2)
@@ -702,12 +702,12 @@ SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nonzeroinds(V), nonzero
 @inline findfirstnzindex(V::AbstractSDictDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
     nnz(V) > 0 ? Ti(deref_key((V.nzchunks, startof(V.nzchunks)))) : nothing
 function findfirstnzindex(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    nnz(V.parent) == 0 && return nothing
-    ifirst, ilast = first(V.indices[1]), last(V.indices[1])
-    st = searchsortedlast_nzchunk(V.parent, ifirst)
-    st == pastendnzchunk_index(V.parent) && return nothing
-    key = get_nzchunk_key(V.parent, st)
-    len = get_nzchunk_length(V.parent, st)
+    nnz(parent(V)) == 0 && return nothing
+    ifirst, ilast = first(parentindices(V)[1]), last(parentindices(V)[1])
+    st = searchsortedlast_nzchunk(parent(V), ifirst)
+    st == pastendnzchunk_index(parent(V)) && return nothing
+    key = get_nzchunk_key(parent(V), st)
+    len = get_nzchunk_length(parent(V), st)
     if key <= ifirst < key + len  # ifirst index within nzchunk range
         return Ti(1)
     elseif ifirst <= key <= ilast  # nzchunk[1] somewhere in ifirst:ilast range
@@ -730,12 +730,12 @@ end
     end
 end
 function findlastnzindex(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    nnz(V.parent) == 0 && return nothing
-    ifirst, ilast = first(V.indices[1]), last(V.indices[1])
-    st = searchsortedfirst_nzchunk(V.parent, ilast)
-    st == beforestartnzchunk_index(V.parent) && return nothing
-    key = get_nzchunk_key(V.parent, st)
-    len = get_nzchunk_length(V.parent, st)
+    nnz(parent(V)) == 0 && return nothing
+    ifirst, ilast = first(parentindices(V)[1]), last(parentindices(V)[1])
+    st = searchsortedfirst_nzchunk(parent(V), ilast)
+    st == beforestartnzchunk_index(parent(V)) && return nothing
+    key = get_nzchunk_key(parent(V), st)
+    len = get_nzchunk_length(parent(V), st)
     if key <= ilast < key + len  # ilast index within nzchunk range
         return Ti(ilast - ifirst + 1)
     elseif ifirst <= key+len-1 <= ilast  # nzchunk[end] somewhere in ifirst:ilast range
@@ -748,11 +748,11 @@ end
 "Returns value of first non-zero element in the sparse vector."
 @inline findfirstnz(V::AbstractSparseVector) = nnz(V) > 0 ? V[findfirstnzindex(V)] : nothing
 function findfirstnz(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    nnz(V.parent) == 0 && return nothing
-    ifirst, ilast = first(V.indices[1]), last(V.indices[1])
-    st = searchsortedlast_nzchunk(V.parent, ifirst)
-    st == pastendnzchunk_index(V.parent) && return nothing
-    key, chunk, len = get_key_and_nzchunk_and_length(V.parent, st)
+    nnz(parent(V)) == 0 && return nothing
+    ifirst, ilast = first(parentindices(V)[1]), last(parentindices(V)[1])
+    st = searchsortedlast_nzchunk(parent(V), ifirst)
+    st == pastendnzchunk_index(parent(V)) && return nothing
+    key, chunk, len = get_key_and_nzchunk_and_length(parent(V), st)
     if key <= ifirst < key + len  # ifirst index within nzchunk range
         return chunk[ifirst-key+1]
     elseif ifirst <= key <= ilast  # nzchunk[1] somewhere in ifirst:ilast range
@@ -765,11 +765,11 @@ end
 "Returns value of last non-zero element in the sparse vector."
 @inline findlastnz(V::AbstractSparseVector) = nnz(V) > 0 ? V[findlastnzindex(V)] : nothing
 function findlastnz(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
-    nnz(V.parent) == 0 && return nothing
-    ifirst, ilast = first(V.indices[1]), last(V.indices[1])
-    st = searchsortedfirst_nzchunk(V.parent, ilast)
-    st == beforestartnzchunk_index(V.parent) && return nothing
-    key, chunk, len = get_key_and_nzchunk_and_length(V.parent, st)
+    nnz(parent(V)) == 0 && return nothing
+    ifirst, ilast = first(parentindices(V)[1]), last(parentindices(V)[1])
+    st = searchsortedfirst_nzchunk(parent(V), ilast)
+    st == beforestartnzchunk_index(parent(V)) && return nothing
+    key, chunk, len = get_key_and_nzchunk_and_length(parent(V), st)
     if key <= ilast < key + len  # ilast index within nzchunk range
         return chunk[ilast-key+1]
     elseif ifirst <= key+len-1 <= ilast  # nzchunk[end] somewhere in ifirst:ilast range
@@ -834,15 +834,15 @@ Base.@propagate_inbounds function iteratenzchunks(V::AbstractSDictDensedSparseVe
 end
 
 Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector}
-    state = length(V) > 0 ? regress(V.parent, searchsortedlast_nzchunk(V.parent, first(V.indices[1]))) :
-                            beforestartnzchunk_index(V.parent)
+    state = length(V) > 0 ? regress(parent(V), searchsortedlast_nzchunk(parent(V), first(parentindices(V)[1]))) :
+                            beforestartnzchunk_index(parent(V))
     return iteratenzchunks(V, state)
 end
 Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}, state) where {T<:AbstractAllDensedSparseVector}
-    state = advance(V.parent, state)
-    if state != pastendnzchunk_index(V.parent)
-        indices = get_nzchunk_indices(V.parent, state)
-        if first(indices) <= last(V.indices[1])
+    state = advance(parent(V), state)
+    if state != pastendnzchunk_index(parent(V))
+        indices = get_nzchunk_indices(parent(V), state)
+        if first(indices) <= last(parentindices(V)[1])
             return (Pair(get_nzchunk_indices(V, state), get_nzchunk(V, state)), state)
         else
             return nothing
@@ -1023,14 +1023,10 @@ end
 #    (position=position, indices=indices, chunk=chunk, idxchunk=idxchunk)
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. That's option for `SubArray` and restarts.
-#startindex(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} = startindex(V.parent, first(V.indices[1]))
+#startindex(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} = startindex(parent(V), first(parentindices(V)[1]))
 function startindex(V::{T,SubArray{<:Any,<:Any,<:T}}, i::Integer = 1) where {T<:AbstractAllDensedSparseVector}
-    if isa(V, SubArray)
-        VV = V.parent
-        i = first(V.indices[1])
-    else
-        VV = V
-    end
+    VV = parent(V)
+    i = first(parentindices(V)[1])
     idxchunk = searchsortedlast_nzchunk(VV, i)
     if idxchunk != pastendnzchunk_index(VV)
         indices, chunk = get_indices_and_nzchunk(V, idxchunk)
@@ -1071,24 +1067,24 @@ end
 
 
 ###for (fn, ret1) in
-###        ((:iteratenzpairs    ,  :(Ti(indices[position]-first(V.indices[1])+1) => chunk[position])                ),
-###         (:iteratenzpairsview,  :(Ti(indices[position]-first(V.indices[1])+1) => view(chunk, position:position)) ),
+###        ((:iteratenzpairs    ,  :(Ti(indices[position]-first(parentindices(V)[1])+1) => chunk[position])                ),
+###         (:iteratenzpairsview,  :(Ti(indices[position]-first(parentindices(V)[1])+1) => view(chunk, position:position)) ),
 ###         (:iteratenzvalues   ,  :(chunk[position])                                                            ),
 ###         (:iteratenzvaluesview, :(view(chunk, position:position))                                             ),
-###         (:iteratenzindices  ,  :(Ti(indices[position]-first(V.indices[1])+1))                                   ))
+###         (:iteratenzindices  ,  :(Ti(indices[position]-first(parentindices(V)[1])+1))                                   ))
 ###
 ###    @eval Base.@propagate_inbounds function $fn(V::SubArray{<:Any,<:Any,<:T},
-###                                                state = startindex(V.parent, first(V.indices[1]))) where
+###                                                state = startindex(parent(V), first(parentindices(V)[1]))) where
 ###                                                {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
 ###        position, indices, chunk, idxchunk = fieldvalues(state)
 ###        position += 1
-###        if first(indices) + position >= last(V.indices[1])
+###        if first(indices) + position >= last(parentindices(V)[1])
 ###            return nothing
 ###        elseif position <= length(indices)
 ###            return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
 ###            # TODO: FIXME: fix iteratenzchunks() for last in SubArray nzchunk
 ###        #elseif (st = iteratenzchunks(V, idxchunk)) !== nothing
-###        elseif (st = iteratenzchunks(V.parent, idxchunk)) !== nothing
+###        elseif (st = iteratenzchunks(parent(V), idxchunk)) !== nothing
 ###            ((indices, chunk), idxchunk) = st
 ###            position = 1
 ###            return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
