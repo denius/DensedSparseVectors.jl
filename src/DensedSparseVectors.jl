@@ -798,28 +798,10 @@ end
 # FIXME: Type piracy!!!
 Base.@propagate_inbounds SparseArrays.nnz(V::DenseArray) = length(V)
 
-Base.@propagate_inbounds function iteratenzchunksindex(V::AbstractVecbasedDensedSparseVector, state = 0)
-    state += 1
-    if state <= length(V.nzind)
-        return (state, state)
-    else
-        return nothing
-    end
-end
-Base.@propagate_inbounds function iteratenzchunksindex(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
-    state = advance((V.nzchunks, state))
-    if state != pastendsemitoken(V.nzchunks)
-        return (state, state)
-    else
-        return nothing
-    end
-end
-
-"`iteratenzchunks(V::AbstractVector)` iterates over non-zero chunks and returns indices of elements in chunk and chunk"
 Base.@propagate_inbounds function iteratenzchunks(V::AbstractVecbasedDensedSparseVector, state = 0)
     state += 1
     if state <= length(V.nzind)
-        return (Pair(get_indices_and_nzchunk(V, state)), state)
+        return (state, state)
     else
         return nothing
     end
@@ -827,18 +809,36 @@ end
 Base.@propagate_inbounds function iteratenzchunks(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
+        return (state, state)
+    else
+        return nothing
+    end
+end
+
+"`iteratenzchunkspairs(V::AbstractVector)` iterates over non-zero chunks and returns indices of elements in chunk and chunk"
+Base.@propagate_inbounds function iteratenzchunkspairs(V::AbstractVecbasedDensedSparseVector, state = 0)
+    state += 1
+    if state <= length(V.nzind)
+        return (Pair(get_indices_and_nzchunk(V, state)), state)
+    else
+        return nothing
+    end
+end
+Base.@propagate_inbounds function iteratenzchunkspairs(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
+    state = advance((V.nzchunks, state))
+    if state != pastendsemitoken(V.nzchunks)
         return (Pair(get_indices_and_nzchunk(V, state)), state)
     else
         return nothing
     end
 end
 
-Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector}
+Base.@propagate_inbounds function iteratenzchunkspairs(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector}
     state = length(V) > 0 ? regress(parent(V), searchsortedlast_nzchunk(parent(V), first(parentindices(V)[1]))) :
                             beforestartnzchunk_index(parent(V))
-    return iteratenzchunks(V, state)
+    return iteratenzchunkspairs(V, state)
 end
-Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}, state) where {T<:AbstractAllDensedSparseVector}
+Base.@propagate_inbounds function iteratenzchunkspairs(V::SubArray{<:Any,<:Any,<:T}, state) where {T<:AbstractAllDensedSparseVector}
     state = advance(parent(V), state)
     if state != pastendnzchunk_index(parent(V))
         indices = get_nzchunk_indices(parent(V), state)
@@ -852,11 +852,11 @@ Base.@propagate_inbounds function iteratenzchunks(V::SubArray{<:Any,<:Any,<:T}, 
     end
 end
 
-Base.@propagate_inbounds function iteratenzchunks(V::SparseVector)
+Base.@propagate_inbounds function iteratenzchunkspairs(V::SparseVector)
     nn = nnz(V)
-    return nn == 0 ? nothing : iteratenzchunks(V, (1, 0))
+    return nn == 0 ? nothing : iteratenzchunkspairs(V, (1, 0))
 end
-Base.@propagate_inbounds function iteratenzchunks(V::SparseVector, state)
+Base.@propagate_inbounds function iteratenzchunkspairs(V::SparseVector, state)
     nzinds = SparseArrays.nonzeroinds(V)
     N = length(nzinds)
     i1, len = state
@@ -877,7 +877,7 @@ Base.@propagate_inbounds function iteratenzchunks(V::SparseVector, state)
     end
 end
 
-Base.@propagate_inbounds function iteratenzchunks(V::Vector, state = 0)
+Base.@propagate_inbounds function iteratenzchunkspairs(V::Vector, state = 0)
     state += 1
     if length(V) == 1
         return (Pair(1:1, V), state)
@@ -887,7 +887,7 @@ Base.@propagate_inbounds function iteratenzchunks(V::Vector, state = 0)
         return nothing
     end
 end
-Base.@propagate_inbounds iteratenzchunks(V::Number, state = V) = (Pair(V, V), state)
+Base.@propagate_inbounds iteratenzchunkspairs(V::Number, state = V) = (Pair(V, V), state)
 
 "`iteratenzpairs(V::AbstractAllDensedSparseVector)` iterates over non-zero elements
  of vector and returns pair of index and value"
@@ -1053,7 +1053,7 @@ for (fn, ret1) in
         position += 1
         if position <= length(indices)
             return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
-        elseif (st = iteratenzchunks(V, idxchunk)) !== nothing
+        elseif (st = iteratenzchunkspairs(V, idxchunk)) !== nothing
             ((indices, chunk), idxchunk) = st
             position = 1
             return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
@@ -1080,9 +1080,9 @@ end
 ###            return nothing
 ###        elseif position <= length(indices)
 ###            return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
-###            # TODO: FIXME: fix iteratenzchunks() for last in SubArray nzchunk
-###        #elseif (st = iteratenzchunks(V, idxchunk)) !== nothing
-###        elseif (st = iteratenzchunks(parent(V), idxchunk)) !== nothing
+###            # TODO: FIXME: fix iteratenzchunkspairs() for last in SubArray nzchunk
+###        #elseif (st = iteratenzchunkspairs(V, idxchunk)) !== nothing
+###        elseif (st = iteratenzchunkspairs(parent(V), idxchunk)) !== nothing
 ###            ((indices, chunk), idxchunk) = st
 ###            position = 1
 ###            return ($ret1, nziteratorstate(V, position, indices, chunk, idxchunk))
@@ -1112,7 +1112,7 @@ end
  returns tuple of start index and chunk vector"
 @inline nzchunks(itr) = NZChunks(itr)
 @inline function Base.iterate(it::NZChunks, state...)
-    y = iteratenzchunks(it.itr, state...)
+    y = iteratenzchunkspairs(it.itr, state...)
     if y !== nothing
         return y[1][2], y[2]
     else
@@ -1136,7 +1136,7 @@ end
 "`nzchunkspairs(V::AbstractAllDensedSparseVector)` is the `Iterator` over non-zero chunks,
  returns `Pair` of `UnitRange` first-last indices and view to vector of non-zero values."
 @inline nzchunkspairs(itr) = NZChunksPairs(itr)
-@inline Base.iterate(it::NZChunksPairs, state...) = iteratenzchunks(it.itr, state...)
+@inline Base.iterate(it::NZChunksPairs, state...) = iteratenzchunkspairs(it.itr, state...)
 SparseArrays.indtype(it::NZChunksPairs) = SparseArrays.indtype(it.itr)
 Base.eltype(::Type{NZChunksPairs{It}}) where {It} = eltype(It)
 Base.IteratorEltype(::Type{NZChunksPairs{It}}) where {It} = Base.EltypeUnknown()
