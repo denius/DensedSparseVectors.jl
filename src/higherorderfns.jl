@@ -20,7 +20,7 @@ using StaticArrays
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
-                             _are_same_sparse_indices, _expand_full!,
+                             _are_same_sparse_indices, _similar_sparse_indices!, _expand_full!,
                              NZPairsView, NZChunks
 
 # Some Unions definitions
@@ -79,6 +79,7 @@ const AdjOrTransDensedSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:
 #ADensedSparseVectorOrSpV = Union{AbstractDensedSparseVector,SparseVector}
 #DensedSparseVecOrBlk = Union{ADensedSparseVectorOrSpV,AbstractDensedBlockSparseVector}
 
+# TODO: Add SubArray{<:Any,<:Any,<:DensedSparseVector} and so on
 UnionDensedSparseVectorOrSpV = Union{DensedSparseVector,FixedDensedSparseVector,DynamicDensedSparseVector,SparseVector}
 UnionDensedBlockSparseVector = Union{DensedSVSparseVector,DensedVLSparseVector}
 DensedSparseVecOrBlk = Union{UnionDensedSparseVectorOrSpV,UnionDensedBlockSparseVector}

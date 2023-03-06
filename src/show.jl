@@ -7,8 +7,8 @@
 
 function quick_get_max_pad(V::AbstractDensedSparseVector)
     pad = 0
-    for (key, chunk) in nzchunkspairs(V)
-        pad = max(pad, ndigits(key), ndigits(key+length_of_that_nzchunk(V, chunk)-1))
+    for (indices, _) in nzchunkspairs(V)
+        pad = max(pad, ndigits(first(indices)), ndigits(last(indices)))
     end
     pad
 end

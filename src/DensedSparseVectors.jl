@@ -403,8 +403,8 @@ Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{
 function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
     nzind = similar(V.nzind, TiNew)
     nzchunks = similar(V.nzchunks)
-    for (i, (k,d)) in enumerate(nzchunkspairs(V))
-        nzind[i] = k
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = first(ids)
         nzchunks[i] = similar(d, TvNew)
     end
     return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks)
@@ -417,8 +417,8 @@ function Base.similar(V::FixedDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, 
 end
 function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
     nzchunks = SortedDict{TiNew, Vector{TvNew}, FOrd}(Forward)
-    for (k,d) in nzchunkspairs(V)
-        nzchunks[k] = similar(d, TvNew)
+    for (ids,d) in nzchunkspairs(V)
+        nzchunks[first(ids)] = similar(d, TvNew)
     end
     return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
 end
@@ -426,8 +426,8 @@ end
 function Base.copy(V::T) where {T<:DensedSparseVector}
     nzind = copy(V.nzind)
     nzchunks = copy(V.nzchunks)
-    for (i, (k,d)) in enumerate(nzchunkspairs(V))
-        nzind[i] = k
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = first(ids)
         nzchunks[i] = copy(d)
     end
     return T(length(V), nzind, nzchunks)
@@ -435,8 +435,8 @@ end
 Base.copy(V::T) where {T<:FixedDensedSparseVector} = T(length(V), copy(V.nzind), copy(V.nzchunks), copy(V.offsets))
 function Base.copy(V::DynamicDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP}
     nzchunks = SortedDict{Ti, Vector{Tv}, FOrd}(Forward)
-    for (k,d) in nzchunkspairs(V)
-        nzchunks[k] = copy(d)
+    for (ids,d) in nzchunkspairs(V)
+        nzchunks[first(ids)] = copy(d)
     end
     return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
 end
@@ -671,8 +671,8 @@ end
 
 function SparseArrays.nonzeroinds(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti}
     ret = Vector{Ti}()
-    for (k,d) in nzchunkspairs(V)
-        append!(ret, (k:k+length(d)-1))
+    for (ids,_) in nzchunkspairs(V)
+        append!(ret, ids)
     end
     return ret
 end
@@ -819,7 +819,7 @@ end
 Base.@propagate_inbounds function iteratenzchunkspairs(V::AbstractVecbasedDensedSparseVector, state = 0)
     state += 1
     if state <= length(V.nzind)
-        return (Pair(get_indices_and_nzchunk(V, state)), state)
+        return (Pair(get_indices_and_nzchunk(V, state)...), state)
     else
         return nothing
     end
@@ -827,7 +827,7 @@ end
 Base.@propagate_inbounds function iteratenzchunkspairs(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
-        return (Pair(get_indices_and_nzchunk(V, state)), state)
+        return (Pair(get_indices_and_nzchunk(V, state)...), state)
     else
         return nothing
     end
@@ -2041,13 +2041,13 @@ function _similar_resize!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseV
     nnzch = nnzchunks(A)
     resize!(C.nzind, nnzch)
     resize!(C.nzchunks, nnzch)
-    for (i, (k,chunk)) in enumerate(nzchunkspairs(A))
+    for (i, (indices,chunk)) in enumerate(nzchunkspairs(A))
         if isassigned(C.nzchunks, i)
             resize!(C.nzchunks[i], length(chunk))
         else
             C.nzchunks[i] = Vector{Tv}(undef, length(chunk))
         end
-        C.nzind[i] = Ti(k)
+        C.nzind[i] = Ti(first(indices))
     end
     return C
 end
@@ -2166,8 +2166,8 @@ end
     if nnz(A) != nnz(B) || nnzchunks(A) != nnzchunks(B)
         return false
     end
-    for ((kA,cA), (kB,cB)) in zip(nzchunkspairs(A), nzchunkspairs(B)) # there is the same number of chunks thus `zip` is good
-        if kA != kB || length(cA) != length(cB)
+    for ((idsA,_), (idsB,_)) in zip(nzchunkspairs(A), nzchunkspairs(B)) # there is the same number of chunks thus `zip` is good
+        if first(idsA) != first(idsB) || last(idsA) != last(idsB)
             return false
         end
     end
@@ -2183,8 +2183,8 @@ _check_same_sparse_indices(As...) = _are_same_sparse_indices(As...) || throw(Dim
 
 function Base.copyto!(C::AbstractDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
     _similar_sparse_indices!(C, A)
-    for (i, (k,chunk)) in enumerate(nzchunkspairs(A))
-        _copy_chunk_to!(C, i, k, chunk)
+    for (i, (ids,chunk)) in enumerate(nzchunkspairs(A))
+        _copy_chunk_to!(C, i, first(ids), chunk)
     end
     return C
 end
