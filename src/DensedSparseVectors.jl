@@ -15,8 +15,9 @@
 #
 # * May be all iterators should returns `view(chunk, :)`?
 #
-# * May be `nzchunkspairs()` should returns `axes(), chunk` instead of `firstindex, chunk`?
-#   (But `nzpairs()` returns `key,value`.)
+# * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
+#   Try to implement `MatrixIndex` from ArrayInterface.jl
+#
 #
 #
 # Notes:
@@ -104,6 +105,8 @@ using Random
 #    #return Expr(:if, Expr(:zeroscheck), esc(blk))
 #end
 
+# https://github.com/JuliaLang/julia/issues/39952
+basetype(::Type{T}) where T = Base.typename(T).wrapper
 
 abstract type AbstractAllDensedSparseVector{Tv,Ti,BZP} <: AbstractSparseVector{Tv,Ti} end
 
@@ -146,16 +149,18 @@ mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector
     "Number of stored non-zero elements"
     nnz::Int
 
-    DensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n, nzind, nzchunks)
+    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
+    DensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} = new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
+
+    DensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks) where {Tv,Ti} =
+        DensedSparseVector{Tv,Ti,Val{false}}(n, nzind, nzchunks)
     DensedSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
 
-    #DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
-    DensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} = new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
 end
 
-DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Val{false}}(n)
-DensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(V)
+#DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Val{false}}(n)
+#DensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(V)
 
 DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DensedSparseVector{Tv,Ti,BZP}(V)
 
@@ -312,16 +317,21 @@ mutable struct DynamicDensedSparseVector{Tv,Ti,BZP} <: AbstractSDictDensedSparse
     "Number of stored non-zero elements"
     nnz::Int
 
+    DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(n)
     function DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP}
         nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
         new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, 0)
     end
+
+    DynamicDensedSparseVector{Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
+        DynamicDensedSparseVector{Tv,Ti,Val{false}}(n, nzchunks)
     DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,BZP,K,V<:AbstractVector} =
         new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0))
+
 end
 
-DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
-DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
+#DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
+#DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
 
 DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DynamicDensedSparseVector{Tv,Ti,BZP}(V)
 function DynamicDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
@@ -352,7 +362,8 @@ Convert any `AbstractSparseVector`s to particular `AbstractAllDensedSparseVector
     DensedSparseVector{Float64,Int}(sv)
 
 """
-(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = T{Tv,Ti,Val{false}}(V)
+(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = basetype(T){Tv,Ti,Val{false}}(V)
+#(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = T{Tv,Ti,Val{false}}(V)
 function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti,BZP}} where {Tv,Ti,BZP}
     sv = T(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
