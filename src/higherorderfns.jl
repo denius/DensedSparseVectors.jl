@@ -586,15 +586,14 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
-    ###ks = _colstartind_all(1, (C, As...))
-    ###stopks = _colboundind_all(1, (C, As...))
     ks = map(firstrawindex, (C, As...))
     stopks = map(pastendrawindex, (C, As...))
-    rows = _rowforind_all(rowsentinel, ks, stopks, (C, As...))
+    #rows = _rowforind_all(ks, stopks, (C, As...))
+    rows = map(from_rawindex, (C, As...), ks)
     kC = first(ks)
     activerow = min(rows...)
     while activerow < rowsentinel
-        vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, (C, As...))
+        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, stopks, (C, As...))
         Cx = f(tail(vals)...)
         if from_rawindex(C, kC) == activerow
             # element exist
@@ -621,10 +620,10 @@ function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Vararg
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         ks = stopks
         stopks = _colboundind_all(j, As)
-        rows = _rowforind_all(rowsentinel, ks, stopks, As)
+        rows = _rowforind_all(ks, stopks, As)
         activerow = min(rows...)
         while activerow < rowsentinel
-            vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
+            vals, ks, rows = _fusedupdate_all(activerow, rows, ks, stopks, As)
             Cx = f(vals...)
             Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
             activerow = min(rows...)
@@ -644,29 +643,26 @@ end
 @inline _colboundind_all(j, As) = (
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
-@inline _rowforind(rowsentinel, k, stopk, A) = from_rawindex(A, k)
-    #rawindex_compare(A, k, stopk) < 0 ? from_rawindex(A, k) : convert(indtype(A), rowsentinel)
-    #k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
-@inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
-@inline _rowforind_all(rowsentinel, ks, stopks, As) = (
-    _rowforind(rowsentinel, first(ks), first(stopks), first(As)),
-    _rowforind_all(rowsentinel, tail(ks), tail(stopks), tail(As))...)
 
-@inline function _fusedupdate(rowsentinel, activerow, row, k, stopk, A)
+@inline _rowforind(k, stopk, A) = from_rawindex(A, k)
+@inline _rowforind_all(::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
+@inline _rowforind_all(ks, stopks, As) = (
+    _rowforind(first(ks), first(stopks), first(As)),
+    _rowforind_all(tail(ks), tail(stopks), tail(As))...)
+
+@inline function _fusedupdate(activerow, row, k, stopk, A)
     # returns (val, nextk, nextrow)
     if row == activerow
-        nextk = rawindex_advance(A, k) #k + oneunit(k)
+        nextk = rawindex_advance(A, k)
         (A[k], nextk, from_rawindex(A, nextk))
-        #(A[k], nextk, (rawindex_compare(A, nextk, stopk) < 0 ? from_rawindex(A, nextk) : oftype(row, rowsentinel)))
-        #(storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
     else
         (zero(eltype(A)), k, row)
     end
 end
-@inline _fusedupdate_all(rowsentinel, activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextks=#), (#=nextrows=#))
-@inline function _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
-    val, nextk, nextrow = _fusedupdate(rowsentinel, activerow, first(rows), first(ks), first(stopks), first(As))
-    vals, nextks, nextrows = _fusedupdate_all(rowsentinel, activerow, tail(rows), tail(ks), tail(stopks), tail(As))
+@inline _fusedupdate_all(activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextks=#), (#=nextrows=#))
+@inline function _fusedupdate_all(activerow, rows, ks, stopks, As)
+    val, nextk, nextrow = _fusedupdate(activerow, first(rows), first(ks), first(stopks), first(As))
+    vals, nextks, nextrows = _fusedupdate_all(activerow, tail(rows), tail(ks), tail(stopks), tail(As))
     return ((val, vals...), (nextk, nextks...), (nextrow, nextrows...))
 end
 
@@ -1087,7 +1083,7 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedS
         activerow = min(rows...)
         if _iszero(defaultCx) # zero-preserving column scan
             while activerow < rowsentinel
-                args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
+                args, ks, rows = _fusedupdatebc_all(activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
                 if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), As)))
@@ -1100,7 +1096,7 @@ function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedS
         else # zero-non-preserving column scan
             for Ci in 1:numrows(C)
                 if Ci == activerow
-                    args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
+                    args, ks, rows = _fusedupdatebc_all(activerow, rows, defargs, ks, stopks, As)
                     Cx = f(args...)
                     activerow = min(rows...)
                 else
@@ -1140,7 +1136,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::
         activerow = min(rows...)
         if defaultCx == fillvalue # fillvalue-preserving column scan
             while activerow < rowsentinel
-                args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
+                args, ks, rows = _fusedupdatebc_all(activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
                 Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
                 activerow = min(rows...)
@@ -1148,7 +1144,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::
         else # fillvalue-non-preserving column scan
             for Ci in 1:numrows(C)
                 if Ci == activerow
-                    args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
+                    args, ks, rows = _fusedupdatebc_all(activerow, rows, defargs, ks, stopks, As)
                     Cx = f(args...)
                     activerow = min(rows...)
                 else
@@ -1195,7 +1191,7 @@ end
 @inline _defargforcol_all(j, isemptys, expandsverts, ks, As) = (
     _defargforcol(j, first(isemptys), first(expandsverts), first(ks), first(As)),
     _defargforcol_all(j, tail(isemptys), tail(expandsverts), tail(ks), tail(As))...)
-@inline function _fusedupdatebc(rowsentinel, activerow, row, defarg, k, stopk, A)
+@inline function _fusedupdatebc(activerow, row, defarg, k, stopk, A)
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = k + oneunit(k)
@@ -1205,9 +1201,9 @@ end
     end
 end
 @inline _fusedupdatebc_all(rowsent, activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextks=#), (#=nextrows=#))
-@inline function _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
-    val, nextk, nextrow = _fusedupdatebc(rowsentinel, activerow, first(rows), first(defargs), first(ks), first(stopks), first(As))
-    vals, nextks, nextrows = _fusedupdatebc_all(rowsentinel, activerow, tail(rows), tail(defargs), tail(ks), tail(stopks), tail(As))
+@inline function _fusedupdatebc_all(activerow, rows, defargs, ks, stopks, As)
+    val, nextk, nextrow = _fusedupdatebc(activerow, first(rows), first(defargs), first(ks), first(stopks), first(As))
+    vals, nextks, nextrows = _fusedupdatebc_all(activerow, tail(rows), tail(defargs), tail(ks), tail(stopks), tail(As))
     return ((val, vals...), (nextk, nextks...), (nextrow, nextrows...))
 end
 
