@@ -458,8 +458,16 @@ function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
 end
 
 
-from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
-from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+#from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
+#function from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+    if first(idx) != pastendnzchunk_index(V)
+        return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+    else
+        li = lastindex(V)
+        return li + oftype(li, 1)
+    end
+end
 
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true

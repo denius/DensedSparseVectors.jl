@@ -644,8 +644,8 @@ end
 @inline _colboundind_all(j, As) = (
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
-@inline _rowforind(rowsentinel, k, stopk, A) =
-    rawindex_compare(A, k, stopk) < 0 ? from_rawindex(A, k) : convert(indtype(A), rowsentinel)
+@inline _rowforind(rowsentinel, k, stopk, A) = from_rawindex(A, k)
+    #rawindex_compare(A, k, stopk) < 0 ? from_rawindex(A, k) : convert(indtype(A), rowsentinel)
     #k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
 @inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(rowsentinel, ks, stopks, As) = (
@@ -656,7 +656,8 @@ end
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = rawindex_advance(A, k) #k + oneunit(k)
-        (A[k], nextk, (rawindex_compare(A, nextk, stopk) < 0 ? from_rawindex(A, nextk) : oftype(row, rowsentinel)))
+        (A[k], nextk, from_rawindex(A, nextk))
+        #(A[k], nextk, (rawindex_compare(A, nextk, stopk) < 0 ? from_rawindex(A, nextk) : oftype(row, rowsentinel)))
         #(storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
     else
         (zero(eltype(A)), k, row)
