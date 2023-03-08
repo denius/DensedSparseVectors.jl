@@ -587,13 +587,12 @@ end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
     ks = map(firstrawindex, (C, As...))
-    stopks = map(pastendrawindex, (C, As...))
-    #rows = _rowforind_all(ks, stopks, (C, As...))
+    #stopks = map(pastendrawindex, (C, As...))
     rows = map(from_rawindex, (C, As...), ks)
     kC = first(ks)
     activerow = min(rows...)
     while activerow < rowsentinel
-        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, stopks, (C, As...))
+        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
         Cx = f(tail(vals)...)
         if from_rawindex(C, kC) == activerow
             # element exist
@@ -650,7 +649,7 @@ end
     _rowforind(first(ks), first(stopks), first(As)),
     _rowforind_all(tail(ks), tail(stopks), tail(As))...)
 
-@inline function _fusedupdate(activerow, row, k, stopk, A)
+@inline function _fusedupdate(activerow, row, k, A)
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = rawindex_advance(A, k)
@@ -659,10 +658,10 @@ end
         (zero(eltype(A)), k, row)
     end
 end
-@inline _fusedupdate_all(activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextks=#), (#=nextrows=#))
-@inline function _fusedupdate_all(activerow, rows, ks, stopks, As)
-    val, nextk, nextrow = _fusedupdate(activerow, first(rows), first(ks), first(stopks), first(As))
-    vals, nextks, nextrows = _fusedupdate_all(activerow, tail(rows), tail(ks), tail(stopks), tail(As))
+@inline _fusedupdate_all(activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ((#=vals=#), (#=nextks=#), (#=nextrows=#))
+@inline function _fusedupdate_all(activerow, rows, ks, As)
+    val, nextk, nextrow = _fusedupdate(activerow, first(rows), first(ks), first(As))
+    vals, nextks, nextrows = _fusedupdate_all(activerow, tail(rows), tail(ks), tail(As))
     return ((val, vals...), (nextk, nextks...), (nextrow, nextrows...))
 end
 
