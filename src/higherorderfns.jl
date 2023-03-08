@@ -166,18 +166,21 @@ const SpBroadcasted2{Style<:DSpVBStyle,Axes,F,Args<:Tuple{DensedSparseVecOrBlk,D
 @inline numrows(A::AbstractDensedSparseVector) = length(A)
 @inline numrows(A::AbstractDensedBlockSparseVector) = size(A, 1)
 @inline numcols(A::AbstractDensedSparseVector) = 1
-@inline numcols(A::AbstractDensedBlockSparseVector) = size(A, 2)
+@inline numcols(A::AbstractDensedBlockSparseVector) = 1
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
 @inline columns(A::AbstractDensedSparseVector) = 1
-@inline columns(A::AbstractDensedBlockSparseVector) = 1:size(A, 2)
+@inline columns(A::AbstractDensedBlockSparseVector) = 1:1
 @inline colrange(A::AbstractDensedSparseVector, j) = (throw(ArgumentError("Inapplicable for DSV")); 1:length(nonzeroinds(A)))
 @inline colrange(A::AbstractDensedBlockSparseVector, j) = nzrange(A, j)
-@inline colstartind(A::SparseVector, j) = Pair(one(indtype(A)), 1)
-@inline colboundind(A::SparseVector, j) = Pair(convert(indtype(A), length(nonzeroinds(A)) + 1), 1)
-@inline colstartind(A::AbstractDensedSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
-@inline colboundind(A::AbstractDensedSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
-@inline colstartind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
-@inline colboundind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
+
+@inline colstartind(A::AbstractArray, j) = firstrawindex(A)
+@inline colboundind(A::AbstractArray, j) = pastendrawindex(A)
+#@inline colboundind(A::SparseVector, j) = Pair(convert(indtype(A), length(nonzeroinds(A)) + 1), 1)
+#@inline colstartind(A::AbstractDensedSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
+#@inline colboundind(A::AbstractDensedSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
+#@inline colstartind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
+#@inline colboundind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
+#
 @inline storedinds(A::AbstractDensedSparseVector) = nonzeroinds(A)
 @inline storedinds(A::AbstractDensedBlockSparseVector) = rowvals(A)
 @inline storedvals(A::DensedSparseVecOrBlk) = nonzeros(A)
@@ -583,21 +586,23 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
-    ks = _colstartind_all(1, (C, As...)) # will contain stopk for C and As
-    stopks = _colboundind_all(1, (C, As...))
+    ###ks = _colstartind_all(1, (C, As...))
+    ###stopks = _colboundind_all(1, (C, As...))
+    ks = map(firstrawindex, (C, As...))
+    stopks = map(pastendrawindex, (C, As...))
     rows = _rowforind_all(rowsentinel, ks, stopks, (C, As...))
     kC = first(ks)
     activerow = min(rows...)
     while activerow < rowsentinel
         vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, (C, As...))
         Cx = f(tail(vals)...)
-        if DSV.fromrawindex(C, kC) == activerow
+        if from_rawindex(C, kC) == activerow
             # element exist
             C[kC] = Cx
         elseif _isnotzero(Cx)
             # inserting element into C
             C[activerow] = Cx
-            ks = (DSV.advancerawindex(C, DSV.raw_index(C, activerow)), tail(ks)...)
+            ks = (rawindex_advance(C, rawindex(C, activerow)), tail(ks)...)
         end
         kC = first(ks)
         activerow = min(rows...)
@@ -640,7 +645,7 @@ end
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
 @inline _rowforind(rowsentinel, k, stopk, A) =
-    DSV.rawindexcompare(A, k, stopk) < 0 ? DSV.fromrawindex(A, k) : convert(indtype(A), rowsentinel)
+    rawindex_compare(A, k, stopk) < 0 ? from_rawindex(A, k) : convert(indtype(A), rowsentinel)
     #k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
 @inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(rowsentinel, ks, stopks, As) = (
@@ -650,8 +655,8 @@ end
 @inline function _fusedupdate(rowsentinel, activerow, row, k, stopk, A)
     # returns (val, nextk, nextrow)
     if row == activerow
-        nextk = DSV.advancerawindex(A, k) #k + oneunit(k)
-        (A[k], nextk, (DSV.rawindexcompare(A, nextk, stopk) < 0 ? DSV.fromrawindex(A, nextk) : oftype(row, rowsentinel)))
+        nextk = rawindex_advance(A, k) #k + oneunit(k)
+        (A[k], nextk, (rawindex_compare(A, nextk, stopk) < 0 ? from_rawindex(A, nextk) : oftype(row, rowsentinel)))
         #(storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
     else
         (zero(eltype(A)), k, row)

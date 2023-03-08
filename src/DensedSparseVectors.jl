@@ -67,6 +67,8 @@ export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
 export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export startindex
+export rawindex, from_rawindex, rawindex_advance, rawindex_compare
+export firstrawindex, lastrawindex, pastendrawindex
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
@@ -395,7 +397,7 @@ end
 idxcompare(V::AbstractSparseVector, i, j) = cmp(i, j)
 idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
 
-function rawindexcompare(V, i, j)
+function rawindex_compare(V, i, j)
     c = idxcompare(V, first(i), first(j))
     if c < 0
         return -1
@@ -411,7 +413,7 @@ RawIndex is an `Pair` of idx to chunk and value position which points directly t
 For `DensedSparseVector` it will be `Pair{Int,Int}`.
 For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
 """
-function raw_index(V, i)
+function rawindex(V, i)
     idxchunk = searchsortedlast_nzchunk(V, i)
     if idxchunk != pastendnzchunk_index(V)
         indices = get_nzchunk_indices(V, idxchunk)
@@ -422,14 +424,25 @@ function raw_index(V, i)
     throw(BoundsError(V, i))
 end
 
+@inline firstrawindex(V::AbstractVector) = nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : pastendrawindex(V)
+@inline pastendrawindex(V::AbstractVector) = Pair(pastendnzchunk_index(V), 0)
+
+@inline function lastrawindex(V::AbstractVector)
+    if nnz(V) > 0
+        li = lastnzchunk_index(V)
+        return Pair(li, length(get_nzchunk_indices(V, li)))
+    else
+        return pastendrawindex(V)
+    end
+end
+
 # RawIndex for SparseVector is just Pair(index,1)
-advancerawindex(V::SparseVector) = Pair(oneunit(SparseArrays.indtype(V)), 1)
-advancerawindex(V::SparseVector, i) = first(i) > nnz(V) ? i : Pair(first(i) + oneunit(SparseArrays.indtype(V)), 1)
+rawindex_advance(V::SparseVector) = firstrawindex(V)
+rawindex_advance(V::SparseVector, i) = first(i) <= nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
 
-advancerawindex(V::AbstractAllDensedSparseVector) =
-    nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : Pair(pastendnzchunk_index(V), 0)
+rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
 
-function advancerawindex(V::AbstractAllDensedSparseVector, i::Pair)
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
     if last(i) != 0
         indices = get_nzchunk_indices(V, first(i))
         if last(i) < length(indices)
@@ -437,16 +450,16 @@ function advancerawindex(V::AbstractAllDensedSparseVector, i::Pair)
         elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
             return Pair(st, 1)
         else
-            return Pair(pastendnzchunk_index(V), 0)
+            return pastendrawindex(V)
         end
     else
-        return Pair(pastendnzchunk_index(V), 0)
+        return pastendrawindex(V)
     end
 end
 
 
-fromrawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
-fromrawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
+from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
 
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
@@ -676,13 +689,17 @@ end
 @inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzind[i] <= key < V.nzind[i] + V.offsets[i+1]-V.offsets[i]
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, i, key) = ((ichunk, chunk) = deref((V.nzchunks, i)); return (ichunk <= key < ichunk + length(chunk)))
 
+@inline firstnzchunk_index(V::SparseVector) = firstindex(V.nzind)
 @inline firstnzchunk_index(V::AbstractVecbasedDensedSparseVector) = firstindex(V.nzind)
 @inline firstnzchunk_index(V::AbstractSDictDensedSparseVector) = startof(V.nzchunks)
+@inline lastnzchunk_index(V::SparseVector) = lastindex(V.nzind)
 @inline lastnzchunk_index(V::AbstractVecbasedDensedSparseVector) = lastindex(V.nzind) # getfield(V, :n)
 @inline lastnzchunk_index(V::AbstractSDictDensedSparseVector) = lastindex(V.nzchunks)
 
+@inline beforestartnzchunk_index(V::SparseVector) = firstnzchunk_index(V) - 1
 @inline beforestartnzchunk_index(V::AbstractVecbasedDensedSparseVector) = firstnzchunk_index(V) - 1
 @inline beforestartnzchunk_index(V::AbstractSDictDensedSparseVector) = beforestartsemitoken(V.nzchunks)
+@inline pastendnzchunk_index(V::SparseVector) = lastnzchunk_index(V) + 1
 @inline pastendnzchunk_index(V::AbstractVecbasedDensedSparseVector) = lastnzchunk_index(V) + 1
 @inline pastendnzchunk_index(V::AbstractSDictDensedSparseVector) = pastendsemitoken(V.nzchunks)
 
@@ -1330,11 +1347,12 @@ function checkbounds(V, i::Pair)
     return nothing
 end
 
+# Potential type piracy!
 @inline Base.getindex(V::SparseVector, i::Pair) = V[first(i)]
 
 @inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Pair)
     @boundscheck checkbounds(V, i)
-    return get_nzchunk(V, first(i))[last(i)]
+    return @inbounds get_nzchunk(V, first(i))[last(i)]
 end
 
 @inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Integer)
@@ -1397,11 +1415,12 @@ end
 end
 
 
+# Potential type piracy!
 @inline Base.setindex!(V::SparseVector, value, i::Pair) = (V[first(i)] = value; V)
 
 @inline function Base.setindex!(V::AbstractAllDensedSparseVector, value, i::Pair)
     @boundscheck checkbounds(V, i)
-    get_nzchunk(V, first(i))[last(i)] = value
+    @inbounds get_nzchunk(V, first(i))[last(i)] = value
     return V
 end
 
