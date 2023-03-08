@@ -392,18 +392,7 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
     #return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
 end
 
-function raw_index(V, i)
-    idxchunk = searchsortedlast_nzchunk(V, i)
-    if idxchunk != pastendnzchunk_index(V)
-        indices = get_nzchunk_indices(V, idxchunk)
-        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
-            return Pair(idxchunk, Int(i - first(indices) + 1))
-        end
-    end
-    throw(BoundsError(V, i))
-end
-
-idxcompare(V::AbstractAllDensedSparseVector, i, j) = cmp(i, j)
+idxcompare(V::AbstractSparseVector, i, j) = cmp(i, j)
 idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
 
 function rawindexcompare(V, i, j)
@@ -416,6 +405,26 @@ function rawindexcompare(V, i, j)
         return 1
     end
 end
+
+"""
+RawIndex is an `Pair` of idx to chunk and value position which points directly to value in AbstractAllDensedSparseVector.
+For `DensedSparseVector` it will be `Pair{Int,Int}`.
+For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
+"""
+function raw_index(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
+        indices = get_nzchunk_indices(V, idxchunk)
+        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
+            return Pair(idxchunk, Int(i - first(indices) + 1))
+        end
+    end
+    throw(BoundsError(V, i))
+end
+
+# RawIndex for SparseVector is just Pair(index,1)
+advancerawindex(V::SparseVector) = Pair(oneunit(SparseArrays.indtype(V)), 1)
+advancerawindex(V::SparseVector, i) = first(i) > nnz(V) ? i : Pair(first(i) + oneunit(SparseArrays.indtype(V)), 1)
 
 advancerawindex(V::AbstractAllDensedSparseVector) =
     nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : Pair(pastendnzchunk_index(V), 0)
@@ -436,9 +445,9 @@ function advancerawindex(V::AbstractAllDensedSparseVector, i::Pair)
 end
 
 
-Base.to_index(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+fromrawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
+fromrawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
 
-#is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
 
@@ -1321,6 +1330,8 @@ function checkbounds(V, i::Pair)
     return nothing
 end
 
+@inline Base.getindex(V::SparseVector, i::Pair) = V[first(i)]
+
 @inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Pair)
     @boundscheck checkbounds(V, i)
     return get_nzchunk(V, first(i))[last(i)]
@@ -1385,6 +1396,8 @@ end
     end
 end
 
+
+@inline Base.setindex!(V::SparseVector, value, i::Pair) = (V[first(i)] = value; V)
 
 @inline function Base.setindex!(V::AbstractAllDensedSparseVector, value, i::Pair)
     @boundscheck checkbounds(V, i)

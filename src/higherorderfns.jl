@@ -172,6 +172,8 @@ const SpBroadcasted2{Style<:DSpVBStyle,Axes,F,Args<:Tuple{DensedSparseVecOrBlk,D
 @inline columns(A::AbstractDensedBlockSparseVector) = 1:size(A, 2)
 @inline colrange(A::AbstractDensedSparseVector, j) = (throw(ArgumentError("Inapplicable for DSV")); 1:length(nonzeroinds(A)))
 @inline colrange(A::AbstractDensedBlockSparseVector, j) = nzrange(A, j)
+@inline colstartind(A::SparseVector, j) = Pair(one(indtype(A)), 1)
+@inline colboundind(A::SparseVector, j) = Pair(convert(indtype(A), length(nonzeroinds(A)) + 1), 1)
 @inline colstartind(A::AbstractDensedSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
 @inline colboundind(A::AbstractDensedSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
 @inline colstartind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
@@ -589,7 +591,7 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
     while activerow < rowsentinel
         vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, (C, As...))
         Cx = f(tail(vals)...)
-        if Base.to_index(C, kC) == activerow
+        if DSV.fromrawindex(C, kC) == activerow
             # element exist
             C[kC] = Cx
         elseif _isnotzero(Cx)
@@ -638,7 +640,7 @@ end
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
 @inline _rowforind(rowsentinel, k, stopk, A) =
-    DSV.rawindexcompare(A, k, stopk) < 0 ? Base.to_index(A, k) : convert(indtype(A), rowsentinel)
+    DSV.rawindexcompare(A, k, stopk) < 0 ? DSV.fromrawindex(A, k) : convert(indtype(A), rowsentinel)
     #k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
 @inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(rowsentinel, ks, stopks, As) = (
@@ -649,7 +651,7 @@ end
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = DSV.advancerawindex(A, k) #k + oneunit(k)
-        (A[k], nextk, (DSV.rawindexcompare(A, nextk, stopk) < 0 ? Base.to_index(A, nextk) : oftype(row, rowsentinel)))
+        (A[k], nextk, (DSV.rawindexcompare(A, nextk, stopk) < 0 ? DSV.fromrawindex(A, nextk) : oftype(row, rowsentinel)))
         #(storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
     else
         (zero(eltype(A)), k, row)
