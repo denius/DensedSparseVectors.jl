@@ -16,11 +16,16 @@
 # * May be all iterators should returns `view(chunk, :)`?
 #
 # * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
-#   Try to implement `MatrixIndex` from ArrayInterface.jl
+#   Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
 #
 #
 # Notes:
+#
+# * `map[!]` for SparseVector work different from DenseVector:
+#   1-length Vector and scalars are allowed, but 1-length SparseVector is not allowed.
+#
+# 
 # * Broadcast is more fragile than `map`. `map` should be more agile in terms of vectors dimensions and
 #   other differences in argumens. Broadcast allows scalars and zero-dimensions/one-length arrays as arguments.
 #   In broadcast axes should be same, sparse indices are not should be same! There should be two branches
@@ -387,6 +392,51 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
     #return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
 end
 
+function raw_index(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
+        indices = get_nzchunk_indices(V, idxchunk)
+        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
+            return Pair(idxchunk, Int(i - first(indices) + 1))
+        end
+    end
+    throw(BoundsError(V, i))
+end
+
+idxcompare(V::AbstractAllDensedSparseVector, i, j) = cmp(i, j)
+idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
+
+function rawindexcompare(V, i, j)
+    c = idxcompare(V, first(i), first(j))
+    if c < 0
+        return -1
+    elseif c == 0
+        return cmp(last(i), last(j))
+    else
+        return 1
+    end
+end
+
+advancerawindex(V::AbstractAllDensedSparseVector) =
+    nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : Pair(pastendnzchunk_index(V), 0)
+
+function advancerawindex(V::AbstractAllDensedSparseVector, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            return Pair(first(i), last(i)+1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Pair(st, 1)
+        else
+            return Pair(pastendnzchunk_index(V), 0)
+        end
+    else
+        return Pair(pastendnzchunk_index(V), 0)
+    end
+end
+
+
+Base.to_index(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
 
 #is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
@@ -1263,6 +1313,18 @@ end
 
 @inline Base.in(i, V::AbstractAllDensedSparseVector) = Base.isstored(V, i)
 
+function checkbounds(V, i::Pair)
+    (idxcompare(V, first(i), beforestartnzchunk_index(V)) > 0 &&
+     idxcompare(V, first(i), pastendnzchunk_index(V)) < 0) || throw(BoundsError(V, i))
+    indices = get_nzchunk_indices(V, first(i))
+    last(i) > length(indices) && throw(BoundsError(V, i))
+    return nothing
+end
+
+@inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Pair)
+    @boundscheck checkbounds(V, i)
+    return get_nzchunk(V, first(i))[last(i)]
+end
 
 @inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Integer)
     # fast check for cached chunk index
@@ -1321,6 +1383,13 @@ end
     else
         return returnzero(V)
     end
+end
+
+
+@inline function Base.setindex!(V::AbstractAllDensedSparseVector, value, i::Pair)
+    @boundscheck checkbounds(V, i)
+    get_nzchunk(V, first(i))[last(i)] = value
+    return V
 end
 
 @inline function Base.setindex!(V::FixedDensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}

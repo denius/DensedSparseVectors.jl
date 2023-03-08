@@ -22,6 +22,7 @@ using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparse
                              AbstractDensedBlockSparseVector, AbstractSDictDensedSparseVector,
                              _are_same_sparse_indices, _similar_sparse_indices!, _expand_full!,
                              NZPairsView, NZChunks
+import ..DensedSparseVectors as DSV
 
 # Some Unions definitions
 
@@ -169,12 +170,12 @@ const SpBroadcasted2{Style<:DSpVBStyle,Axes,F,Args<:Tuple{DensedSparseVecOrBlk,D
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
 @inline columns(A::AbstractDensedSparseVector) = 1
 @inline columns(A::AbstractDensedBlockSparseVector) = 1:size(A, 2)
-@inline colrange(A::AbstractDensedSparseVector, j) = 1:length(nonzeroinds(A))
+@inline colrange(A::AbstractDensedSparseVector, j) = (throw(ArgumentError("Inapplicable for DSV")); 1:length(nonzeroinds(A)))
 @inline colrange(A::AbstractDensedBlockSparseVector, j) = nzrange(A, j)
-@inline colstartind(A::AbstractDensedSparseVector, j) = one(indtype(A))
-@inline colboundind(A::AbstractDensedSparseVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
-@inline colstartind(A::AbstractDensedBlockSparseVector, j) = getcolptr(A)[j]
-@inline colboundind(A::AbstractDensedBlockSparseVector, j) = getcolptr(A)[j + 1]
+@inline colstartind(A::AbstractDensedSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
+@inline colboundind(A::AbstractDensedSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
+@inline colstartind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
+@inline colboundind(A::AbstractDensedBlockSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
 @inline storedinds(A::AbstractDensedSparseVector) = nonzeroinds(A)
 @inline storedinds(A::AbstractDensedBlockSparseVector) = rowvals(A)
 @inline storedvals(A::DensedSparseVecOrBlk) = nonzeros(A)
@@ -579,32 +580,25 @@ function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dense
     return C
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
-    itersCAs = (nzpairsview(C), map(nzpairs, As)...)
-    #  tuple of nextstates of nzpairs iterators for (C, As...)
-    @inbounds nextstates = map(iterate, itersCAs)
-
-    ##tst = map(nzvalues, As)
-    ##tst2 = map(iterate, tst)
-    #tst1 = nzvalues.(As)
-    #tst2 = iterate.(tst1)
-    #tst3 = tuple.(tst2)
-
-    #  tuple of current index for (CAs...)
-    niCAs = _fusedindices(itersCAs, nextstates)
-    current_i = min(niCAs...)
-
-    @inbounds while any(!isnothing, nextstates)
-        iC = first(niCAs)
-        xCAs, niCAs, nextstates = _fusediterate(itersCAs, nextstates, niCAs, current_i)
-        xC = f(tail(xCAs)...)
-        if iC == current_i
-            first(xCAs)[] = xC
-        elseif _isnotzero(xC)
-            C[current_i] = xC
-            nextstates = (iterate(first(itersCAs), last(iterate(first(itersCAs), startindex(C, current_i)))),
-                  tail(nextstates)...)
+    rowsentinel = length(C) + 1
+    ks = _colstartind_all(1, (C, As...)) # will contain stopk for C and As
+    stopks = _colboundind_all(1, (C, As...))
+    rows = _rowforind_all(rowsentinel, ks, stopks, (C, As...))
+    kC = first(ks)
+    activerow = min(rows...)
+    while activerow < rowsentinel
+        vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, (C, As...))
+        Cx = f(tail(vals)...)
+        if Base.to_index(C, kC) == activerow
+            # element exist
+            C[kC] = Cx
+        elseif _isnotzero(Cx)
+            # inserting element into C
+            C[activerow] = Cx
+            ks = (DSV.advancerawindex(C, DSV.raw_index(C, activerow)), tail(ks)...)
         end
-        current_i = min(niCAs...)
+        kC = first(ks)
+        activerow = min(rows...)
     end
     return C
 end
@@ -644,7 +638,8 @@ end
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
 @inline _rowforind(rowsentinel, k, stopk, A) =
-    k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
+    DSV.rawindexcompare(A, k, stopk) < 0 ? Base.to_index(A, k) : convert(indtype(A), rowsentinel)
+    #k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
 @inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(rowsentinel, ks, stopks, As) = (
     _rowforind(rowsentinel, first(ks), first(stopks), first(As)),
@@ -653,8 +648,9 @@ end
 @inline function _fusedupdate(rowsentinel, activerow, row, k, stopk, A)
     # returns (val, nextk, nextrow)
     if row == activerow
-        nextk = k + oneunit(k)
-        (storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
+        nextk = DSV.advancerawindex(A, k) #k + oneunit(k)
+        (A[k], nextk, (DSV.rawindexcompare(A, nextk, stopk) < 0 ? Base.to_index(A, nextk) : oftype(row, rowsentinel)))
+        #(storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
     else
         (zero(eltype(A)), k, row)
     end
@@ -665,31 +661,6 @@ end
     vals, nextks, nextrows = _fusedupdate_all(rowsentinel, activerow, tail(rows), tail(ks), tail(stopks), tail(As))
     return ((val, vals...), (nextk, nextks...), (nextrow, nextrows...))
 end
-
-
-@inline _fusedindex(itrA, state) =
-    !isnothing(state) ? first(first(state)) : typemax(indtype(itrA))
-@inline _fusedindices(::Tuple{}, ::Tuple{}) = ()
-@inline _fusedindices(itrAs, states) = (
-    _fusedindex(first(itrAs), first(states)),
-    _fusedindices(tail(itrAs), tail(states))...)
-
-@inline function _fusediterate_single(itrA, state, index, current_index)
-    # returns (val, nextindex, nextstate)
-    if index == current_index
-        nextstate = iterate(itrA, last(state))
-        (last(first(state)), (!isnothing(nextstate) ? first(first(nextstate)) : typemax(indtype(itrA))), nextstate)
-    else
-        (zero(eltype(itrA)), index, state)
-    end
-end
-@inline _fusediterate(::Tuple{}, ::Tuple{}, ::Tuple{}, current_index) = ((#=vals=#), (#=nextindices=#), (#=nextstates=#))
-@inline function _fusediterate(itrAs, states, indices, current_index)
-    val, nextindex, nextstate = _fusediterate_single(first(itrAs), first(states), first(indices), current_index)
-    vals, nextindices, nextstates = _fusediterate(tail(itrAs), tail(states), tail(indices), current_index)
-    return ((val, vals...), (nextindex, nextindices...), (nextstate, nextstates...))
-end
-
 
 # (7) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a single (input) sparse vector/matrix
 function _broadcast_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk) where Tf
