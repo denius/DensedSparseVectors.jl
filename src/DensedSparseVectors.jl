@@ -74,7 +74,7 @@ export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
 export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export startindex
-export rawindex, from_rawindex, rawindex_advance, rawindex_compare
+export rawindex, from_rawindex, rawindex_advance, rawindex_possible_advance, rawindex_compare, rawindex_view
 export firstrawindex, lastrawindex, pastendrawindex
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
@@ -447,7 +447,15 @@ end
 
 # RawIndex for SparseVector is just Pair(index,1)
 rawindex_advance(V::SparseVector) = firstrawindex(V)
-rawindex_advance(V::SparseVector, i) = first(i) <= nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
+rawindex_advance(V::SparseVector, i) = first(i) < nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
+function rawindex_advance(V::SparseVector, i, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    if first(i) + step - 1 < nnz(V)
+        Pair(first(i) + oftype(first(i), min(nnz(V)-first(i)+1, step)), 1)
+    else
+        pastendrawindex(V)
+    end
+end
 
 rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
 
@@ -465,6 +473,46 @@ function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
         return pastendrawindex(V)
     end
 end
+
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    step == 0 && return i
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            if step + last(i) <= length(indices)
+                return Pair(first(i), last(i)+step)
+            else
+                return rawindex_advance(V, Pair(first(i), Int(length(indices))),
+                                        max(0, Int(step - (length(indices)-last(i)) )) )
+            end
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return rawindex_advance(V, Pair(st, 1), max(0, step - 1) )
+        else
+            return pastendrawindex(V)
+        end
+    else
+        return pastendrawindex(V)
+    end
+end
+
+function rawindex_possible_advance(V, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) <= length(indices)
+            return Int(length(indices) - last(i) + 1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Int(length(get_nzchunk_indices(V, st)))
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+
+"Return `view` on pointed data with `step` length"
+rawindex_view(V::AbstractAllDensedSparseVector, i::Pair, step) = @view(get_nzchunk(V, first(i))[last(i):last(i)+step-1])
 
 
 #from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))

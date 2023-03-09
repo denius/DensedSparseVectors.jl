@@ -587,23 +587,31 @@ end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
     ks = map(firstrawindex, (C, As...))
-    kC = first(ks)
     rows = map(from_rawindex, (C, As...), ks)
     activerow = min(rows...)
     while activerow < rowsentinel
-        # TODO: there should be checking on maximum possible step stored in `steps` tuple.
-        # Thus it is possible to iterate over chunks not step-by-step.
-        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
-        Cx = f(tail(vals)...)
-        if from_rawindex(C, kC) == activerow
-            # element exist
-            C[kC] = Cx
-        elseif _isnotzero(Cx)
-            # inserting element into C
-            C[activerow] = Cx
-            ks = (rawindex_advance(C, rawindex(C, activerow)), tail(ks)...)
+        # there is checking on maximum possible continuous step through nzchunks
+        steps = _fusedmaxstep_all(activerow, rows, ks, (C, As...))
+        step = min(steps...)
+
+        if step != 0
+            (viewC, viewAs...) = map((a,b)->rawindex_view(a, b, step), (C, As...), ks)
+            viewC .= f.(viewAs...)
+            ks = map((a,b)->rawindex_advance(a, b, step), (C, As...), ks)
+            rows = map(from_rawindex, (C, As...), ks)
+        else
+            kC = first(ks)
+            vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
+            Cx = f(tail(vals)...)
+            if from_rawindex(C, kC) == activerow
+                # element in C exist, even if Cx is zero
+                C[kC] = Cx
+            elseif _isnotzero(Cx)
+                # inserting element into C
+                C[activerow] = Cx
+                ks = (rawindex_advance(C, rawindex(C, activerow)), tail(ks)...)
+            end
         end
-        kC = first(ks)
         activerow = min(rows...)
     end
     return C
@@ -616,9 +624,18 @@ function __map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Varar
     rows = map(from_rawindex, As, ks)
     activerow = min(rows...)
     while activerow < rowsentinel
-        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, As)
-        Cx = f(vals...)
-        Cx != fillvalue && (nzvalsC[activerow] = Cx)
+        steps = _fusedmaxstep_all(activerow, rows, ks, As)
+        step = min(steps...)
+        if step != 0
+            viewAs = map((a,b)->rawindex_view(a, b, step), As, ks)
+            @view(C[activerow:activerow+step-1]) .= f.(viewAs...)
+            ks = map((a,b)->rawindex_advance(a, b, step), As, ks)
+            rows = map(from_rawindex, As, ks)
+        else
+            vals, ks, rows = _fusedupdate_all(activerow, rows, ks, As)
+            Cx = f(vals...)
+            Cx != fillvalue && (nzvalsC[activerow] = Cx)
+        end
         activerow = min(rows...)
     end
     return C
@@ -641,6 +658,21 @@ end
 @inline _rowforind_all(ks, stopks, As) = (
     _rowforind(first(ks), first(stopks), first(As)),
     _rowforind_all(tail(ks), tail(stopks), tail(As))...)
+
+@inline function _fusedmaxstep(activerow, row, k, A)
+    # returns maxstep
+    if row == activerow
+        rawindex_possible_advance(A, k)
+    else
+        0
+    end
+end
+@inline _fusedmaxstep_all(activerow, ::Tuple{}, ::Tuple{}, ::Tuple{}) = (#=vals=#)
+@inline function _fusedmaxstep_all(activerow, rows, ks, As)
+    maxstep = _fusedmaxstep(activerow, first(rows), first(ks), first(As))
+    maxsteps = _fusedmaxstep_all(activerow, tail(rows), tail(ks), tail(As))
+    return (maxstep, maxsteps...)
+end
 
 @inline function _fusedupdate(activerow, row, k, A)
     # returns (val, nextk, nextrow)
