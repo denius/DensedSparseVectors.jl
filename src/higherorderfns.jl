@@ -587,11 +587,12 @@ end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
     ks = map(firstrawindex, (C, As...))
-    #stopks = map(pastendrawindex, (C, As...))
-    rows = map(from_rawindex, (C, As...), ks)
     kC = first(ks)
+    rows = map(from_rawindex, (C, As...), ks)
     activerow = min(rows...)
     while activerow < rowsentinel
+        # TODO: there should be checking on maximum possible step stored in `steps` tuple.
+        # Thus it is possible to iterate over chunks not step-by-step.
         vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
         Cx = f(tail(vals)...)
         if from_rawindex(C, kC) == activerow
@@ -607,28 +608,20 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
     end
     return C
 end
-function _map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
-    # Build dense matrix structure in C, expanding storage if necessary
-    _densestructure!(C)
-    # Populate values
-    fill!(storedvals(C), fillvalue)
-    # NOTE: Combining this fill! into the loop below to avoid multiple sweeps over /
-    # nonsequential access of nonzeros(C) does not appear to improve performance.
-    rowsentinel = numrows(C) + 1
-    stopks = _colstartind_all(1, As)
-    @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
-        ks = stopks
-        stopks = _colboundind_all(j, As)
-        rows = _rowforind_all(ks, stopks, As)
+function __map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
+    fill!(C, fillvalue)
+    nzvalsC = first(nzchunks(C))
+    rowsentinel = length(C) + 1
+    ks = map(firstrawindex, As)
+    rows = map(from_rawindex, As, ks)
+    activerow = min(rows...)
+    while activerow < rowsentinel
+        vals, ks, rows = _fusedupdate_all(activerow, rows, ks, As)
+        Cx = f(vals...)
+        Cx != fillvalue && (nzvalsC[activerow] = Cx)
         activerow = min(rows...)
-        while activerow < rowsentinel
-            vals, ks, rows = _fusedupdate_all(activerow, rows, ks, stopks, As)
-            Cx = f(vals...)
-            Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
-            activerow = min(rows...)
-        end
     end
-    return _checkbuffers(C)
+    return C
 end
 
 # helper methods for map/map! methods just above
