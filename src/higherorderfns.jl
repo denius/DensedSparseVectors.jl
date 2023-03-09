@@ -16,6 +16,7 @@ using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
 using StaticArrays
+using FastBroadcast
 
 using ..DensedSparseVectors
 using ..DensedSparseVectors: AbstractAllDensedSparseVector, AbstractDensedSparseVector,
@@ -441,7 +442,8 @@ end
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, A::DensedSparseVecOrBlk, B::DensedSparseVecOrBlk) where Tf
     @inbounds for (dst, rest...) in zip(nzchunks(C), nzchunks(A), nzchunks(B))
-        dst .= f.(rest...)
+        #dst .= f.(rest...)
+        @.. dst = f(rest...)
     end
     return C
 end
@@ -577,16 +579,19 @@ end
 
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
-function _map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
+function __map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     nzchunksiters = (nzchunks(C), map(nzchunks, As)...)
     @inbounds for (dst, rest...) in zip(nzchunksiters...)
-        dst .= f.(rest...)
+        @.. dst = f(rest...)
+        #dst .= f.(rest...)
     end
     return C
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
     ks = map(firstrawindex, (C, As...))
+    # TODO: `rows` can be dropped in preference of minimum(from_rawindex, (C, As...), ks)
+    # But in _fusedmaxstep_all and _fusedupdate_all it will have twice of from_rawindex() evaluations.
     rows = map(from_rawindex, (C, As...), ks)
     activerow = min(rows...)
     while activerow < rowsentinel
@@ -596,7 +601,8 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
 
         if step != 0
             (viewC, viewAs...) = map((a,b)->rawindex_view(a, b, step), (C, As...), ks)
-            viewC .= f.(viewAs...)
+            @.. viewC = f(viewAs...)
+            #viewC .= f.(viewAs...)
             ks = map((a,b)->rawindex_advance(a, b, step), (C, As...), ks)
             rows = map(from_rawindex, (C, As...), ks)
         else
