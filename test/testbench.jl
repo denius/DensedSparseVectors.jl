@@ -1,12 +1,14 @@
 
+#using BenchmarkTools
 using DensedSparseVectors
+import DensedSparseVectors as DSV
 using Random
 
 #
 #  Testing functions
 #
 
-function testfun_create(T::Type, n = 500_000, density = 0.9)
+function testfun_create(T::Type, n = 1_000_000, density = 0.9)
     V = T(n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
@@ -14,7 +16,7 @@ function testfun_create(T::Type, n = 500_000, density = 0.9)
     end
     V
 end
-function testfun_createSV(T::Type, n = 500_000, m = 5, density = 0.9)
+function testfun_createSV(T::Type, n = 1_000_000, m = 5, density = 0.9)
     V = T(m,n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
@@ -24,7 +26,7 @@ function testfun_createSV(T::Type, n = 500_000, m = 5, density = 0.9)
     end
     V
 end
-function testfun_createVL(T::Type, n = 500_000, density = 0.9)
+function testfun_createVL(T::Type, n = 1_000_000, density = 0.9)
     V = T(n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
@@ -33,7 +35,7 @@ function testfun_createVL(T::Type, n = 500_000, density = 0.9)
     V
 end
 
-function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
+function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9)
     V = T(n)
     Random.seed!(1234)
     for i in randsubseq(1:n, density)
@@ -42,7 +44,7 @@ function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
     V
 end
 
-function testfun_create_dense(T::Type, n = 500_000, nchunks = 800, density = 0.95)
+function testfun_create_dense(T::Type, n = 1_000_000, nchunks = 800, density = 0.95)
     V = T(n)
     chunklen = max(1, floor(Int, n / nchunks))
     Random.seed!(1234)
