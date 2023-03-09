@@ -18,6 +18,13 @@
 # * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
 #   Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
+# * Add ADSVIteratorState instead of .lastusedchunkindex to improve cached data locality.
+#   May be stack of few ADSVIteratorState of previous assesses ranged by access frequency
+#   or size of chunk?
+#
+# * Add pastendnzchunk_index in all AbstractAllDensedSparseVector
+#   to have the fast iteration stop checking.
+#
 #
 #
 # Notes:
@@ -412,6 +419,8 @@ end
 RawIndex is an `Pair` of idx to chunk and value position which points directly to value in AbstractAllDensedSparseVector.
 For `DensedSparseVector` it will be `Pair{Int,Int}`.
 For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
+
+TODO: RawIndex must contain index of accessed cell of array to checking for vector changes.
 """
 function rawindex(V, i)
     idxchunk = searchsortedlast_nzchunk(V, i)
