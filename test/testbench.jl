@@ -11,9 +11,14 @@ using Random
 function testfun_create(T::Type, n = 1_000_000, density = 0.9)
     V = T(n)
     Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
+    randseq = randsubseq(1:n, density)
+    for i in shuffle(randseq)
         V[i] = rand()
     end
+
+    sdf = symdiff(SparseArrays.nonzeroinds(V), randseq)
+    length(sdf) > 0 && @show sdf
+
     V
 end
 function testfun_createSV(T::Type, n = 1_000_000, m = 5, density = 0.9)

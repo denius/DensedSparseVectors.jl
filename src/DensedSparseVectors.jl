@@ -1697,6 +1697,7 @@ prependnzindat!(nzind::Vector{UnitRange{Ti}}, i) where {Ti} =
     inextfirst = first(V.nzind[stnext])
 
     if inextfirst - ilast == Ti(2)  # join nzchunks
+        V.nzind[st] = UnitRange{Ti}(first(V.nzind[st]), last(V.nzind[stnext]))
         append!(V.nzchunks[st], [val], V.nzchunks[stnext])
         deleteat!(V.nzind, stnext)
         deleteat!(V.nzchunks, stnext)
