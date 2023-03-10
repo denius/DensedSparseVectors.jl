@@ -1070,6 +1070,7 @@ Base.@propagate_inbounds iteratenzindices(V::Number, state = 0) = (state+1, stat
 struct ADSVIteratorState{Ti,Td,Tit}
     position::Int          # position of current element in the current chunk
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
+    # TODO: may be without chunk? Then only the static data in struct.
     chunk::Td              # current chunk is the view into nzchunk
     idxchunk::Tit          # nzchunk iterator state (Int or Semitoken) in nzchunks
 end
@@ -1558,7 +1559,7 @@ end
     i = Ti(idx)
     # fast check for cached chunk index
     if i in V.lastused.indices
-        return V.nzchunks[V.lastused.idxchunk][i - first(V.lastused.indices) + oneunit(Ti)]
+        return get_nzchunk(V, V.lastused.idxchunk)[i - first(V.lastused.indices) + oneunit(Ti)]
     end
     # cached chunk index miss or index is not stored
     st = searchsortedlast_nzind(V, i)
@@ -1672,6 +1673,7 @@ prependnzindat!(nzind::Vector{UnitRange{Ti}}, i) where {Ti} =
     # fast check for cached chunk index
     if i in V.lastused.indices
         V.nzchunks[V.lastused.idxchunk][i - first(V.lastused.indices) + oneunit(Ti)] = val
+        #get_nzchunk(V, V.lastused.idxchunk)[i - first(V.lastused.indices) + oneunit(Ti)] = val
         #V.lastused.chunk[i - first(V.lastused.indices) + oneunit(Ti)] = val
         return V
     end
