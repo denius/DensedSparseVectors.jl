@@ -82,6 +82,14 @@ function testfun_getindex(sv)
     (0, S)
 end
 
+function testfun_getindex_outer(sv, indices)
+    S = 0.0
+    for i in indices
+        S += sv[i]
+    end
+    (0, S)
+end
+
 function testfun_nzgetindex(sv)
     S = 0.0
     for i in nzindices(sv)
