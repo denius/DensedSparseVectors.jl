@@ -153,8 +153,8 @@ $(TYPEDFIELDS)
 mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
     lastusedchunkindex::Int
-    "Storage for indices of the first element of non-zero chunks"
-    nzind::Vector{Ti}  # Vector of chunk's first indices
+    "Storage for indices of the non-zero chunks"
+    nzind::Vector{UnitRange{Ti}}  # Vector of chunk's indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s"
     nzchunks::Vector{Vector{Tv}}
     "Vector length"
@@ -181,10 +181,10 @@ end
 DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DensedSparseVector{Tv,Ti,BZP}(V)
 
 function DensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
-    nzind = Vector{Ti}(undef, nnzchunks(V))
+    nzind = Vector{UnitRange{Ti}}(undef, nnzchunks(V))
     nzchunks = Vector{Vector{Tv}}(undef, length(nzind))
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
-        nzind[i] = k
+        nzind[i] = UnitRange{Ti}(k, k+length(d)-1)
         nzchunks[i] = Vector{Tv}(d)
     end
     return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
@@ -427,10 +427,10 @@ Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}) where {
 Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew} = similar(V, TvNew, TiNew, BZP)
 
 function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
-    nzind = similar(V.nzind, TiNew)
+    nzind = similar(V.nzind, UnitRange{TiNew})
     nzchunks = similar(V.nzchunks)
     for (i, (ids,d)) in enumerate(nzchunkspairs(V))
-        nzind[i] = first(ids)
+        nzind[i] = UnitRange{TiNew}(ids)
         nzchunks[i] = similar(d, TvNew)
     end
     return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks)
@@ -453,7 +453,7 @@ function Base.copy(V::T) where {T<:DensedSparseVector}
     nzind = copy(V.nzind)
     nzchunks = copy(V.nzchunks)
     for (i, (ids,d)) in enumerate(nzchunkspairs(V))
-        nzind[i] = first(ids)
+        nzind[i] = ids
         nzchunks[i] = copy(d)
     end
     return T(length(V), nzind, nzchunks)
@@ -552,7 +552,7 @@ end
 end
 @inline get_nzchunk_key(V::Vector, i) = i
 @inline get_nzchunk_key(V::SparseVector, i) = V.nzind[i]
-@inline get_nzchunk_key(V::AbstractVecbasedDensedSparseVector, i) = V.nzind[i]
+@inline get_nzchunk_key(V::AbstractVecbasedDensedSparseVector, i) = first(V.nzind[i])
 @inline get_nzchunk_key(V::DynamicDensedSparseVector, i) = deref_key((V.nzchunks, i))
 @inline function get_nzchunk_key(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractAllDensedSparseVector}
     indices = get_nzchunk_indices(parent(V), i)
@@ -565,8 +565,7 @@ end
 
 @inline get_nzchunk_indices(V::Vector, i) = UnitRange{Int}(1, length(V))
 @inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
-@inline get_nzchunk_indices(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]+length(V.nzchunks[i])-1)
+@inline get_nzchunk_indices(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds V.nzind[i]
 @inline get_nzchunk_indices(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]+(V.offsets[i+1]-V.offsets[i])-1)
 @inline get_nzchunk_indices(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
@@ -594,7 +593,7 @@ end
 end
 @inline get_key_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
-@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (V.nzind[i], V.nzchunks[i])
+@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (first(V.nzind[i]), V.nzchunks[i])
 @inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = @inbounds (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) =
     ((key, chunk) = deref((V.nzchunks, i));
@@ -607,7 +606,7 @@ end
 @inline get_indices_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_indices_and_nzchunk(V::SparseVector, i) = @inbounds (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_indices_and_nzchunk(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    @inbounds (UnitRange{Ti}(V.nzind[i], Ti(V.nzind[i])+Ti(length(V.nzchunks[i]))-oneunit(Ti)), V.nzchunks[i])
+    @inbounds (V.nzind[i], V.nzchunks[i])
 @inline get_indices_and_nzchunk(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     @inbounds (UnitRange{Ti}(V.nzind[i], V.nzind[i]+(V.offsets[i+1]-V.offsets[i])-1), @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_indices_and_nzchunk(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
@@ -621,14 +620,14 @@ end
 
 @inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, V, length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
-@inline get_key_and_nzchunk_and_length(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (V.nzind[i], V.nzchunks[i], length(V.nzchunks[i]))
+@inline get_key_and_nzchunk_and_length(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (first(V.nzind[i]), V.nzchunks[i], length(V.nzind[i]))
 @inline get_key_and_nzchunk_and_length(V::FixedDensedSparseVector, i) =
         (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]), V.offsets[i+1]-V.offsets[i])
         @inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, chunk, length(chunk)))
 
 @inline is_in_nzchunk(V::Vector, i, key) = key in first(axes(V))
 @inline is_in_nzchunk(V::SparseVector, i, key) = V.nzind[i] == key
-@inline is_in_nzchunk(V::AbstractVecbasedDensedSparseVector, i, key) = V.nzind[i] <= key < V.nzind[i] + length(V.nzchunks[i])
+@inline is_in_nzchunk(V::AbstractVecbasedDensedSparseVector, i, key) = key in V.nzind[i]
 @inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzind[i] <= key < V.nzind[i] + V.offsets[i+1]-V.offsets[i]
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, i, key) = ((ichunk, chunk) = deref((V.nzchunks, i)); return (ichunk <= key < ichunk + length(chunk)))
 
@@ -654,7 +653,8 @@ end
 @inline DataStructures.regress(V::AbstractVecbasedDensedSparseVector, state) = state - 1
 @inline DataStructures.regress(V::AbstractSDictDensedSparseVector, state) = regress((V.nzchunks, state))
 
-"`searchsortedlast(V.nzind)`"
+"`searchsortedlast(V.nzind, i)`"
+@inline searchsortedlast_nzind(V::DensedSparseVector, i) = searchsortedlast(V.nzind, i, by=first)
 @inline searchsortedlast_nzind(V::AbstractVecbasedDensedSparseVector, i) = searchsortedlast(V.nzind, i)
 @inline searchsortedlast_nzind(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
 
@@ -728,7 +728,7 @@ SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nonzeroinds(V), nonzero
 "Returns the index of first non-zero element in sparse vector."
 @inline findfirstnzindex(V::SparseVector) = nnz(V) > 0 ? V.nzind[1] : nothing
 @inline findfirstnzindex(V::AbstractVecbasedDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
-    nnz(V) > 0 ? Ti(V.nzind[1]) : nothing
+    nnz(V) > 0 ? first(V.nzind[1]) : nothing
 @inline findfirstnzindex(V::AbstractSDictDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
     nnz(V) > 0 ? Ti(deref_key((V.nzchunks, startof(V.nzchunks)))) : nothing
 function findfirstnzindex(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
@@ -750,7 +750,7 @@ end
 "Returns the index of last non-zero element in sparse vector."
 @inline findlastnzindex(V::SparseVector) = nnz(V) > 0 ? V.nzind[end] : nothing
 @inline findlastnzindex(V::AbstractVecbasedDensedSparseVector) =
-    nnz(V) > 0 ? V.nzind[end] + length(V.nzchunks[end]) - 1 : nothing
+    nnz(V) > 0 ? last(V.nzind[end]) : nothing
 @inline function findlastnzindex(V::AbstractSDictDensedSparseVector)
     if nnz(V) > 0
         lasttoken = lastindex(V.nzchunks)
@@ -1122,6 +1122,10 @@ end
 ###    end
 ###end
 
+#
+#  rawindex
+#
+
 idxcompare(V::AbstractSparseVector, i, j) = cmp(i, j)
 idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
 
@@ -1154,17 +1158,6 @@ function rawindex(V, i)
     throw(BoundsError(V, i))
 end
 
-function nziterator(V, i)
-    idxchunk = searchsortedlast_nzchunk(V, i)
-    if idxchunk != pastendnzchunk_index(V)
-        indices = get_nzchunk_indices(V, idxchunk)
-        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
-            return nziteratorstate(V, Int(i - first(indices) + 1), indices, get_nzchunk(V, idxchunk), idxchunk)
-        end
-    end
-    throw(BoundsError(V, i))
-end
-
 @inline firstrawindex(V::AbstractVector) = nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : pastendrawindex(V)
 @inline pastendrawindex(V::AbstractVector) = Pair(pastendnzchunk_index(V), 0)
 
@@ -1187,6 +1180,90 @@ function rawindex_advance(V::SparseVector, i, step)
     else
         pastendrawindex(V)
     end
+end
+
+rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
+
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            return Pair(first(i), last(i)+1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Pair(st, 1)
+        else
+            return pastendrawindex(V)
+        end
+    else
+        return pastendrawindex(V)
+    end
+end
+
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    step == 0 && return i
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            if step + last(i) <= length(indices)
+                return Pair(first(i), last(i)+step)
+            else
+                return rawindex_advance(V, Pair(first(i), Int(length(indices))),
+                                        max(0, Int(step - (length(indices)-last(i)) )) )
+            end
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return rawindex_advance(V, Pair(st, 1), max(0, step - 1) )
+        else
+            return pastendrawindex(V)
+        end
+    else
+        return pastendrawindex(V)
+    end
+end
+
+function rawindex_possible_advance(V, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) <= length(indices)
+            return Int(length(indices) - last(i) + 1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Int(length(get_nzchunk_indices(V, st)))
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+
+"Return `view` on pointed data with `step` length"
+@inline rawindex_view(V::AbstractAllDensedSparseVector, i::Pair, step) =
+    @view(get_nzchunk(V, first(i))[last(i):last(i)+step-1])
+
+#from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
+#function from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+    if first(idx) != pastendnzchunk_index(V)
+        return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+    else
+        li = lastindex(V)
+        return li + oftype(li, 1)
+    end
+end
+
+#
+#  nziterator
+#
+
+function nziterator(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
+        indices = get_nzchunk_indices(V, idxchunk)
+        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
+            return nziteratorstate(V, Int(i - first(indices) + 1), indices, get_nzchunk(V, idxchunk), idxchunk)
+        end
+    end
+    throw(BoundsError(V, i))
 end
 
 function firstnziterator(V::AbstractVector)
@@ -1258,79 +1335,10 @@ function nziterator_possible_advance(V, nzit::ADSVIteratorState)
     end
 end
 
-rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
-
-function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) < length(indices)
-            return Pair(first(i), last(i)+1)
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return Pair(st, 1)
-        else
-            return pastendrawindex(V)
-        end
-    else
-        return pastendrawindex(V)
-    end
-end
-
-function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
-    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
-    step == 0 && return i
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) < length(indices)
-            if step + last(i) <= length(indices)
-                return Pair(first(i), last(i)+step)
-            else
-                return rawindex_advance(V, Pair(first(i), Int(length(indices))),
-                                        max(0, Int(step - (length(indices)-last(i)) )) )
-            end
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return rawindex_advance(V, Pair(st, 1), max(0, step - 1) )
-        else
-            return pastendrawindex(V)
-        end
-    else
-        return pastendrawindex(V)
-    end
-end
-
-function rawindex_possible_advance(V, i::Pair)
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) <= length(indices)
-            return Int(length(indices) - last(i) + 1)
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return Int(length(get_nzchunk_indices(V, st)))
-        else
-            return 0
-        end
-    else
-        return 0
-    end
-end
-
-"Return `view` on pointed data with `step` length"
-@inline rawindex_view(V::AbstractAllDensedSparseVector, i::Pair, step) =
-    @view(get_nzchunk(V, first(i))[last(i):last(i)+step-1])
-
 "Return `view` on pointed data with `step` length"
 @inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState, step) =
     @inbounds @view(nzit.chunk[nzit.position:nzit.position+step-1])
 
-
-#from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
-#function from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
-function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
-    if first(idx) != pastendnzchunk_index(V)
-        return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
-    else
-        li = lastindex(V)
-        return li + oftype(li, 1)
-    end
-end
 
 
 #
@@ -1509,6 +1517,8 @@ end
     return @inbounds get_nzchunk(V, first(i))[last(i)]
 end
 
+@inline Base.getindex(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState) = @inbounds nzit.chunk[nzit.position]
+
 @inline function Base.getindex(V::AbstractAllDensedSparseVector, i::Integer)
     # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
@@ -1545,7 +1555,7 @@ end
         end
     end
     # cached chunk index miss or index not stored
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
         ifirst, chunk, offsets = V.nzind[st], V.nzchunks[st], V.offsets[st]
         if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
@@ -1590,7 +1600,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1609,32 +1619,38 @@ end
 
 
 
+appendnzindat!(nzind::Vector{UnitRange{Ti}}, i) where {Ti} =
+    (nzind[i] = UnitRange{Ti}(first(nzind[i]), last(nzind[i])+oneunit(Ti)); nzind)
+prependnzindat!(nzind::Vector{UnitRange{Ti}}, i) where {Ti} =
+    (nzind[i] = UnitRange{Ti}(first(nzind[i])-oneunit(Ti), last(nzind[i])); nzind)
+
 @inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = Tv(value)
+    i = Ti(i)
 
     # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
         ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
         if ifirst <= i < ifirst + len
-            chunk[i - ifirst + 1] = val
+            chunk[i - ifirst + oneunit(Ti)] = val
             return V
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        ifirst, chunk = V.nzind[st], V.nzchunks[st]
-        if i < ifirst + length(chunk)
-            chunk[i - ifirst + 1] = val
+        indices, chunk = V.nzind[st], V.nzchunks[st]
+        if i <= last(indices)
+            chunk[i - first(indices) + oneunit(Ti)] = val
             V.lastusedchunkindex = st
             return V
         end
     end
 
     if V.nnz == 0
-        push!(V.nzind, Ti(i))
+        push!(V.nzind, UnitRange{Ti}(i,i))
         push!(V.nzchunks, [val])
         V.nnz += 1
         V.n = max(V.n, i)
@@ -1643,12 +1659,13 @@ end
     end
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before the first index
-        inextfirst = V.nzind[1]
-        if inextfirst - i > 1  # there is will be gap in indices after inserting
-            pushfirst!(V.nzind, i)
+        inextfirst = first(V.nzind[1])
+        if inextfirst - i > oneunit(Ti)  # there is will be gap in indices after inserting
+            pushfirst!(V.nzind, UnitRange{Ti}(i,i))
             pushfirst!(V.nzchunks, [val])
         else
-            V.nzind[1] -= 1
+            #V.nzind[1] = UnitRange{Ti}(first(V.nzind[1])-oneunit(Ti), last(V.nzind[1]))
+            prependnzindat!(V.nzind, 1)
             pushfirst!(V.nzchunks[1], val)
         end
         V.nnz += 1
@@ -1656,13 +1673,17 @@ end
         return V
     end
 
-    ifirst, chunk = V.nzind[st], V.nzchunks[st]
+    indices, chunk = V.nzind[st], V.nzchunks[st]
+    ifirst = first(indices)
+    ilast = last(indices)
 
-    if i >= V.nzind[end]  # the index `i` is after the last key index
-        if i > ifirst + length(chunk)  # there is will be the gap in indices after inserting
-            push!(V.nzind, i)
+    if i >= first(V.nzind[end])  # the index `i` is after the last key index
+        if i > ilast + oneunit(Ti)  # there is will be the gap in indices after inserting
+            push!(V.nzind, UnitRange{Ti}(i,i))
             push!(V.nzchunks, [val])
         else  # just append to last chunk
+            #V.nzind[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
+            appendnzindat!(V.nzind, st)
             push!(V.nzchunks[st], val)
         end
         V.nnz += 1
@@ -1672,24 +1693,26 @@ end
     end
 
     # the index `i` is somewhere between indices
-    ilast = ifirst + length(chunk) - 1
     stnext = st + 1
-    inextfirst = V.nzind[stnext]
+    inextfirst = first(V.nzind[stnext])
 
-    if inextfirst - ilast == 2  # join nzchunks
+    if inextfirst - ilast == Ti(2)  # join nzchunks
         append!(V.nzchunks[st], [val], V.nzchunks[stnext])
         deleteat!(V.nzind, stnext)
         deleteat!(V.nzchunks, stnext)
         V.lastusedchunkindex = st
-    elseif i - ilast == 1  # append to left chunk
+    elseif i - ilast == oneunit(Ti)  # append to left chunk
+        #V.nzind[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
+        appendnzindat!(V.nzind, st)
         push!(V.nzchunks[st], val)
         V.lastusedchunkindex = st
     elseif inextfirst - i == 1  # prepend to right chunk
-        V.nzind[stnext] -= 1
+        #V.nzind[stnext] -= 1
+        prependnzindat!(V.nzind, stnext)
         pushfirst!(V.nzchunks[stnext], val)
         V.lastusedchunkindex = stnext
     else  # insert single element chunk
-        insert!(V.nzind, stnext, Ti(i))
+        insert!(V.nzind, stnext, UnitRange{Ti}(i,i))
         insert!(V.nzchunks, stnext, [val])
         V.lastusedchunkindex = stnext
     end
@@ -1698,7 +1721,6 @@ end
     return V
 
 end
-
 
 
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti,m}
@@ -1713,7 +1735,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1805,7 +1827,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1918,7 +1940,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -2047,7 +2069,7 @@ end
         end
     end
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast_nzind(V, i)
 
     sstatus = status((V.nzchunks, st))
     @boundscheck if sstatus == 0 # invalid semitoken
@@ -2144,7 +2166,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
@@ -2182,7 +2204,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzind, i)
+    st = searchsortedlast_nzind(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
@@ -2233,7 +2255,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast(V.nzchunks, i)
+    st = searchsortedlast_nzind(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
