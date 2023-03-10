@@ -1682,10 +1682,10 @@ prependnzindat!(nzind::Vector{UnitRange{Ti}}, i) where {Ti} =
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        indices, chunk = V.nzind[st], V.nzchunks[st]
+        indices = V.nzind[st]
         if i <= last(indices)
-            chunk[i - first(indices) + oneunit(Ti)] = val
-            V.lastused = lastused(V, st)
+            V.nzchunks[st][i - first(indices) + oneunit(Ti)] = val
+            V.lastused = lastused(V, indices, st)
             return V
         end
     end
