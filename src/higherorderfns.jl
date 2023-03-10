@@ -589,10 +589,11 @@ function __map_similar_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{Dens
 end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
-    ks = map(firstrawindex, (C, As...))
-    # TODO: `rows` can be dropped in preference of minimum(from_rawindex, (C, As...), ks)
-    # But in _fusedmaxstep_all and _fusedupdate_all it will have twice of from_rawindex() evaluations.
-    rows = map(from_rawindex, (C, As...), ks)
+    ks = map(firstnziterator, (C, As...))
+    # TODO: `rows` can be dropped in preference of minimum(Base.to_index, (C, As...), ks)
+    # But in _fusedmaxstep_all and _fusedupdate_all it will have twice of Base.to_index() evaluations.
+    rows = Base.to_index.(ks)
+    #rows = map(Base.to_index, ks)
     activerow = min(rows...)
     while activerow < rowsentinel
         # there is checking on maximum possible continuous step through nzchunks
@@ -600,22 +601,22 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
         step = min(steps...)
 
         if step != 0
-            (viewC, viewAs...) = map((a,b)->rawindex_view(a, b, step), (C, As...), ks)
+            (viewC, viewAs...) = map((a,b)->nziterator_view(a, b, step), (C, As...), ks)
             @.. viewC = f(viewAs...)
             #viewC .= f.(viewAs...)
-            ks = map((a,b)->rawindex_advance(a, b, step), (C, As...), ks)
-            rows = map(from_rawindex, (C, As...), ks)
+            ks = map((a,b)->nziterator_advance(a, b, step), (C, As...), ks)
+            rows = map(Base.to_index, ks)
         else
             kC = first(ks)
             vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
             Cx = f(tail(vals)...)
-            if from_rawindex(C, kC) == activerow
+            if Base.to_index(kC) == activerow
                 # element in C exist, even if Cx is zero
-                C[kC] = Cx
+                kC.chunk[kC.position] = Cx
             elseif _isnotzero(Cx)
                 # inserting element into C
                 C[activerow] = Cx
-                ks = (rawindex_advance(C, rawindex(C, activerow)), tail(ks)...)
+                ks = (nziterator_advance(C, nziterator(C, activerow)), tail(ks)...)
             end
         end
         activerow = min(rows...)
@@ -668,7 +669,7 @@ end
 @inline function _fusedmaxstep(activerow, row, k, A)
     # returns maxstep
     if row == activerow
-        rawindex_possible_advance(A, k)
+        nziterator_possible_advance(A, k)
     else
         0
     end
@@ -683,8 +684,9 @@ end
 @inline function _fusedupdate(activerow, row, k, A)
     # returns (val, nextk, nextrow)
     if row == activerow
-        nextk = rawindex_advance(A, k)
-        (A[k], nextk, from_rawindex(A, nextk))
+        nextk = nziterator_advance(A, k)
+        (k.chunk[k.position], nextk, Base.to_index(nextk))
+        #(A[k], nextk, Base.to_index(nextk))
     else
         (zero(eltype(A)), k, row)
     end

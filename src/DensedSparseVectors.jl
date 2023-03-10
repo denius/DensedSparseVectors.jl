@@ -76,6 +76,8 @@ export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchun
 export startindex
 export rawindex, from_rawindex, rawindex_advance, rawindex_possible_advance, rawindex_compare, rawindex_view
 export firstrawindex, lastrawindex, pastendrawindex
+export nziterator, nziterator_advance, nziterator_possible_advance, nziterator_view
+export firstnziterator, pastendnziterator
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iteratenzpairs, iteratenzpairsview, iteratenzvalues, iteratenzvaluesview, iteratenzindices
 export is_broadcast_zero_preserve
@@ -401,130 +403,6 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
     #return DensedSparseVector{Tv,Ti,BZP}(length(V), nzind, nzchunks)
 end
 
-idxcompare(V::AbstractSparseVector, i, j) = cmp(i, j)
-idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
-
-function rawindex_compare(V, i, j)
-    c = idxcompare(V, first(i), first(j))
-    if c < 0
-        return -1
-    elseif c == 0
-        return cmp(last(i), last(j))
-    else
-        return 1
-    end
-end
-
-"""
-RawIndex is an `Pair` of idx to chunk and value position which points directly to value in AbstractAllDensedSparseVector.
-For `DensedSparseVector` it will be `Pair{Int,Int}`.
-For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
-
-TODO: RawIndex must contain index of accessed cell of array to checking for vector changes.
-"""
-function rawindex(V, i)
-    idxchunk = searchsortedlast_nzchunk(V, i)
-    if idxchunk != pastendnzchunk_index(V)
-        indices = get_nzchunk_indices(V, idxchunk)
-        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
-            return Pair(idxchunk, Int(i - first(indices) + 1))
-        end
-    end
-    throw(BoundsError(V, i))
-end
-
-@inline firstrawindex(V::AbstractVector) = nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : pastendrawindex(V)
-@inline pastendrawindex(V::AbstractVector) = Pair(pastendnzchunk_index(V), 0)
-
-@inline function lastrawindex(V::AbstractVector)
-    if nnz(V) > 0
-        li = lastnzchunk_index(V)
-        return Pair(li, length(get_nzchunk_indices(V, li)))
-    else
-        return pastendrawindex(V)
-    end
-end
-
-# RawIndex for SparseVector is just Pair(index,1)
-rawindex_advance(V::SparseVector) = firstrawindex(V)
-rawindex_advance(V::SparseVector, i) = first(i) < nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
-function rawindex_advance(V::SparseVector, i, step)
-    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
-    if first(i) + step - 1 < nnz(V)
-        Pair(first(i) + oftype(first(i), min(nnz(V)-first(i)+1, step)), 1)
-    else
-        pastendrawindex(V)
-    end
-end
-
-rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
-
-function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) < length(indices)
-            return Pair(first(i), last(i)+1)
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return Pair(st, 1)
-        else
-            return pastendrawindex(V)
-        end
-    else
-        return pastendrawindex(V)
-    end
-end
-
-function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
-    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
-    step == 0 && return i
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) < length(indices)
-            if step + last(i) <= length(indices)
-                return Pair(first(i), last(i)+step)
-            else
-                return rawindex_advance(V, Pair(first(i), Int(length(indices))),
-                                        max(0, Int(step - (length(indices)-last(i)) )) )
-            end
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return rawindex_advance(V, Pair(st, 1), max(0, step - 1) )
-        else
-            return pastendrawindex(V)
-        end
-    else
-        return pastendrawindex(V)
-    end
-end
-
-function rawindex_possible_advance(V, i::Pair)
-    if last(i) != 0
-        indices = get_nzchunk_indices(V, first(i))
-        if last(i) <= length(indices)
-            return Int(length(indices) - last(i) + 1)
-        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
-            return Int(length(get_nzchunk_indices(V, st)))
-        else
-            return 0
-        end
-    else
-        return 0
-    end
-end
-
-"Return `view` on pointed data with `step` length"
-rawindex_view(V::AbstractAllDensedSparseVector, i::Pair, step) = @view(get_nzchunk(V, first(i))[last(i):last(i)+step-1])
-
-
-#from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
-#function from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
-function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
-    if first(idx) != pastendnzchunk_index(V)
-        return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
-    else
-        li = lastindex(V)
-        return li + oftype(li, 1)
-    end
-end
 
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
 is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
@@ -632,11 +510,11 @@ end
 @inline get_nzchunk_length(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((V.nzchunks, i)))[1]
 @inline get_nzchunk_length(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractAllDensedSparseVector} = length(get_nzchunk(V, i))
 @inline get_nzchunk(V::Number, i) = Ref(V)
-@inline get_nzchunk(V::Vector, i) = view(V, :)
+@inline get_nzchunk(V::Vector, i) = @view(V[begin:end])
 @inline get_nzchunk(V::SparseVector, i) = view(nonzeros(V), i[1]:i[1]+i[2]-1)
-@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = view(V.nzchunks[i], :)
+@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = @view(V.nzchunks[i][begin:end])
 @inline get_nzchunk(V::FixedDensedSparseVector, i) = @view( V.nzchunks[ V.offsets[i]:V.offsets[i+1] - 1 ] )
-@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = view(deref_value((V.nzchunks, i)), :)
+@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = @view(deref_value((V.nzchunks, i))[begin:end])
 ###@inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
 ###    idx1 = first(parentindices(V)[1])
 ###    idx2 = last(parentindices(V)[1])
@@ -729,17 +607,17 @@ end
 @inline get_indices_and_nzchunk(V::Vector, i) = (i, view(V, :))
 @inline get_indices_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_indices_and_nzchunk(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    (UnitRange{Ti}(V.nzind[i], V.nzind[i]+length(V.nzchunks[i])-1), @view(V.nzchunks[i][begin:end]))
+    (UnitRange{Ti}(V.nzind[i], Ti(V.nzind[i])+Ti(length(V.nzchunks[i]))-oneunit(Ti)), @view(V.nzchunks[i][begin:end]))
 @inline get_indices_and_nzchunk(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     (UnitRange{Ti}(V.nzind[i], V.nzind[i]+(V.offsets[i+1]-V.offsets[i])-1), @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_indices_and_nzchunk(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, i));
      return (UnitRange{Ti}(key, key+length(chunk)-1), @view(chunk[begin:end])))
 
-@inline get_indices_and_nzchunk(V::Vector) = (UnitRange(1,0), view(eltype(V)[], 1:0))
-@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(1,0), view(Tv[], 1:0))
+@inline get_indices_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), view(eltype(V)[], 1:0))
+@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), view(Tv[], 1:0))
 @inline get_indices_and_nzchunk(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
-    (UnitRange{Ti}(1,0), view(Tv[], 1:0))
+    (UnitRange{Ti}(length(V)+1,length(V)), view(Tv[], 1:0))
 
 @inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, view(V, :), length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
@@ -1243,6 +1121,215 @@ end
 ###        end
 ###    end
 ###end
+
+idxcompare(V::AbstractSparseVector, i, j) = cmp(i, j)
+idxcompare(V::DynamicDensedSparseVector, i, j) = compare(V.nzchunks, i, j)
+
+function rawindex_compare(V, i, j)
+    c = idxcompare(V, first(i), first(j))
+    if c < 0
+        return -1
+    elseif c == 0
+        return cmp(last(i), last(j))
+    else
+        return 1
+    end
+end
+
+"""
+RawIndex is an `Pair` of idx to chunk and value position which points directly to value in AbstractAllDensedSparseVector.
+For `DensedSparseVector` it will be `Pair{Int,Int}`.
+For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
+
+TODO: RawIndex must contain index of accessed cell of array to checking for vector changes.
+"""
+function rawindex(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
+        indices = get_nzchunk_indices(V, idxchunk)
+        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
+            return Pair(idxchunk, Int(i - first(indices) + 1))
+        end
+    end
+    throw(BoundsError(V, i))
+end
+
+function nziterator(V, i)
+    idxchunk = searchsortedlast_nzchunk(V, i)
+    if idxchunk != pastendnzchunk_index(V)
+        indices = get_nzchunk_indices(V, idxchunk)
+        if checkindex(Bool, indices, i) #key <= i < key + length(chunk)
+            return nziteratorstate(V, Int(i - first(indices) + 1), indices, get_nzchunk(V, idxchunk), idxchunk)
+        end
+    end
+    throw(BoundsError(V, i))
+end
+
+@inline firstrawindex(V::AbstractVector) = nnz(V) > 0 ? Pair(firstnzchunk_index(V), 1) : pastendrawindex(V)
+@inline pastendrawindex(V::AbstractVector) = Pair(pastendnzchunk_index(V), 0)
+
+@inline function lastrawindex(V::AbstractVector)
+    if nnz(V) > 0
+        li = lastnzchunk_index(V)
+        return Pair(li, length(get_nzchunk_indices(V, li)))
+    else
+        return pastendrawindex(V)
+    end
+end
+
+# RawIndex for SparseVector is just Pair(index,1)
+rawindex_advance(V::SparseVector) = firstrawindex(V)
+rawindex_advance(V::SparseVector, i) = first(i) < nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
+function rawindex_advance(V::SparseVector, i, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    if first(i) + step - 1 < nnz(V)
+        Pair(first(i) + oftype(first(i), min(nnz(V)-first(i)+1, step)), 1)
+    else
+        pastendrawindex(V)
+    end
+end
+
+@inline function firstnziterator(V::AbstractVector)
+    if nnz(V) > 0
+        idxchunk = firstnzchunk_index(V)
+        nziteratorstate(V, 1, get_indices_and_nzchunk(V, idxchunk)..., idxchunk)
+    else
+        pastendnziterator(V)
+    end
+end
+@inline pastendnziterator(V::AbstractVector) = nziteratorstate(V, 0, get_indices_and_nzchunk(V)..., pastendnzchunk_index(V))
+
+@inline function Base.to_index(nzit::ADSVIteratorState)
+    if nzit.position != 0
+        nzit.indices[nzit.position]
+    else
+        first(nzit.indices)
+    end
+end
+
+nziterator_advance(V::AbstractAllDensedSparseVector) = firstnziterator(V)
+
+function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState)
+    if nzit.position != 0
+        if nzit.position < length(nzit.indices)
+            return nziteratorstate(V, nzit.position + 1, nzit.indices, nzit.chunk, nzit.idxchunk)
+        elseif (idxchunk = advance(V, nzit.idxchunk)) != pastendnzchunk_index(V)
+            return nziteratorstate(V, 1, get_indices_and_nzchunk(V, idxchunk)..., idxchunk)
+        else
+            return pastendnziterator(V)
+        end
+    else
+        return nzit
+    end
+end
+
+function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    step == 0 && return nzit
+    if nzit.position != 0
+        if step + nzit.position <= length(nzit.indices)
+                return nziteratorstate(V, nzit.position+step, nzit.indices, nzit.chunk, nzit.idxchunk)
+        elseif (idxchunk = advance(V, nzit.idxchunk)) != pastendnzchunk_index(V)
+            if step + nzit.position == 1 + Int(length(nzit.indices))
+                return nziteratorstate(V, 1, get_indices_and_nzchunk(V, idxchunk)..., idxchunk)
+            else
+                return nziterator_advance(V, nziteratorstate(V, 1, get_indices_and_nzchunk(V, idxchunk)..., idxchunk),
+                                          max(0, Int(step - (length(nzit.indices)-nzit.position) - 1)) )
+            end
+        else
+            return pastendnziterator(V)
+        end
+    else
+        return pastendnziterator(V)
+    end
+end
+
+function nziterator_possible_advance(V, nzit::ADSVIteratorState)
+    if nzit.position != 0
+        if nzit.position <= length(nzit.indices)
+            return Int(length(nzit.indices) - nzit.position + 1)
+        elseif (idxchunk = advance(V, nzit.idxchunk)) != pastendnzchunk_index(V)
+            return Int(length(get_nzchunk_indices(V, idxchunk)))
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+
+rawindex_advance(V::AbstractAllDensedSparseVector) = firstrawindex(V)
+
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            return Pair(first(i), last(i)+1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Pair(st, 1)
+        else
+            return pastendrawindex(V)
+        end
+    else
+        return pastendrawindex(V)
+    end
+end
+
+function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
+    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    step == 0 && return i
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) < length(indices)
+            if step + last(i) <= length(indices)
+                return Pair(first(i), last(i)+step)
+            else
+                return rawindex_advance(V, Pair(first(i), Int(length(indices))),
+                                        max(0, Int(step - (length(indices)-last(i)) )) )
+            end
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return rawindex_advance(V, Pair(st, 1), max(0, step - 1) )
+        else
+            return pastendrawindex(V)
+        end
+    else
+        return pastendrawindex(V)
+    end
+end
+
+function rawindex_possible_advance(V, i::Pair)
+    if last(i) != 0
+        indices = get_nzchunk_indices(V, first(i))
+        if last(i) <= length(indices)
+            return Int(length(indices) - last(i) + 1)
+        elseif (st = advance(V, first(i))) != pastendnzchunk_index(V)
+            return Int(length(get_nzchunk_indices(V, st)))
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+
+"Return `view` on pointed data with `step` length"
+@inline rawindex_view(V::AbstractAllDensedSparseVector, i::Pair, step) =
+    @view(get_nzchunk(V, first(i))[last(i):last(i)+step-1])
+@inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState, step) =
+    @view(nzit.chunk[nzit.position:nzit.position+step-1])
+
+
+#from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti} = Ti(first(idx))
+#function from_rawindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
+    if first(idx) != pastendnzchunk_index(V)
+        return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
+    else
+        li = lastindex(V)
+        return li + oftype(li, 1)
+    end
+end
+
 
 #
 #  Iterators
