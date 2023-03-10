@@ -174,8 +174,8 @@ const SpBroadcasted2{Style<:DSpVBStyle,Axes,F,Args<:Tuple{DensedSparseVecOrBlk,D
 @inline colrange(A::AbstractDensedSparseVector, j) = (throw(ArgumentError("Inapplicable for DSV")); 1:length(nonzeroinds(A)))
 @inline colrange(A::AbstractDensedBlockSparseVector, j) = nzrange(A, j)
 
-@inline colstartind(A::AbstractArray, j) = firstrawindex(A)
-@inline colboundind(A::AbstractArray, j) = pastendrawindex(A)
+@inline colstartind(A::AbstractArray, j) = firstnziterator(A)
+@inline colboundind(A::AbstractArray, j) = pastendnziterator(A)
 #@inline colboundind(A::SparseVector, j) = Pair(convert(indtype(A), length(nonzeroinds(A)) + 1), 1)
 #@inline colstartind(A::AbstractDensedSparseVector, j) = Pair(DSV.firstnzchunk_index(A), 1)
 #@inline colboundind(A::AbstractDensedSparseVector, j) = Pair(DSV.pastendnzchunk_index(A), 0)
@@ -608,7 +608,7 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
             vals, ks, rows = _fusedupdate_all(activerow, rows, ks, (C, As...))
             Cx = f(tail(vals)...)
             if Base.to_index(kC) == activerow
-                # element in C exist, even if Cx is zero
+                # element in C exist thus insert, despite Cx is zero
                 kC.chunk[kC.position] = Cx
             elseif _isnotzero(Cx)
                 # inserting element into C
@@ -624,17 +624,19 @@ function __map_notzeropres!(f::Tf, fillvalue, C::DensedSparseVecOrBlk, As::Varar
     fill!(C, fillvalue)
     nzvalsC = first(nzchunks(C))
     rowsentinel = length(C) + 1
-    ks = map(firstrawindex, As)
-    rows = map(from_rawindex, As, ks)
+    ks = map(firstnziterator, As)
+    rows = map(Base.to_index, ks)
     activerow = min(rows...)
     while activerow < rowsentinel
         steps = _fusedmaxstep_all(activerow, rows, ks, As)
         step = min(steps...)
         if step != 0
-            viewAs = map((a,b)->rawindex_view(a, b, step), As, ks)
-            @view(C[activerow:activerow+step-1]) .= f.(viewAs...)
-            ks = map((a,b)->rawindex_advance(a, b, step), As, ks)
-            rows = map(from_rawindex, As, ks)
+            viewAs = map((a,b)->nziterator_view(a, b, step), As, ks)
+            #view(nzvalsC, activerow:activerow+step-1) .= f.(viewAs...)
+            viewC = view(nzvalsC, activerow:activerow+step-1)
+            @.. viewC = f(viewAs...)
+            ks = map((a,b)->nziterator_advance(a, b, step), As, ks)
+            rows = map(Base.to_index, ks)
         else
             vals, ks, rows = _fusedupdate_all(activerow, rows, ks, As)
             Cx = f(vals...)
@@ -657,7 +659,7 @@ end
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
 
-@inline _rowforind(k, stopk, A) = from_rawindex(A, k)
+@inline _rowforind(k, stopk, A) = Base.to_index(k)
 @inline _rowforind_all(::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(ks, stopks, As) = (
     _rowforind(first(ks), first(stopks), first(As)),
@@ -682,8 +684,7 @@ end
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = nziterator_advance(A, k)
-        (k.chunk[k.position], nextk, Base.to_index(nextk))
-        #(A[k], nextk, Base.to_index(nextk))
+        (A[k], nextk, Base.to_index(nextk))
     else
         (zero(eltype(A)), k, row)
     end
