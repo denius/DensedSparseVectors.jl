@@ -510,11 +510,11 @@ end
 @inline get_nzchunk_length(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = size(deref_value((V.nzchunks, i)))[1]
 @inline get_nzchunk_length(V::SubArray{<:Any,<:Any,<:T}, i) where {T<:AbstractAllDensedSparseVector} = length(get_nzchunk(V, i))
 @inline get_nzchunk(V::Number, i) = Ref(V)
-@inline get_nzchunk(V::Vector, i) = @view(V[begin:end])
+@inline get_nzchunk(V::Vector, i) = V
 @inline get_nzchunk(V::SparseVector, i) = view(nonzeros(V), i[1]:i[1]+i[2]-1)
-@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = @view(V.nzchunks[i][begin:end])
+@inline get_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = V.nzchunks[i]
 @inline get_nzchunk(V::FixedDensedSparseVector, i) = @view( V.nzchunks[ V.offsets[i]:V.offsets[i+1] - 1 ] )
-@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = @view(deref_value((V.nzchunks, i))[begin:end])
+@inline get_nzchunk(V::DynamicDensedSparseVector, i::DataStructures.Tokens.IntSemiToken) = deref_value((V.nzchunks, i))
 ###@inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, i) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
 ###    idx1 = first(parentindices(V)[1])
 ###    idx2 = last(parentindices(V)[1])
@@ -592,39 +592,39 @@ end
         return UnitRange{Ti}(index1, index2)
     end
 end
-@inline get_key_and_nzchunk(V::Vector, i) = (i, view(V, :))
+@inline get_key_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
-@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], @view(V.nzchunks[i][begin:end]))
+@inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], V.nzchunks[i])
 @inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) =
     ((key, chunk) = deref((V.nzchunks, i));
-     return (key, @view(chunk[begin:end])))
+     return (key, chunk))
 
-@inline get_key_and_nzchunk(V::Vector) = (1, view(eltype(V)[], 1:0))
-@inline get_key_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), view(Tv[], 1:0))
-@inline get_key_and_nzchunk(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), view(Tv[], 1:0))
+@inline get_key_and_nzchunk(V::Vector) = (1, eltype(V)[])
+@inline get_key_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
+@inline get_key_and_nzchunk(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
 
-@inline get_indices_and_nzchunk(V::Vector, i) = (i, view(V, :))
+@inline get_indices_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_indices_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_indices_and_nzchunk(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    (UnitRange{Ti}(V.nzind[i], Ti(V.nzind[i])+Ti(length(V.nzchunks[i]))-oneunit(Ti)), @view(V.nzchunks[i][begin:end]))
+    (UnitRange{Ti}(V.nzind[i], Ti(V.nzind[i])+Ti(length(V.nzchunks[i]))-oneunit(Ti)), V.nzchunks[i])
 @inline get_indices_and_nzchunk(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     (UnitRange{Ti}(V.nzind[i], V.nzind[i]+(V.offsets[i+1]-V.offsets[i])-1), @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_indices_and_nzchunk(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, i));
-     return (UnitRange{Ti}(key, key+length(chunk)-1), @view(chunk[begin:end])))
+     return (UnitRange{Ti}(key, key+length(chunk)-1), chunk))
 
-@inline get_indices_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), view(eltype(V)[], 1:0))
-@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), view(Tv[], 1:0))
+@inline get_indices_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), eltype(V)[])
+@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 @inline get_indices_and_nzchunk(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
-    (UnitRange{Ti}(length(V)+1,length(V)), view(Tv[], 1:0))
+    (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 
-@inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, view(V, :), length(V))
+@inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, V, length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
 @inline get_key_and_nzchunk_and_length(V::AbstractVecbasedDensedSparseVector, i) = (V.nzind[i], V.nzchunks[i], length(V.nzchunks[i]))
 @inline get_key_and_nzchunk_and_length(V::FixedDensedSparseVector, i) =
         (V.nzind[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]), V.offsets[i+1]-V.offsets[i])
-        @inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, @view(chunk[begin:end]), length(chunk)))
+        @inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, chunk, length(chunk)))
 
 @inline is_in_nzchunk(V::Vector, i, key) = key in first(axes(V))
 @inline is_in_nzchunk(V::SparseVector, i, key) = V.nzind[i] == key
