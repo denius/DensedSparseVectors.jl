@@ -590,10 +590,8 @@ end
 function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparseVecOrBlk,N}) where {Tf,N}
     rowsentinel = length(C) + 1
     ks = map(firstnziterator, (C, As...))
-    # TODO: `rows` can be dropped in preference of minimum(Base.to_index, (C, As...), ks)
-    # But in _fusedmaxstep_all and _fusedupdate_all it will have twice of Base.to_index() evaluations.
-    rows = Base.to_index.(ks)
-    #rows = map(Base.to_index, ks)
+    # Note: eliminating `rows` does not improve performance
+    rows = map(Base.to_index, ks)
     activerow = min(rows...)
     while activerow < rowsentinel
         # there is checking on maximum possible continuous step through nzchunks
@@ -603,7 +601,6 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
         if step != 0
             (viewC, viewAs...) = map((a,b)->nziterator_view(a, b, step), (C, As...), ks)
             @.. viewC = f(viewAs...)
-            #viewC .= f.(viewAs...)
             ks = map((a,b)->nziterator_advance(a, b, step), (C, As...), ks)
             rows = map(Base.to_index, ks)
         else
