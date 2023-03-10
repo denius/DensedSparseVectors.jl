@@ -1535,7 +1535,6 @@ Base.size(it::NZPairsView) = (nnz(it.itr),)
     return true
 end
 
-@inline Base.in(i, V::AbstractAllDensedSparseVector) = Base.isstored(V, i)
 
 function checkbounds(V, i::Pair)
     (idxcompare(V, first(i), beforestartnzchunk_index(V)) > 0 &&
