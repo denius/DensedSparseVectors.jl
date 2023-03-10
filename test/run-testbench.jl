@@ -7,9 +7,9 @@ DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 
-@benchmark DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
-@benchmark DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
-@benchmark DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
+@benchmark DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
+@benchmark DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
+@benchmark DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 
 
 dsv = testfun_create_dense(DensedSparseVector{Float64,UInt64}, 1_000_000, 800); dsv1 = copy(dsv); dsv2 = similar(dsv); c = 2.0; f = *
@@ -19,9 +19,9 @@ DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 
-@benchmark DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
-@benchmark DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
-@benchmark DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, $dsv2, $dsv, $dsv1)
+@benchmark DSV.HigherOrderFns._map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
+@benchmark DSV.HigherOrderFns.__map_similar_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
+@benchmark DSV.HigherOrderFns.__map_zeropres!((x,y)->x-11*y, dsv2, dsv, dsv1)
 
 
 # Results
