@@ -609,7 +609,7 @@ function __map_zeropres!(f::Tf, C::DensedSparseVecOrBlk, As::Vararg{DensedSparse
             Cx = f(tail(vals)...)
             if Base.to_index(kC) == activerow
                 # element in C exist thus insert, despite Cx is zero
-                kC.chunk[kC.position] = Cx
+                C[kC] = Cx
             elseif _isnotzero(Cx)
                 # inserting element into C
                 C[activerow] = Cx
