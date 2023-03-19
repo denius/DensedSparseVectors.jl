@@ -146,6 +146,7 @@ struct StateLastUsed{Ti,Td}
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
     chunk::Td              # current chunk is the view into nzchunk
     # TODO: FIXME: here should be idxchunk instead of Vector
+    # because creating pointer to vector is much longer then just scalar index.
 end
 @inline lastused(V::AbstractAllDensedSparseVector{Tv,Ti}, it) where {Tv,Ti} =
     StateLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, it)...)
