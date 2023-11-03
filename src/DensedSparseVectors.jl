@@ -233,6 +233,7 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     "Dummy for empty `getindex` returns"
     dummy::Vector{Tv}
 
+    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
 end
@@ -263,16 +264,21 @@ mutable struct DynamicDensedSparseVector{Tv,Ti,BZP} <: AbstractSDictDensedSparse
     "Number of stored non-zero elements"
     nnz::Int
 
+    DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(n)
     function DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP}
         nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
         new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, 0)
     end
+
+    DynamicDensedSparseVector{Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
+        DynamicDensedSparseVector{Tv,Ti,Val{false}}(n, nzchunks)
     DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,BZP,K,V<:AbstractVector} =
         new{Tv,Ti,BZP}(beforestartsemitoken(nzchunks), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0))
+
 end
 
-DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
-DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
+#DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
+#DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
 
 DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DynamicDensedSparseVector{Tv,Ti,BZP}(V)
 function DynamicDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
@@ -328,7 +334,8 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
 end
 
 
-is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = BZP != Val{false}
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
 
 Base.length(V::AbstractAllDensedSparseVector) = getfield(V, :n)
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} =
@@ -505,9 +512,6 @@ Slightly differs from `searchsortedfirst(V.nzind)`.
     elseif nnz(V) != 0
         st = searchsortedlast_nzind(V, i)
         if st != beforestartnzchunk_index(V)
-            #key = get_nzchunk_key(V, st)
-            #len = get_nzchunk_length(V, st)
-            #if i < key + len
             if is_in_nzchunk(V, st, i)
                 return st
             else
