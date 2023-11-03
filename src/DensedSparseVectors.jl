@@ -25,6 +25,10 @@
 # * Add pastendnzchunk_index in all AbstractAllDensedSparseVector
 #   to have the fast iteration stop checking.
 #
+# * Add iterators like for MethodSpecializations in base/reflection.jl with
+#   `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
+#   Then there are may be type stable even for Tuple/Vector of iterators.
+#
 #
 #
 # Notes:
@@ -339,6 +343,7 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     "Dummy for empty `getindex` returns"
     dummy::Vector{Tv}
 
+    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
 end
@@ -573,7 +578,7 @@ end
     idx2 = last(parentindices(V)[1])
     indices, chunk = get_indices_and_nzchunk(parent(V), i)
     index1 = first(indices)
-    index1 = last(indices)
+    index2 = last(indices)
     if checkindex(Bool, indices, idx1) && checkindex(Bool, indices, idx2)
         return @inbounds view(chunk, idx1-index1+Ti(1):idx2-index1+Ti(1))
     elseif checkindex(Bool, indices, idx1)
@@ -586,7 +591,7 @@ end
         return @inbounds @view(chunk[Ti(1):end])
     end
 end
-@inline get_nzchunk_key(V::Vector, i) = i
+@inline get_nzchunk_key(::Vector, i) = i
 @inline get_nzchunk_key(V::SparseVector, i) = V.nzind[i]
 @inline get_nzchunk_key(V::AbstractVecbasedDensedSparseVector, i) = first(V.nzind[i])
 @inline get_nzchunk_key(V::DynamicDensedSparseVector, i) = deref_key((V.nzchunks, i))
@@ -612,7 +617,7 @@ end
     idx2 = last(parentindices(V)[1])
     indices = get_nzchunk_indices(parent(V), i)
     index1 = first(indices)
-    index1 = last(indices)
+    index2 = last(indices)
     if checkindex(Bool, indices, idx1) && checkindex(Bool, indices, idx2)
         return UnitRange{Ti}(idx1, idx2)
     elseif checkindex(Bool, indices, idx1)
@@ -636,8 +641,8 @@ end
      return (key, chunk))
 
 @inline get_key_and_nzchunk(V::Vector) = (1, eltype(V)[])
-@inline get_key_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
-@inline get_key_and_nzchunk(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
+@inline get_key_and_nzchunk(::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
+@inline get_key_and_nzchunk(::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
 
 @inline get_indices_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_indices_and_nzchunk(V::SparseVector, i) = @inbounds (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
