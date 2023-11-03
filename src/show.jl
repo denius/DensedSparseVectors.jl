@@ -5,7 +5,7 @@
 # derived from stdlib/SparseArrays/src/sparsevector.jl
 #
 
-function quick_get_max_pad(V::AbstractDensedSparseVector)
+function quick_get_max_pad(V::AbstractAllDensedSparseVector)
     pad = 0
     for (key, chunk) in nzchunkspairs(V)
         pad = max(pad, ndigits(key), ndigits(key+length_of_that_nzchunk(V, chunk)-1))
