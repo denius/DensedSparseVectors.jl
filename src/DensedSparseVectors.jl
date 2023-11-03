@@ -97,6 +97,7 @@ mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector
     "Number of stored non-zero elements"
     nnz::Int
 
+    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
     DensedSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n, nzind, nzchunks)
     DensedSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
