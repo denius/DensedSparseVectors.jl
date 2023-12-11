@@ -206,6 +206,7 @@ mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVec
 end
 
 DensedSVSparseVector{Tv,Ti,m}(V) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(V)
+DensedSVSparseVector{Tv,Ti}(m::Integer, n::Integer = 0) where {Tv,Ti} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
 DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m,Val{false}}(n)
 
 
@@ -238,6 +239,8 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(0, nzind, nzchunks, offsets, n, foldl((s,c)->(s+length(c)), nzchunks; init=0), Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
@@ -380,6 +383,25 @@ function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}
         nzchunks[k] = similar(d, TvNew)
     end
     return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
+end
+function Base.similar(V::DensedSVSparseVector{Tv,Ti,m}, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {Tv,Ti,m,TvNew,TiNew,BZP}
+    nzind = similar(V.nzind, TiNew)
+    nzchunks = similar(V.nzchunks)
+    for (i, (k,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = k
+        nzchunks[i] = [SVector(ntuple(_->TvNew(0), m)) for _ in d]
+    end
+    return DensedSVSparseVector{TvNew,TiNew,m,BZP}(length(V), nzind, nzchunks)
+end
+function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+    nzind = similar(V.nzind, TiNew)
+    nzchunks = similar(V.nzchunks)
+    offsets = deepcopy(V.offsets)
+    for (i, (k,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = k
+        nzchunks[i] = similar(d, TvNew)
+    end
+    return DensedVLSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks, offsets)
 end
 
 
