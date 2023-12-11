@@ -239,8 +239,10 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+    DensedVLSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti} =
+        new{Tv,Ti,Val{false}}(n, nzind, nzchunks, offsets)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(0, nzind, nzchunks, offsets, n, foldl((s,c)->(s+length(c)), nzchunks; init=0), Tv[])
+        new{Tv,Ti,BZP}(0, nzind, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
