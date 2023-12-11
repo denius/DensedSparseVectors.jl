@@ -41,6 +41,24 @@ function testfun_create_seq(T::Type, n = 500_000, density = 0.9)
     end
     V
 end
+function testfun_createSV_seq(T::Type, n = 500_000, m = 5, density = 0.9)
+    V = T(m,n)
+    Random.seed!(1234)
+    for i in randsubseq(1:n, density)
+        for j = 1:m
+            V[i,j] = rand()
+        end
+    end
+    V
+end
+function testfun_createVL_seq(T::Type, n = 500_000, density = 0.9)
+    V = T(n)
+    Random.seed!(1234)
+    for i in randsubseq(1:n, density)
+        V[i] = rand(rand(0:7))
+    end
+    V
+end
 
 function testfun_create_dense(T::Type, n = 500_000, nchunks = 800, density = 0.95)
     V = T(n)
