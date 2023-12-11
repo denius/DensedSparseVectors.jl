@@ -399,7 +399,7 @@ function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::T
     offsets = deepcopy(V.offsets)
     for (i, (k,d)) in enumerate(nzchunkspairs(V))
         nzind[i] = k
-        nzchunks[i] = similar(d, TvNew)
+        nzchunks[i] = Vector{TvNew}(undef, length(d))
     end
     return DensedVLSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks, offsets)
 end
