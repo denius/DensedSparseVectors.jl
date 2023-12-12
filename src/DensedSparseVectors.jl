@@ -1282,7 +1282,7 @@ end
 
 
 
-@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti,m}
+@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti,m}
     sv = eltype(eltype(V.nzchunks))(vectorvalue)
 
     # fast check for cached chunk index
@@ -1468,7 +1468,7 @@ end
 
 end
 
-@inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti}
+@inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti}
 
     # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
