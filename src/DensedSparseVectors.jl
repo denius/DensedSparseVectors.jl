@@ -506,7 +506,7 @@ end
 @inline is_in_nzchunk(V::Vector, i, key) = key in first(axes(V))
 @inline is_in_nzchunk(V::SparseVector, i, key) = V.nzind[i] == key
 @inline is_in_nzchunk(V::AbstractVecbasedDensedSparseVector, i, key) = V.nzind[i] <= key < V.nzind[i] + length(V.nzchunks[i])
-@inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzind[i] <= key < V.nzind[i] + V.offsets[i+1]-V.offsets[i]
+@inline is_in_nzchunk(V::FixedDensedSparseVector, i, key) = V.nzind[i] <= key < V.nzind[i] + V.offsets[i+1]-V.offsets[i]
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, i, key) = ((ichunk, chunk) = deref((V.nzchunks, i)); return (ichunk <= key < ichunk + length(chunk)))
 
 @inline firstnzchunk_index(V::AbstractVecbasedDensedSparseVector) = firstindex(V.nzind)
