@@ -1533,7 +1533,7 @@ end
 
     if V.nnz == 0
         push!(V.nzind, Ti(i))
-        push!(V.nzchunks, Vector(vectorvalue))
+        push!(V.nzchunks, [Tv(v) for v in vectorvalue])
         push!(V.offsets, [1])
         append!(V.offsets[1], length(vectorvalue)+1)
         V.nnz += 1
@@ -1546,7 +1546,7 @@ end
         inextfirst = V.nzind[1]
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(V.nzind, i)
-            pushfirst!(V.nzchunks, Vector(vectorvalue))
+            pushfirst!(V.nzchunks, [Tv(v) for v in vectorvalue])
             pushfirst!(V.offsets, [1])
             append!(V.offsets[1], length(vectorvalue)+1)
         else
@@ -1565,7 +1565,7 @@ end
     if i >= V.nzind[end]  # the index `i` is after the last key index
         if i > ifirst + length(offsets)-1  # there is will be the gap in indices after inserting
             push!(V.nzind, i)
-            push!(V.nzchunks, Vector(vectorvalue))
+            push!(V.nzchunks, [Tv(v) for v in vectorvalue])
             push!(V.offsets, [1])
             push!(V.offsets[end], length(vectorvalue)+1)
         else  # just append to last chunk
@@ -1603,7 +1603,7 @@ end
         V.lastusedchunkindex = stnext
     else  # insert single element chunk
         insert!(V.nzind, stnext, Ti(i))
-        insert!(V.nzchunks, stnext, Vector(vectorvalue))
+        insert!(V.nzchunks, stnext, [Tv(v) for v in vectorvalue])
         insert!(V.offsets, stnext, [1])
         push!(V.offsets[stnext], length(vectorvalue)+1)
         V.lastusedchunkindex = stnext
