@@ -35,7 +35,7 @@ mutable struct SparseMatrixCSC2{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{
    "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
-    nzind::Vector{Ti}  # Vector of chunk's first indices
+    nzranges::Vector{Ti}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s
      The resulting matrix size is m by n"
     nzchunks::Vector{Vector{SVector{m,Tv}}}
