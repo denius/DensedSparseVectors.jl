@@ -78,6 +78,8 @@ The `DensedSparseVector` is alike the `Vector` but have the omits in stored indi
 It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
+
+Parameter BZP is an Broadcast Zero Preserve.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
@@ -140,7 +142,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
+mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,Val{true}}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -1190,7 +1192,7 @@ end
 
 
 
-@inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = Tv(value)
 
     # fast check for cached chunk index
@@ -1282,7 +1284,7 @@ end
 
 
 
-@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti,m}
+function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti,m}
     sv = eltype(eltype(V.nzchunks))(vectorvalue)
 
     # fast check for cached chunk index
@@ -1373,7 +1375,7 @@ end
 
 end
 
-@inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, value, i::Integer, j::Integer) where {Tv,Ti,m}
+function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, value, i::Integer, j::Integer) where {Tv,Ti,m}
     val = Tv(value)
 
     # fast check for cached chunk index
@@ -1468,7 +1470,7 @@ end
 
 end
 
-@inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti}
+function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti}
 
     # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
@@ -1616,7 +1618,7 @@ end
 
 
 
-@inline function Base.setindex!(V::DynamicDensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+function Base.setindex!(V::DynamicDensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
     val = eltype(V)(value)
 
     # fast check for cached chunk index
@@ -1721,7 +1723,7 @@ end
 #    return V
 #end
 
-@inline function SparseArrays.dropstored!(V::AbstractVecbasedDensedSparseVector, i::Integer)
+function SparseArrays.dropstored!(V::AbstractVecbasedDensedSparseVector, i::Integer)
 
     V.nnz == 0 && return V
 
@@ -1759,7 +1761,7 @@ end
     return V
 end
 
-@inline function SparseArrays.dropstored!(V::DensedVLSparseVector, i::Integer)
+function SparseArrays.dropstored!(V::DensedVLSparseVector, i::Integer)
 
     V.nnz == 0 && return V
 
@@ -1810,7 +1812,7 @@ end
     return V
 end
 
-@inline function SparseArrays.dropstored!(V::DynamicDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
+function SparseArrays.dropstored!(V::DynamicDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
 
     V.nnz == 0 && return V
 
@@ -1848,6 +1850,10 @@ end
 end
 
 
+# there is exist LinearAlgebra.fillstored!
+# although fill! from sparsevector.jl:2300 fills only non-zeros.
+# fill!(v::SparseVector, x) fill non-zeros in v with 0.0 if x == 0.0,
+# else it fill to full Vector if x != 0.0
 
 
 function _fill_empty!(V::DensedSparseVector{Tv,Ti}, value) where {Tv,Ti}
