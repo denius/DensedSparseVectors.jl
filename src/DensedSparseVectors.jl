@@ -719,15 +719,15 @@ end
 @inline returnzero(V::DensedSVSparseVector) = zero(eltype(eltype(V.nzchunks)))
 @inline returnzero(V::AbstractAllDensedSparseVector) = zero(eltype(V))
 
-@inline DataStructures.advance(V::AbstractVecbasedDensedSparseVector, state) = state + 1
+@inline DataStructures.advance(::AbstractVecbasedDensedSparseVector, state) = state + 1
 @inline DataStructures.advance(V::AbstractSDictDensedSparseVector, state) = advance((V.nzchunks, state))
-@inline DataStructures.regress(V::AbstractVecbasedDensedSparseVector, state) = state - 1
+@inline DataStructures.regress(::AbstractVecbasedDensedSparseVector, state) = state - 1
 @inline DataStructures.regress(V::AbstractSDictDensedSparseVector, state) = regress((V.nzchunks, state))
 
 "`searchsortedlast(V.nzranges, i)`"
-@inline searchsortedlast_nzind(V::DensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
-@inline searchsortedlast_nzind(V::AbstractVecbasedDensedSparseVector, i) = searchsortedlast(V.nzranges, i)
-@inline searchsortedlast_nzind(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
+@inline searchsortedlast_ranges(V::DensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
+@inline searchsortedlast_ranges(V::AbstractVecbasedDensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
+@inline searchsortedlast_ranges(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i, by=first)
 
 """
 Returns nzchunk_index which on vector index `i`, or after `i`.
@@ -737,7 +737,7 @@ Slightly differs from `searchsortedfirst(V.nzranges)`.
     if i == 1 # most of use cases
         return nnz(V) == 0 ? pastendnzchunk_index(V) : firstnzchunk_index(V)
     elseif nnz(V) != 0
-        st = searchsortedlast_nzind(V, i)
+        st = searchsortedlast_ranges(V, i)
         if st != beforestartnzchunk_index(V)
             if is_in_nzchunk(V, st, i)
                 return st
@@ -757,10 +757,10 @@ Returns nzchunk_index which on vector index `i`, or before `i`.
 Slightly differs from `searchsortedlast(V.nzranges)`.
 """
 @inline function searchsortedfirst_nzchunk(V::AbstractAllDensedSparseVector, i::Integer)
-    return searchsortedlast_nzind(V, i)
+    return searchsortedlast_ranges(V, i)
     #=
     if nnz(V) != 0
-        return searchsortedlast_nzind(V, i)
+        return searchsortedlast_ranges(V, i)
     else
         return beforestartnzchunk_index(V)
     end
@@ -1537,7 +1537,7 @@ Base.size(it::NZPairsView) = (nnz(it.itr),)
 
 
 @inline function Base.isstored(V::AbstractAllDensedSparseVector, i::Integer)
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return false
     elseif i >= get_nzchunk_key(V, st) + get_nzchunk_length(V, st)
@@ -1573,7 +1573,7 @@ end
         return get_nzchunk(V, V.lastused.idxchunk)[i - first(V.lastused.indices) + oneunit(Ti)]
     end
     # cached chunk index miss or index is not stored
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
         ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
         if i < ifirst + len  # is the index `i` inside of data chunk indices range
@@ -1608,7 +1608,7 @@ end
         end
     end
     # cached chunk index miss or index not stored
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
         ifirst, chunk, offsets = V.nzranges[st], V.nzchunks[st], V.offsets[st]
         if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
@@ -1659,7 +1659,7 @@ end
         end
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1678,9 +1678,9 @@ end
 
 
 
-appendnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
+appendnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
     (nzranges[i] = UnitRange{Ti}(first(nzranges[i]), last(nzranges[i])+oneunit(Ti)); nzranges)
-prependnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
+prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
     (nzranges[i] = UnitRange{Ti}(first(nzranges[i])-oneunit(Ti), last(nzranges[i])); nzranges)
 
 @inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, idx::Integer) where {Tv,Ti}
@@ -1695,7 +1695,7 @@ prependnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
         return V
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1723,7 +1723,7 @@ prependnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
             pushfirst!(V.nzchunks, [val])
         else
             #V.nzranges[1] = UnitRange{Ti}(first(V.nzranges[1])-oneunit(Ti), last(V.nzranges[1]))
-            prependnzindat!(V.nzranges, 1)
+            prependnzrangesat!(V.nzranges, 1)
             pushfirst!(V.nzchunks[1], val)
         end
         V.nnz += 1
@@ -1741,7 +1741,7 @@ prependnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
             push!(V.nzchunks, [val])
         else  # just append to last chunk
             #V.nzranges[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
-            appendnzindat!(V.nzranges, st)
+            appendnzrangesat!(V.nzranges, st)
             push!(V.nzchunks[st], val)
         end
         V.nnz += 1
@@ -1762,12 +1762,12 @@ prependnzindat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
         V.lastused = lastused(V, st)
     elseif i - ilast == oneunit(Ti)  # append to left chunk
         #V.nzranges[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
-        appendnzindat!(V.nzranges, st)
+        appendnzrangesat!(V.nzranges, st)
         push!(V.nzchunks[st], val)
         V.lastused = lastused(V, st)
     elseif inextfirst - i == 1  # prepend to right chunk
         #V.nzranges[stnext] -= 1
-        prependnzindat!(V.nzranges, stnext)
+        prependnzrangesat!(V.nzranges, stnext)
         pushfirst!(V.nzchunks[stnext], val)
         V.lastused = lastused(V, stnext)
     else  # insert single element chunk
@@ -1794,7 +1794,7 @@ end
         end
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1886,7 +1886,7 @@ end
         end
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -1999,7 +1999,7 @@ end
         end
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     # check the index exist and update its data
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
@@ -2128,7 +2128,7 @@ end
         end
     end
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     sstatus = status((V.nzchunks, st))
     @boundscheck if sstatus == 0 # invalid semitoken
@@ -2225,7 +2225,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
@@ -2263,7 +2263,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
@@ -2314,7 +2314,7 @@ end
 
     V.nnz == 0 && return V
 
-    st = searchsortedlast_nzind(V, i)
+    st = searchsortedlast_ranges(V, i)
 
     if st == beforestartnzchunk_index(V)  # the index `i` is before first index
         return V
