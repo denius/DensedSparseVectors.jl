@@ -185,6 +185,8 @@ The `DensedSparseVector` is alike the `Vector` but have the omits in stored indi
 It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
+
+Parameter BZP is an Broadcast Zero Preserve.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
@@ -249,7 +251,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
+mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,Val{true}}
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -309,11 +311,13 @@ mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVec
 
     DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer, nzind, nzchunks) where {Tv,Ti,m,BZP} =
         new{Tv,Ti,m,BZP}(0, nzind, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
+    DensedSVSparseVector{Tv,Ti,m}(n::Integer = 0) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
     DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer = 0) where {Tv,Ti,m,BZP} =
         new{Tv,Ti,m,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
 end
 
 DensedSVSparseVector{Tv,Ti,m}(V) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(V)
+DensedSVSparseVector{Tv,Ti}(m::Integer, n::Integer = 0) where {Tv,Ti} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
 DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m,Val{false}}(n)
 
 
@@ -346,6 +350,10 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+    DensedVLSparseVector{Tv,Ti}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti} =
+        new{Tv,Ti,Val{false}}(0, nzind, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
+    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzind, nzchunks, offsets) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(0, nzind, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
@@ -507,6 +515,7 @@ function Base.copy(V::DynamicDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP}
     end
     return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
 end
+
 
 function Base.collect(::Type{ElType}, V::AbstractAllDensedSparseVector) where ElType
     res = zeros(ElType, length(V))
@@ -2318,6 +2327,10 @@ end
 end
 
 
+# there is exist LinearAlgebra.fillstored!
+# although fill! from sparsevector.jl:2300 fills only non-zeros.
+# fill!(v::SparseVector, x) fill non-zeros in v with 0.0 if x == 0.0,
+# else it fill to full Vector if x != 0.0
 
 
 function _expand_full!(V::DensedSparseVector{Tv,Ti}) where {Tv,Ti}
