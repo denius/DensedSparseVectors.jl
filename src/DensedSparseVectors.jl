@@ -497,6 +497,26 @@ function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}
     end
     return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
 end
+function Base.similar(V::DensedSVSparseVector{Tv,Ti,m}, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {Tv,Ti,m,TvNew,TiNew,BZP}
+    nzind = similar(V.nzind, TiNew)
+    nzchunks = similar(V.nzchunks)
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = first(ids)
+        nzchunks[i] = [SVector(ntuple(_->TvNew(0), m)) for _ in d]
+    end
+    return DensedSVSparseVector{TvNew,TiNew,m,BZP}(length(V), nzind, nzchunks)
+end
+function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+    nzind = similar(V.nzind, TiNew)
+    nzchunks = Vector{Vector{TvNew}}(undef, length(V.nzchunks))
+    offsets = deepcopy(V.offsets)
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzind[i] = first(ids)
+        nzchunks[i] = Vector{TvNew}(undef, length(d))
+    end
+    return DensedVLSparseVector{TvNew,TiNew,BZP}(length(V), nzind, nzchunks, offsets)
+end
+
 
 function Base.copy(V::T) where {T<:DensedSparseVector}
     nzind = copy(V.nzind)
