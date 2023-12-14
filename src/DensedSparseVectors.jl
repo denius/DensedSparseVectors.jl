@@ -1799,7 +1799,7 @@ end
 end
 
 
-function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti}
+function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue, i::Integer) where {Tv,Ti}
 
     # fast check for cached chunk index
     if i in V.lastused.indices
