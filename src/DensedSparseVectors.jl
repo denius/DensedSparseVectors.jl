@@ -810,13 +810,7 @@ function SparseArrays.nonzeros(V::AbstractAllDensedSparseVector{Tv,Ti}) where {T
     end
     return ret
 end
-# function SparseArrays.nonzeroinds(V::DensedVLSparseVector{Tv,Ti}) where {Tv,Ti}
-#     ret = Vector{Ti}()
-#     for (k,d) in zip(V.nzranges, V.offsets)
-#         append!(ret, (k:k+length(d)-1-1))
-#     end
-#     return ret
-# end
+
 
 #SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nzindices(V), nzvalues(V))
 SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nonzeroinds(V), nonzeros(V))
@@ -1135,7 +1129,7 @@ struct ADSVIteratorState{Ti,Td,Tit}
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
     # TODO: may be without chunk? Then only the static data in struct.
     chunk::Td              # current chunk is the view into nzchunk
-    itchunk::Tit          # nzchunk iterator state (Int or Semitoken) in nzchunks
+    itchunk::Tit           # nzchunk iterator state (Int or Semitoken) in nzchunks
 end
 
 
@@ -1872,7 +1866,7 @@ function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVec
 
     if V.nnz == 0
         push!(V.nzranges, UnitRange{Ti}(i,i))
-        push!(V.nzchunks, Vector(vectorvalue))
+        push!(V.nzchunks, [Tv(v) for v in vectorvalue])
         push!(V.offsets, [1])
         append!(V.offsets[1], length(vectorvalue)+1)
         V.nnz += 1
@@ -1885,7 +1879,7 @@ function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVec
         inextfirst = first(V.nzranges[1])
         if inextfirst - i > 1  # there is will be gap in indices after inserting
             pushfirst!(V.nzranges, UnitRange{Ti}(i,1))
-            pushfirst!(V.nzchunks, Vector(vectorvalue))
+            pushfirst!(V.nzchunks, [Tv(v) for v in vectorvalue])
             pushfirst!(V.offsets, [1])
             append!(V.offsets[1], length(vectorvalue)+1)
         else
@@ -1905,7 +1899,7 @@ function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVec
     if i >= first(V.nzranges[end])  # the index `i` is after the last key index
         if i > last(ids)  # there is will be the gap in indices after inserting
             push!(V.nzranges, UnitRange{Ti}(i,i))
-            push!(V.nzchunks, Vector(vectorvalue))
+            push!(V.nzchunks, [Tv(v) for v in vectorvalue])
             push!(V.offsets, [1])
             push!(V.offsets[end], length(vectorvalue)+1)
         else  # just append to last chunk
@@ -1946,7 +1940,7 @@ function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVec
         V.lastused = lastused(V, stnext, i)
     else  # insert single element chunk
         insert!(V.nzranges, stnext, UnitRange{Ti}(i,i))
-        insert!(V.nzchunks, stnext, Vector(vectorvalue))
+        insert!(V.nzchunks, stnext, [Tv(v) for v in vectorvalue])
         insert!(V.offsets, stnext, [1])
         push!(V.offsets[stnext], length(vectorvalue)+1)
         V.lastused = lastused(V, stnext, i)
