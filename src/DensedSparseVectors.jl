@@ -1589,7 +1589,7 @@ end
 @inline Base.getindex(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState) = @inbounds nzit.chunk[nzit.position]
 
 
-@inline function Base.getindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Ti) where {Tv,Ti}
+@inline function Base.getindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Integer) where {Tv,Ti}
     i = Ti(idx)
     # fast check for cached chunk index
     if i in V.lastused.indices
