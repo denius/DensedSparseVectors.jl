@@ -482,8 +482,8 @@ Base.ndims(::Type{AbstractAllDensedSparseVector}) = 1
 Base.strides(V::AbstractAllDensedSparseVector) = (1,)
 Base.eltype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Tv
 SparseArrays.indtype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Ti
-Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexLinear()
-#Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexCartesian() #?
+# Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexLinear()
+Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexCartesian() #?
 
 Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = similar(V, Tv, Ti, BZP)
 Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}) where {Tv,Ti,BZP,TvNew} = similar(V, TvNew, Ti, BZP)
