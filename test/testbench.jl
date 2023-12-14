@@ -9,95 +9,132 @@ using Random
 #
 
 function testfun_create(T::Type, n = 1_000_000, density = 0.9)
-    V = T(n)
+    sv = T(n)
     Random.seed!(1234)
     randseq = randsubseq(1:n, density)
     for i in shuffle(randseq)
-        V[i] = rand()
+        sv[i] = rand()
     end
 
-    sdf = symdiff(SparseArrays.nonzeroinds(V), randseq)
+    sdf = symdiff(SparseArrays.nonzeroinds(sv), randseq)
     length(sdf) > 0 && @show sdf
 
-    V
+    sv
 end
 function testfun_createSV(T::Type, n = 1_000_000, m = 5, density = 0.9)
-    V = T(m,n)
+    sv = T(m,n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
         for j = 1:m
-            V[i,j] = rand()
+            sv[i,j] = rand()
         end
     end
-    V
+    sv
 end
 function testfun_createVL(T::Type, n = 1_000_000, density = 0.9)
-    V = T(n)
+    sv = T(n)
     Random.seed!(1234)
     for i in shuffle(randsubseq(1:n, density))
-        V[i] = rand(rand(0:7))
+        sv[i] = rand(rand(0:7))
     end
-    V
+    sv
 end
 
 function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9)
-    V = T(n)
+    sv = T(n)
     Random.seed!(1234)
     for i in randsubseq(1:n, density)
-        V[i] = rand()
+        sv[i] = rand()
     end
-    V
+    sv
 end
 function testfun_createSV_cons(T::Type, n = 1_000_000, m = 5, density = 0.9)
-    V = T(m,n)
+    sv = T(m,n)
     Random.seed!(1234)
     for i in randsubseq(1:n, density)
         for j = 1:m
-            V[i,j] = rand()
+            sv[i,j] = rand()
         end
     end
-    V
+    sv
 end
 function testfun_createVL_cons(T::Type, n = 1_000_000, density = 0.9)
-    V = T(n)
+    sv = T(n)
     Random.seed!(1234)
     for i in randsubseq(1:n, density)
-        V[i] = rand(rand(0:7))
+        sv[i] = rand(rand(0:7))
     end
-    V
+    sv
 end
 
 function testfun_create_dense(T::Type, n = 1_000_000, nchunks = 800, density = 0.95)
-    V = T(n)
+    sv = T(n)
     chunklen = max(1, floor(Int, n / nchunks))
     Random.seed!(1234)
     for i = 0:nchunks-1
         len = floor(Int, chunklen*density + randn() * chunklen * min(0.1, (1.0-density), density))
         len = max(1, min(chunklen-2, len))
         for j = 1:len
-            V[i*chunklen + j] = rand()
+            sv[i*chunklen + j] = rand()
         end
     end
-    V
+    sv
 end
 
 
-function testfun_dropstored!(V)
+function testfun_dropstored!(sv)
     Random.seed!(1234)
-    indices = shuffle(SparseArrays.nonzeroinds(V))
+    indices = shuffle(SparseArrays.nonzeroinds(sv))
     for i in indices
-         SparseArrays.dropstored!(V, i)
+         SparseArrays.dropstored!(sv, i)
     end
-    V
+    sv
 end
 
 
-function testfun_getindex(sv)
+function testfun_getindex_cons(sv)
     S = 0.0
     for i in eachindex(sv)
         S += sv[i]
     end
     (0, S)
+end
+function testfun_getindex(sv)
+    S = 0.0
+    Random.seed!(1234)
+    indices = shuffle(eachindex(sv))
+    for i in indices
+        S += sv[i]
+    end
+    (0, S)
+end
+function testfun_getindex_cons(sv::DensedSparseVectors.AbstractDensedBlockSparseVector)
+    S = 0.0
+    for i in eachindex(sv)
+        S += sum(sv[i])
+    end
+    S2 = 0.0
+    for i in eachindex(sv)
+        for j in eachindex(sv[i])
+            S2 += sv[i][j]
+        end
+    end
+    (0, S, S2)
+end
+function testfun_getindex(sv::DensedSparseVectors.AbstractDensedBlockSparseVector)
+    Random.seed!(1234)
+    indices = shuffle(eachindex(sv))
+    S = 0.0
+    for i in indices
+        S += sum(sv[i])
+    end
+    S2 = 0.0
+    for i in indices
+        for j in shuffle(eachindex(sv[i]))
+            S2 += sv[i][j]
+        end
+    end
+    (0, S, S2)
 end
 
 function testfun_getindex_outer(sv, indices)
@@ -116,8 +153,15 @@ function testfun_nzgetindex(sv)
     (0, S)
 end
 
-function testfun_setindex!(sv)
+function testfun_setindex!_cons(sv)
     for i in nzindices(sv)
+        sv[i] = 0.0
+    end
+end
+function testfun_setindex!(sv)
+    Random.seed!(1234)
+    indices = shuffle(SparseArrays.nonzeroinds(sv))
+    for i in indices
         sv[i] = 0.0
     end
 end
