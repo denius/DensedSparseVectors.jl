@@ -1137,14 +1137,11 @@ SparseArrays.indtype(it::ADSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = Ti
 Base.eltype(it::ADSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
 
 
-@inline function nziteratorstate(::Type{Union{T,SubArray{<:Any,<:Any,<:T}}}, position, indices, chunk::Tvv, it::Tit) where
+@inline function nziteratorstate(::Union{Type{T},Type{SubArray{<:Any,<:Any,<:T}}}, position, indices, chunk::Tvv, it::Tit) where
                                           {T<:AbstractCompressedDensedSparseVector{Tv,Ti},Tvv,Tit} where {Tv,Ti}
     ADSVIteratorState{Ti,Tvv,Tit}(position, indices, chunk, it)
 end
 
-# `ADSVIteratorState` is an NamedTuple
-#@inline nziteratorstate(typeof(V), position, indices, chunk, itchunk) =
-#    (position=position, indices=indices, chunk=chunk, itchunk=itchunk)
 
 # Start iterations from `i` index, i.e. `i` is `firstindex(V)`. That's option for `SubArray` and restarts.
 startindex(V) = startindex(parent(V), first(parentindices(V)[1]))
