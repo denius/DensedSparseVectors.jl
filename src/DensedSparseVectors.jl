@@ -146,36 +146,38 @@ const AbstractVecbasedDensedSparseVector{Tv,Ti,BZP} = Union{AbstractSimpleDensed
 
 
 #=
-struct StateLastUsed{Ti,Td}
+struct ChunkLastUsed{Ti,Td}
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
     chunk::Td              # current chunk is the view into nzchunk
     # TODO: FIXME: here should be idxchunk instead of Vector
     # because creating pointer to vector is much longer then just scalar index.
 end
 @inline lastused(V::AbstractAllDensedSparseVector{Tv,Ti}, it) where {Tv,Ti} =
-    StateLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, it)...)
+    ChunkLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, it)...)
 @inline lastused(V::AbstractAllDensedSparseVector{Tv,Ti}, indices, chunk) where {Tv,Ti} =
-    StateLastUsed{Ti,Vector{Tv}}(indices, chunk)
+    ChunkLastUsed{Ti,Vector{Tv}}(indices, chunk)
 @inline lostused(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
-    StateLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
+    ChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
 @inline lostused(::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
-    StateLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
+    ChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
 =#
 
-struct StateLastUsed{Ti,Tit}
+struct ChunkLastUsed{Ti,Tit}
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
     idxchunk::Tit          # nzchunk position state (Int or Semitoken) in nzchunks
 end
 @inline lastused(V::AbstractAllDensedSparseVector{Tv,Ti}, it::Tit) where {Tv,Ti,Tit} =
-    StateLastUsed{Ti,Tit}(get_nzchunk_indices(V, it), it)
+    ChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, it), it)
 @inline lastused(V::AbstractAllDensedSparseVector{Tv,Ti}, indices::UnitRange, it::Tit) where {Tv,Ti,Tit} =
-    StateLastUsed{Ti,Tit}(indices, it)
+    ChunkLastUsed{Ti,Tit}(indices, it)
 @inline lostused(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
-    StateLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))
+    ChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))
+@inline lostused(V::DynamicDensedSparseVector{Tv,Ti}) where {Tv,Ti} =
+    ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))
 @inline lostused(::Type{Ti}, ::Type{Tit}) where {Ti,Tit<:Int} =
-    StateLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), 0)
+    ChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), 0)
 @inline lostused(::Type{Ti}, it::Tit) where {Ti,Tit<:DataStructures.Tokens.IntSemiToken} =
-    StateLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), it)
+    ChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), it)
 
 
 
@@ -193,7 +195,7 @@ $(TYPEDFIELDS)
 """
 mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
-    lastused::StateLastUsed{Ti,Int}
+    lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the non-zero chunks"
     nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s"
@@ -208,7 +210,7 @@ mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector
 
     DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
     DensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
+        new{Tv,Ti,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0)
 
     DensedSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks) where {Tv,Ti} =
         DensedSparseVector{Tv,Ti,Val{false}}(n, nzranges, nzchunks)
@@ -217,16 +219,14 @@ mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector
 
 end
 
-#DensedSparseVector(n::Integer = 0) = DensedSparseVector{Float64,Int,Val{false}}(n)
-#DensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(V)
 
 DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DensedSparseVector{Tv,Ti,BZP}(V)
 
 function DensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
     nzranges = Vector{UnitRange{Ti}}(undef, nnzchunks(V))
     nzchunks = Vector{Vector{Tv}}(undef, length(nzranges))
-    for (i, (k,d)) in enumerate(nzchunkspairs(V))
-        nzranges[i] = UnitRange{Ti}(k, k+length(d)-1)
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzranges[i] = UnitRange{Ti}(ids)
         nzchunks[i] = Vector{Tv}(d)
     end
     return DensedSparseVector{Tv,Ti,BZP}(length(V), nzranges, nzchunks)
@@ -255,7 +255,7 @@ mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseV
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
-    nzranges::Vector{Ti}  # Vector of chunk's first indices
+    nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s"
     nzchunks::Vector{Tv}
     "Offsets of starts of vestors in `nzchunks` like in CSC matrix structure"
@@ -274,12 +274,12 @@ FixedDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = FixedDensedSparseVector{Tv,Ti,
 FixedDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = FixedDensedSparseVector{Tv,Ti,BZP}(V)
 
 function FixedDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
-    nzranges = Vector{Ti}(undef, nnzchunks(V))
+    nzranges = Vector{UnitRange{Ti}}(undef, nnzchunks(V))
     nzchunks = Vector{Tv}(undef, nnz(V))
     offsets = Vector{Int}(undef, nnzchunks(V)+1)
     offsets[1] = 1
-    for (i, (k,d)) in enumerate(nzchunkspairs(V))
-        nzranges[i] = k
+    for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+        nzranges[i] = UnitRange{Ti}(ids)
         offsets[i+1] = offsets[i] + length(d)
         @view(nzchunks[offsets[i]:offsets[i+1]-1]) .= Tv.(d)
     end
@@ -298,9 +298,9 @@ $(TYPEDFIELDS)
 """
 mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
     "Index of last used chunk"
-    lastusedchunkindex::Int
+    lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
-    nzranges::Vector{Ti}  # Vector of chunk's first indices
+    nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s
      The resulting matrix size is m by n"
     nzchunks::Vector{Vector{SVector{m,Tv}}}
@@ -310,10 +310,10 @@ mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVec
     nnz::Int
 
     DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer, nzranges, nzchunks) where {Tv,Ti,m,BZP} =
-        new{Tv,Ti,m,BZP}(0, nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
+        new{Tv,Ti,m,BZP}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
     DensedSVSparseVector{Tv,Ti,m}(n::Integer = 0) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
     DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer = 0) where {Tv,Ti,m,BZP} =
-        new{Tv,Ti,m,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), n, 0)
+        new{Tv,Ti,m,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0)
 end
 
 DensedSVSparseVector{Tv,Ti,m}(V) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(V)
@@ -334,7 +334,7 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
-    nzranges::Vector{Ti}  # Vector of chunk's first indices
+    nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s
      The resulting matrix size is m by n"
     nzchunks::Vector{Vector{Tv}}
@@ -349,7 +349,7 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
 
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(0, Vector{Ti}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+        new{Tv,Ti,BZP}(0, Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
     DensedVLSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti} =
         new{Tv,Ti,Val{false}}(0, nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti,BZP} =
@@ -401,8 +401,8 @@ end
 DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DynamicDensedSparseVector{Tv,Ti,BZP}(V)
 function DynamicDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
     nzchunks = SortedDict{Ti, Vector{Tv}, FOrd}(Forward)
-    for (k,d) in nzchunkspairs(V)
-        nzchunks[k] = Vector{Tv}(d)
+    for (ids,d) in nzchunkspairs(V)
+        nzchunks[first(ids)] = Vector{Tv}(d)
     end
     return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
 end
@@ -486,7 +486,7 @@ function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Typ
     return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks)
 end
 function Base.similar(V::FixedDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
-    nzranges = Vector{TiNew}(V.nzranges)
+    nzranges = Vector{UnitRange{TiNew}}(V.nzranges)
     nzchunks = similar(V.nzchunks, TvNew)
     offsets = Vector{Int}(V.offsets)
     return FixedDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks, offsets)
@@ -499,27 +499,27 @@ function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}
     return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
 end
 function Base.similar(V::DensedSVSparseVector{Tv,Ti,m}, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {Tv,Ti,m,TvNew,TiNew,BZP}
-    nzranges = similar(V.nzranges, TiNew)
+    nzranges = similar(V.nzranges, UnitRange{TiNew})
     nzchunks = similar(V.nzchunks)
     for (i, (ids,d)) in enumerate(nzchunkspairs(V))
-        nzranges[i] = first(ids)
+        nzranges[i] = ids
         nzchunks[i] = [SVector(ntuple(_->TvNew(0), m)) for _ in d]
     end
     return DensedSVSparseVector{TvNew,TiNew,m,BZP}(length(V), nzranges, nzchunks)
 end
 function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
-    nzranges = similar(V.nzranges, TiNew)
+    nzranges = similar(V.nzranges, UnitRange{TiNew})
     nzchunks = Vector{Vector{TvNew}}(undef, length(V.nzchunks))
     offsets = deepcopy(V.offsets)
     for (i, (ids,d)) in enumerate(nzchunkspairs(V))
-        nzranges[i] = first(ids)
+        nzranges[i] = ids
         nzchunks[i] = Vector{TvNew}(undef, length(d))
     end
     return DensedVLSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks, offsets)
 end
 
 
-function Base.copy(V::T) where {T<:DensedSparseVector}
+function Base.copy(V::T) where {T<:Union{DensedSparseVector,DensedSVSparseVector}}
     nzranges = copy(V.nzranges)
     nzchunks = copy(V.nzchunks)
     for (i, (ids,d)) in enumerate(nzchunkspairs(V))
@@ -527,6 +527,18 @@ function Base.copy(V::T) where {T<:DensedSparseVector}
         nzchunks[i] = copy(d)
     end
     return T(length(V), nzranges, nzchunks)
+end
+function Base.copy(V::T) where {T<:DensedVLSparseVector}
+    nzranges = copy(V.nzranges)
+    nzchunks = copy(V.nzchunks)
+    offsets = copy(V.offsets)
+    # for (i, (ids,d)) in enumerate(nzchunkspairs(V))
+    for (i, (ids,d,o)) in enumerate(zip(V.nzranges, V.nzchunks, V.offsets))
+        nzranges[i] = ids
+        nzchunks[i] = copy(d)
+        offsets[i] = copy(o)
+    end
+    return T(length(V), nzranges, nzchunks, offsets)
 end
 Base.copy(V::T) where {T<:FixedDensedSparseVector} = T(length(V), copy(V.nzranges), copy(V.nzchunks), copy(V.offsets))
 function Base.copy(V::DynamicDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP}
@@ -637,8 +649,8 @@ end
 @inline get_nzchunk_indices(V::Vector, i) = UnitRange{Int}(1, length(V))
 @inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
 @inline get_nzchunk_indices(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds V.nzranges[i]
-@inline get_nzchunk_indices(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    @inbounds UnitRange{Ti}(V.nzranges[i], V.nzranges[i]+(V.offsets[i+1]-V.offsets[i])-1)
+# @inline get_nzchunk_indices(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} = # already in AbstractVecbasedDensedSparseVector
+#     @inbounds UnitRange{Ti}(V.nzranges[i], V.nzranges[i]+(V.offsets[i+1]-V.offsets[i])-1)
 @inline get_nzchunk_indices(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, i));
      return UnitRange{Ti}(key, key+length(chunk)-1))
@@ -665,7 +677,7 @@ end
 @inline get_key_and_nzchunk(V::Vector, i) = (i, V)
 @inline get_key_and_nzchunk(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_key_and_nzchunk(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (first(V.nzranges[i]), V.nzchunks[i])
-@inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = @inbounds (V.nzranges[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
+# @inline get_key_and_nzchunk(V::FixedDensedSparseVector, i) = @inbounds (V.nzranges[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_key_and_nzchunk(V::DynamicDensedSparseVector, i) =
     ((key, chunk) = deref((V.nzchunks, i));
      return (key, chunk))
@@ -678,8 +690,8 @@ end
 @inline get_indices_and_nzchunk(V::SparseVector, i) = @inbounds (V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
 @inline get_indices_and_nzchunk(V::AbstractVecbasedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     @inbounds (V.nzranges[i], V.nzchunks[i])
-@inline get_indices_and_nzchunk(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
-    @inbounds (UnitRange{Ti}(V.nzranges[i], V.nzranges[i]+(V.offsets[i+1]-V.offsets[i])-1), @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
+# @inline get_indices_and_nzchunk(V::FixedDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
+#     @inbounds (UnitRange{Ti}(V.nzranges[i], V.nzranges[i]+(V.offsets[i+1]-V.offsets[i])-1), @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]))
 @inline get_indices_and_nzchunk(V::DynamicDensedSparseVector{Tv,Ti}, i) where {Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, i));
      return (UnitRange{Ti}(key, key+length(chunk)-1), chunk))
@@ -692,14 +704,14 @@ end
 @inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, V, length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
 @inline get_key_and_nzchunk_and_length(V::AbstractVecbasedDensedSparseVector, i) = @inbounds (first(V.nzranges[i]), V.nzchunks[i], length(V.nzranges[i]))
-@inline get_key_and_nzchunk_and_length(V::FixedDensedSparseVector, i) =
-        (V.nzranges[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]), V.offsets[i+1]-V.offsets[i])
+# @inline get_key_and_nzchunk_and_length(V::FixedDensedSparseVector, i) =
+#         (V.nzranges[i], @view(V.nzchunks[V.offsets[i]:V.offsets[i+1]-1]), V.offsets[i+1]-V.offsets[i])
         @inline get_key_and_nzchunk_and_length(V::DynamicDensedSparseVector, i) = ((key, chunk) = deref((V.nzchunks, i)); return (key, chunk, length(chunk)))
 
 @inline is_in_nzchunk(V::Vector, i, key) = key in first(axes(V))
 @inline is_in_nzchunk(V::SparseVector, i, key) = V.nzind[i] == key
 @inline is_in_nzchunk(V::AbstractVecbasedDensedSparseVector, i, key) = key in V.nzranges[i]
-@inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzranges[i] <= key < V.nzranges[i] + V.offsets[i+1]-V.offsets[i]
+# @inline is_in_nzchunk(V::FixedDensedSparseVector, i) = V.nzranges[i] <= key < V.nzranges[i] + V.offsets[i+1]-V.offsets[i]
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, i, key) = ((ichunk, chunk) = deref((V.nzchunks, i)); return (ichunk <= key < ichunk + length(chunk)))
 
 @inline firstnzchunk_index(V::SparseVector) = firstindex(V.nzind)
@@ -725,9 +737,8 @@ end
 @inline DataStructures.regress(V::AbstractSDictDensedSparseVector, state) = regress((V.nzchunks, state))
 
 "`searchsortedlast(V.nzranges, i)`"
-@inline searchsortedlast_ranges(V::DensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
 @inline searchsortedlast_ranges(V::AbstractVecbasedDensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
-@inline searchsortedlast_ranges(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i, by=first)
+@inline searchsortedlast_ranges(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
 
 """
 Returns nzchunk_index which on vector index `i`, or after `i`.
@@ -784,13 +795,14 @@ function SparseArrays.nonzeros(V::AbstractAllDensedSparseVector{Tv,Ti}) where {T
     end
     return ret
 end
-function SparseArrays.nonzeroinds(V::DensedVLSparseVector{Tv,Ti}) where {Tv,Ti}
-    ret = Vector{Ti}()
-    for (k,d) in zip(V.nzranges, V.offsets)
-        append!(ret, (k:k+length(d)-1-1))
-    end
-    return ret
-end
+# function SparseArrays.nonzeroinds(V::DensedVLSparseVector{Tv,Ti}) where {Tv,Ti}
+#     ret = Vector{Ti}()
+#     for (k,d) in zip(V.nzranges, V.offsets)
+#         append!(ret, (k:k+length(d)-1-1))
+#     end
+#     return ret
+# end
+
 #SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nzindices(V), nzvalues(V))
 SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nonzeroinds(V), nonzeros(V))
 
@@ -1239,6 +1251,7 @@ RawIndex is an `Pair` of idx to chunk and value position which points directly t
 For `DensedSparseVector` it will be `Pair{Int,Int}`.
 For `DynamicDensedSparseVector` it stay `Pair{DataStructures.Tokens.IntSemiToken,Int}`
 
+TODO: Create struct RawIndex idx::It, i::Int end
 TODO: RawIndex must contain index of accessed cell of array to checking for vector changes.
 """
 function rawindex(V, i)
@@ -1600,21 +1613,27 @@ end
 @inline function Base.getindex(V::DensedVLSparseVector, i::Integer)
     # fast check for cached chunk index
     if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
-        ifirst, chunk, offsets = V.nzranges[st], V.nzchunks[st], V.offsets[st]
-        if ifirst <= i < ifirst + length(offsets)-1
+        ids = V.nzranges[st]
+        if i in ids
+            ifirst = first(ids)
+            offsets = V.offsets[st]
             offs = offsets[i-ifirst+1]
             len = offsets[i-ifirst+1+1] - offsets[i-ifirst+1]
+            chunk = V.nzchunks[st]
             return @view(chunk[offs:offs+len-1])
         end
     end
     # cached chunk index miss or index not stored
     st = searchsortedlast_ranges(V, i)
     if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        ifirst, chunk, offsets = V.nzranges[st], V.nzchunks[st], V.offsets[st]
-        if i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
+        ids = V.nzranges[st]
+        if i <= last(ids) # i < ifirst + length(offsets)-1  # is the index `i` inside of data chunk indices range
             V.lastusedchunkindex = st
+            ifirst = first(ids)
+            offsets = V.offsets[st]
             offs = offsets[i-ifirst+1]
             len = offsets[i-ifirst+1+1] - offsets[i-ifirst+1]
+            chunk = V.nzchunks[st]
             return @view(chunk[offs:offs+len-1])
         end
     end
@@ -1683,15 +1702,13 @@ appendnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
 prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
     (nzranges[i] = UnitRange{Ti}(first(nzranges[i])-oneunit(Ti), last(nzranges[i])); nzranges)
 
-@inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, idx::Integer) where {Tv,Ti}
-    val = Tv(value)
+function Base.setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, val, idx::Integer) where {Tv,Ti}
+    # val = Tv(value)
     i = Ti(idx)
 
     # fast check for cached chunk index
     if i in V.lastused.indices
         V.nzchunks[V.lastused.idxchunk][i - first(V.lastused.indices) + oneunit(Ti)] = val
-        #get_nzchunk(V, V.lastused.idxchunk)[i - first(V.lastused.indices) + oneunit(Ti)] = val
-        #V.lastused.chunk[i - first(V.lastused.indices) + oneunit(Ti)] = val
         return V
     end
 
@@ -1722,7 +1739,6 @@ prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
             pushfirst!(V.nzranges, UnitRange{Ti}(i,i))
             pushfirst!(V.nzchunks, [val])
         else
-            #V.nzranges[1] = UnitRange{Ti}(first(V.nzranges[1])-oneunit(Ti), last(V.nzranges[1]))
             prependnzrangesat!(V.nzranges, 1)
             pushfirst!(V.nzchunks[1], val)
         end
@@ -1731,7 +1747,7 @@ prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
         return V
     end
 
-    indices, chunk = V.nzranges[st], V.nzchunks[st]
+    indices = V.nzranges[st]
     ifirst = first(indices)
     ilast = last(indices)
 
@@ -1740,7 +1756,6 @@ prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
             push!(V.nzranges, UnitRange{Ti}(i,i))
             push!(V.nzchunks, [val])
         else  # just append to last chunk
-            #V.nzranges[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
             appendnzrangesat!(V.nzranges, st)
             push!(V.nzchunks[st], val)
         end
@@ -1761,12 +1776,10 @@ prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
         deleteat!(V.nzchunks, stnext)
         V.lastused = lastused(V, st)
     elseif i - ilast == oneunit(Ti)  # append to left chunk
-        #V.nzranges[st] = UnitRange{Ti}(ifirst, ilast+oneunit(Ti))
         appendnzrangesat!(V.nzranges, st)
         push!(V.nzchunks[st], val)
         V.lastused = lastused(V, st)
-    elseif inextfirst - i == 1  # prepend to right chunk
-        #V.nzranges[stnext] -= 1
+    elseif inextfirst - i == oneunit(Ti)  # prepend to right chunk
         prependnzrangesat!(V.nzranges, stnext)
         pushfirst!(V.nzchunks[stnext], val)
         V.lastused = lastused(V, stnext)
@@ -1781,192 +1794,22 @@ prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
 
 end
 
+@inline function Base.setindex!(V::DensedSparseVector{Tv,Ti}, value, i::Integer) where {Tv,Ti}
+    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, Tv, typeof(i)}, V, Tv(value), i)
+end
+
 
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti,m}
     sv = eltype(eltype(V.nzchunks))(vectorvalue)
-
-    # fast check for cached chunk index
-    if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
-        ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
-        if ifirst <= i < ifirst + len
-            chunk[i - ifirst + 1] = sv
-            return V
-        end
-    end
-
-    st = searchsortedlast_ranges(V, i)
-
-    # check the index exist and update its data
-    if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
-        #ifirst, chunk = V.nzranges[st], V.nzchunks[st]
-        if i < ifirst + len
-            chunk[i - ifirst + 1] = sv
-            V.lastusedchunkindex = st
-            return V
-        end
-    end
-
-    if V.nnz == 0
-        push!(V.nzranges, Ti(i))
-        push!(V.nzchunks, [sv])
-        V.nnz += 1
-        V.n = max(V.n, i)
-        V.lastusedchunkindex = 1
-        return V
-    end
-
-    if st == beforestartnzchunk_index(V)  # the index `i` is before the first index
-        inextfirst = V.nzranges[1]
-        if inextfirst - i > 1  # there is will be gap in indices after inserting
-            pushfirst!(V.nzranges, i)
-            pushfirst!(V.nzchunks, [sv])
-        else
-            V.nzranges[1] -= 1
-            pushfirst!(V.nzchunks[1], sv)
-        end
-        V.nnz += 1
-        V.lastusedchunkindex = 1
-        return V
-    end
-
-    ifirst, chunk = V.nzranges[st], V.nzchunks[st]
-
-    if i >= V.nzranges[end]  # the index `i` is after the last key index
-        if i > ifirst + length(chunk)  # there is will be the gap in indices after inserting
-            push!(V.nzranges, i)
-            push!(V.nzchunks, [sv])
-        else  # just append to last chunk
-            push!(V.nzchunks[st], sv)
-        end
-        V.nnz += 1
-        V.n = max(V.n, i)
-        V.lastusedchunkindex = length(V.nzranges)
-        return V
-    end
-
-    # the index `i` is somewhere between indices
-    ilast = ifirst + length(chunk) - 1
-    stnext = st + 1
-    inextfirst = V.nzranges[stnext]
-
-    if inextfirst - ilast == 2  # join nzchunks
-        append!(V.nzchunks[st], [sv], V.nzchunks[stnext])
-        deleteat!(V.nzranges, stnext)
-        deleteat!(V.nzchunks, stnext)
-        V.lastusedchunkindex = st
-    elseif i - ilast == 1  # append to left chunk
-        push!(V.nzchunks[st], sv)
-        V.lastusedchunkindex = st
-    elseif inextfirst - i == 1  # prepend to right chunk
-        V.nzranges[stnext] -= 1
-        pushfirst!(V.nzchunks[stnext], sv)
-        V.lastusedchunkindex = stnext
-    else  # insert single element chunk
-        insert!(V.nzranges, stnext, Ti(i))
-        insert!(V.nzchunks, stnext, [sv])
-        V.lastusedchunkindex = stnext
-    end
-
-    V.nnz += 1
-    return V
-
+    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, typeof(sv), typeof(i)}, V, sv, i)
 end
 
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, value, i::Integer, j::Integer) where {Tv,Ti,m}
-    val = Tv(value)
-
-    # fast check for cached chunk index
-    if (st = V.lastusedchunkindex) != beforestartnzchunk_index(V)
-        ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
-        if ifirst <= i < ifirst + len
-            sv = chunk[i - ifirst + 1]
-            chunk[i - ifirst + 1] = @set sv[j] = val
-            return V
-        end
-    end
-
-    st = searchsortedlast_ranges(V, i)
-
-    # check the index exist and update its data
-    if st != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        ifirst, chunk, len = get_key_and_nzchunk_and_length(V, st)
-        if i < ifirst + len
-            sv = chunk[i - ifirst + 1]
-            chunk[i - ifirst + 1] = @set sv[j] = val
-            V.lastusedchunkindex = st
-            return V
-        end
-    end
-
-    sv = zeros(eltype(eltype(V.nzchunks)))
-    sv = @set sv[j] = val
-
-    if V.nnz == 0
-        push!(V.nzranges, Ti(i))
-        push!(V.nzchunks, [sv])
-        V.nnz += 1
-        V.n = max(V.n, i)
-        V.lastusedchunkindex = 1
-        return V
-    end
-
-    if st == beforestartnzchunk_index(V)  # the index `i` is before the first index
-        inextfirst = V.nzranges[1]
-        if inextfirst - i > 1  # there is will be gap in indices after inserting
-            pushfirst!(V.nzranges, i)
-            pushfirst!(V.nzchunks, [sv])
-        else
-            V.nzranges[1] -= 1
-            pushfirst!(V.nzchunks[1], sv)
-        end
-        V.nnz += 1
-        V.lastusedchunkindex = 1
-        return V
-    end
-
-    ifirst, chunk = V.nzranges[st], V.nzchunks[st]
-
-    if i >= V.nzranges[end]  # the index `i` is after the last key index
-        if i > ifirst + length(chunk)  # there is will be the gap in indices after inserting
-            push!(V.nzranges, i)
-            push!(V.nzchunks, [sv])
-        else  # just append to last chunk
-            push!(V.nzchunks[st], sv)
-        end
-        V.nnz += 1
-        V.n = max(V.n, i)
-        V.lastusedchunkindex = length(V.nzranges)
-        return V
-    end
-
-    # the index `i` is somewhere between indices
-    ilast = ifirst + length(chunk) - 1
-    stnext = st + 1
-    inextfirst = V.nzranges[stnext]
-
-    if inextfirst - ilast == 2  # join nzchunks
-        append!(V.nzchunks[st], [sv], V.nzchunks[stnext])
-        deleteat!(V.nzranges, stnext)
-        deleteat!(V.nzchunks, stnext)
-        V.lastusedchunkindex = st
-    elseif i - ilast == 1  # append to left chunk
-        push!(V.nzchunks[st], sv)
-        V.lastusedchunkindex = st
-    elseif inextfirst - i == 1  # prepend to right chunk
-        V.nzranges[stnext] -= 1
-        pushfirst!(V.nzchunks[stnext], sv)
-        V.lastusedchunkindex = stnext
-    else  # insert single element chunk
-        insert!(V.nzranges, stnext, Ti(i))
-        insert!(V.nzchunks, stnext, [sv])
-        V.lastusedchunkindex = stnext
-    end
-
-    V.nnz += 1
-    return V
-
+    sv = getindex(V, i)
+    sv = @set sv[j] = Tv(value)
+    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, typeof(sv), typeof(i)}, V, sv, i)
 end
+
 
 @inline function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVector, i::Integer) where {Tv,Ti}
 
@@ -2205,21 +2048,6 @@ end
     return V
 
 end
-
-#function Base.setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, data::AbstractAllDensedSparseVector, index::Integer) where {Tv,Ti}
-#    i0 = Ti(index-1)
-#    if V === data
-#        cdata = deepcopy(data)
-#        for (i,d) in nzpairs(cdata)
-#            V[i0+i] = Tv(d)
-#        end
-#    else
-#        for (i,d) in nzpairs(data)
-#            V[i0+i] = Tv(d)
-#        end
-#    end
-#    return V
-#end
 
 @inline function SparseArrays.dropstored!(V::AbstractVecbasedDensedSparseVector, i::Integer)
 
