@@ -1897,7 +1897,7 @@ function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue::AbstractVec
     ids, chunk, offsets = V.nzranges[itc], V.nzchunks[itc], V.offsets[itc]
 
     if i >= first(V.nzranges[end])  # the index `i` is after the last key index
-        if i > last(ids)  # there is will be the gap in indices after inserting
+        if i > last(ids) + 1  # there is will be the gap in indices after inserting
             push!(V.nzranges, UnitRange{Ti}(i,i))
             push!(V.nzchunks, [Tv(v) for v in vectorvalue])
             push!(V.offsets, [1])
