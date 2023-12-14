@@ -269,7 +269,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
+mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP} # TODO: is it should be AbstractSimple...
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -1695,10 +1695,23 @@ end
 
 
 
-appendnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
-    (nzranges[i] = UnitRange{Ti}(first(nzranges[i]), last(nzranges[i])+oneunit(Ti)); nzranges)
-prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i) where {Ti} =
-    (nzranges[i] = UnitRange{Ti}(first(nzranges[i])-oneunit(Ti), last(nzranges[i])); nzranges)
+"Extending by append one of ranges in `nzranges` with `i` index."
+appendnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i, len=1) where {Ti} =
+    nzranges[i] = UnitRange{Ti}(first(nzranges[i]), last(nzranges[i])+oneunit(Ti)*len)
+
+"Extending by prepend one of ranges in `nzranges` with `i` index."
+prependnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i, len=1) where {Ti} =
+    nzranges[i] = UnitRange{Ti}(first(nzranges[i])-oneunit(Ti)*len, last(nzranges[i]))
+
+"Shrinking from end one of ranges in `nzranges` with `i` index."
+popnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i, len=1) where {Ti} =
+    nzranges[i] = UnitRange{Ti}(first(nzranges[i]), last(nzranges[i])-oneunit(Ti)*len)
+
+"Shrinking from begin one of ranges in `nzranges` with `i` index."
+popfirstnzrangesat!(nzranges::Vector{UnitRange{Ti}}, i, len=1) where {Ti} =
+    nzranges[i] = UnitRange{Ti}(first(nzranges[i])+oneunit(Ti)*len, last(nzranges[i]))
+
+
 
 function Base.setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, val, idx::Integer) where {Tv,Ti}
     # val = Tv(value)
@@ -2047,7 +2060,7 @@ end
 
 end
 
-@inline function SparseArrays.dropstored!(V::AbstractCompressedDensedSparseVector, i::Integer)
+@inline function SparseArrays.dropstored!(V::AbstractCompressedDensedSparseVector{Tv,Ti}, i::Integer) where {Tv,Ti}
 
     V.nnz == 0 && return V
 
@@ -2057,10 +2070,11 @@ end
         return V
     end
 
-    ifirst = V.nzranges[st]
-    lenchunk = length(V.nzchunks[st])
+    ifirst = first(V.nzranges[st])
+    ilast = last(V.nzranges[st])
+    lenchunk = length(V.nzranges[st])
 
-    if i >= ifirst + lenchunk  # the index `i` is outside of data chunk indices
+    if i > ilast  # the index `i` is outside of data chunk indices
         return V
     end
 
@@ -2068,19 +2082,22 @@ end
         deleteat!(V.nzchunks[st], 1)
         deleteat!(V.nzranges, st)
         deleteat!(V.nzchunks, st)
-    elseif i == ifirst + lenchunk - 1  # last index in chunk
+    elseif i == ilast  # last index in chunk
+        popnzrangesat!(V.nzranges, st)
         pop!(V.nzchunks[st])
     elseif i == ifirst  # first element in chunk
-        V.nzranges[st] += 1
+        popfirstnzrangesat!(V.nzranges, st)
         popfirst!(V.nzchunks[st])
     else
-        insert!(V.nzranges, st+1, i+1)
+        popnzrangesat!(V.nzranges, st, ilast-i+1)
+        insert!(V.nzranges, st+1, UnitRange{Ti}(i+1,ilast))
         insert!(V.nzchunks, st+1, V.nzchunks[st][i-ifirst+1+1:end])
         resize!(V.nzchunks[st], i-ifirst+1 - 1)
     end
 
     V.nnz -= 1
-    V.lastusedchunkindex = 0
+    # V.lastusedchunkindex = 0
+    V.lastused = lostused(V)
 
     return V
 end

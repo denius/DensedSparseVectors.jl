@@ -82,11 +82,11 @@ function testfun_create_dense(T::Type, n = 1_000_000, nchunks = 800, density = 0
 end
 
 
-function testfun_delete!(V)
+function testfun_dropstored!(V)
     Random.seed!(1234)
     indices = shuffle(nonzeroinds(V))
     for i in indices
-        delete!(V, i)
+         SparseArrays.dropstored!(V, i)
     end
     V
 end
