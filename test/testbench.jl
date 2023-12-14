@@ -84,7 +84,7 @@ end
 
 function testfun_dropstored!(V)
     Random.seed!(1234)
-    indices = shuffle(nonzeroinds(V))
+    indices = shuffle(SparseArrays.nonzeroinds(V))
     for i in indices
          SparseArrays.dropstored!(V, i)
     end
