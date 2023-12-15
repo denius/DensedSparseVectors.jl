@@ -1179,7 +1179,8 @@ for (fn, ret1, ret2) in
             return $ret1
         elseif (st = iterate_nzchunkspairs(V, itchunk)) !== nothing
             ((indices, chunk), itchunk) = st
-            nzit = nziteratorstate(typeof(V),        1, indices, chunk, itchunk)
+            position = 1
+            nzit = nziteratorstate(typeof(V), position, indices, chunk, itchunk)
             return $ret1
         else
             return $ret2
