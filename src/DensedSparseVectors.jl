@@ -1684,7 +1684,7 @@ popfirstnzrangesat!(nzranges::Vector{UnitRange{Ti}}, itc, len=1) where {Ti} =
 
 
 
-function Base.setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, val, idx::Integer) where {Tv,Ti}
+function _setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, val, idx::Integer) where {Tv,Ti}
     # val = Tv(value)
     i = Ti(idx)
 
@@ -1782,20 +1782,19 @@ function Base.setindex!(V::AbstractAllDensedSparseVector{Tv,Ti}, val, idx::Integ
 
 end
 
-@inline function Base.setindex!(V::DensedSparseVector{Tv}, value, i::Integer) where {Tv}
-    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, Tv, typeof(i)}, V, Tv(value), i)
-end
+@inline Base.setindex!(V::DensedSparseVector{Tv}, value, i::Integer) where {Tv} = _setindex!(V, Tv(value), i)
+@inline Base.setindex!(V::FixedDensedSparseVector{Tv}, value, i::Integer) where {Tv} = _setindex!(V, Tv(value), i)
 
 
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv,Ti,m}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {Tv,Ti,m}
     sv = basetype(eltype(eltype(V.nzchunks))){Tuple{m},Tv}(vectorvalue)
-    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, typeof(sv), typeof(i)}, V, sv, i)
+    _setindex!(V, sv, i)
 end
 
 @inline function Base.setindex!(V::DensedSVSparseVector{Tv}, value, i::Integer, j::Integer) where {Tv}
     sv = getindex(V, i)
     sv = @set sv[j] = Tv(value)
-    invoke(setindex!, Tuple{AbstractAllDensedSparseVector, typeof(sv), typeof(i)}, V, sv, i)
+    _setindex!(V, sv, i)
 end
 
 
