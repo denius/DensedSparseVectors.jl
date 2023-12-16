@@ -12,7 +12,10 @@ function testfun_create(T::Type, n = 1_000_000, density = 0.9)
     sv = T(n)
     Random.seed!(1234)
     randseq = randsubseq(1:n, density)
-    for i in shuffle(randseq)
+    Random.seed!(1234)
+    ss = shuffle(randseq)
+    Random.seed!(1234)
+    for i in ss
         sv[i] = rand()
     end
 
@@ -24,7 +27,11 @@ end
 function testfun_createSV(T::Type, n = 1_000_000, m = 5, density = 0.9)
     sv = T(m,n)
     Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
+    randseq = randsubseq(1:n, density)
+    Random.seed!(1234)
+    ss = shuffle(randseq)
+    Random.seed!(1234)
+    for i in ss
         for j = 1:m
             sv[i,j] = rand()
         end
@@ -34,16 +41,23 @@ end
 function testfun_createVL(T::Type, n = 1_000_000, density = 0.9)
     sv = T(n)
     Random.seed!(1234)
-    for i in shuffle(randsubseq(1:n, density))
+    randseq = randsubseq(1:n, density)
+    Random.seed!(1234)
+    ss = shuffle(randseq)
+    Random.seed!(1234)
+    for i in ss
         sv[i] = rand(rand(0:7))
     end
     sv
 end
 
 function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9)
+    T <: DensedVLSparseVector && return testfun_createVL_cons(T, n, density)
     sv = T(n)
     Random.seed!(1234)
-    for i in randsubseq(1:n, density)
+    ss = randsubseq(1:n, density)
+    Random.seed!(1234)
+    for i in ss
         sv[i] = rand()
     end
     sv
@@ -51,7 +65,9 @@ end
 function testfun_createSV_cons(T::Type, n = 1_000_000, m = 5, density = 0.9)
     sv = T(m,n)
     Random.seed!(1234)
-    for i in randsubseq(1:n, density)
+    ss = randsubseq(1:n, density)
+    Random.seed!(1234)
+    for i in ss
         for j = 1:m
             sv[i,j] = rand()
         end
@@ -61,7 +77,9 @@ end
 function testfun_createVL_cons(T::Type, n = 1_000_000, density = 0.9)
     sv = T(n)
     Random.seed!(1234)
-    for i in randsubseq(1:n, density)
+    ss = randsubseq(1:n, density)
+    Random.seed!(1234)
+    for i in ss
         sv[i] = rand(rand(0:7))
     end
     sv
@@ -198,10 +216,19 @@ function testfun_nzindices(sv)
     (I, 0.0)
 end
 
+function testfun_nzblocks(sv)
+    S = 0.0
+    # for v in nzvalues(sv)
+    for (i,v) in enumerate(nzblocks(sv))
+        S += sum(v)
+    end
+    (0, S)
+end
+
 function testfun_nzvalues(sv)
     S = 0.0
     for v in nzvalues(sv)
-        S += v
+        S += sum(v)
     end
     (0, S)
 end
