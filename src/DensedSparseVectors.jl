@@ -76,7 +76,7 @@ module DensedSparseVectors
 export AbstractAllDensedSparseVector
 export DensedSparseVector, FixedDensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
-export nzpairs, nzpairsview, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
+export nzpairs, nzpairsview, nzblocks, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export startindex
 export rawindex, from_rawindex, rawindex_advance, rawindex_possible_advance, rawindex_compare, rawindex_view
 export firstrawindex, lastrawindex, pastendrawindex
@@ -1162,13 +1162,14 @@ end
 
 # TODO: FIXME: Add simple :iterate
 for (fn, ret1, ret2) in
-    ((:iterate_nzpairs     ,  :((indices[position] => chunk[position], nzit))               , :(nothing)              ),
-     (:iterate_nzpairsview ,  :((indices[position] => view(chunk, position:position), nzit)), :(nothing)              ),
-     (:iterate_nzvalues    ,  :((chunk[position], nzit))                                    , :(nothing)              ),
-     (:iterate_nzvaluesview,  :((view(chunk, position:position), nzit))                     , :(nothing)              ),
-     (:iterate_nzindices   ,  :((indices[position], nzit))                                  , :(nothing)              ),
-     (:iterate_nziterator  ,  :((nzit, nzit))                                               , :(nothing)              ),
-     (:nziterator_advance  ,  :(nzit)                                                       , :(pastendnziterator(V)) ) )
+    ((:iterate_nzpairs     ,  :((indices[position] => chunk[position], nzit))                  , :(nothing)              ),
+     (:iterate_nzpairsview ,  :((indices[position] => view(chunk, position:position), nzit))   , :(nothing)              ),
+     (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[position])), nzit)), :(nothing)     ),
+     (:iterate_nzvalues    ,  :((chunk[position], nzit))                                       , :(nothing)              ),
+     (:iterate_nzvaluesview,  :((view(chunk, position:position), nzit))                        , :(nothing)              ),
+     (:iterate_nzindices   ,  :((indices[position], nzit))                                     , :(nothing)              ),
+     (:iterate_nziterator  ,  :((nzit, nzit))                                                  , :(nothing)              ),
+     (:nziterator_advance  ,  :(nzit)                                                          , :(pastendnziterator(V)) ) )
 
     @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Ti,Tv}
@@ -1462,6 +1463,23 @@ Base.ndims(::Type{<:NZChunksPairs}) = 1
 Base.length(it::NZChunksPairs) = nnzchunks(it.itr)
 Base.size(it::NZChunksPairs) = (nnzchunks(it.itr),)
 #Iterators.reverse(it::NZChunksPairs) = NZChunksPairs(Iterators.reverse(it.itr))
+
+
+struct NZBlocks{It}
+    itr::It
+end
+"`nzblocks(V::AbstractVector)` is the `Iterator` over non-zero values of `V`."
+nzblocks(itr) = NZBlocks(itr)
+@inline Base.iterate(it::NZBlocks, state...) = iterate_nzblocks(it.itr, state...)
+SparseArrays.indtype(it::NZBlocks) = SparseArrays.indtype(it.itr)
+Base.eltype(::Type{NZBlocks{It}}) where {It} = eltype(It)
+Base.IteratorEltype(::Type{NZBlocks{It}}) where {It} = Base.IteratorEltype(It)
+Base.IteratorSize(::Type{<:NZBlocks}) = Base.HasShape{1}()
+Base.ndims(::Type{<:NZBlocks}) = 1
+Base.length(it::NZBlocks) = nnz(it.itr)
+Base.size(it::NZBlocks) = (nnz(it.itr),)
+#Base.getindex(it::NZBlocks, i) = TODO
+#Iterators.reverse(it::NZBlocks) = NZBlocks(Iterators.reverse(it.itr))
 
 
 struct NZIndices{It}
