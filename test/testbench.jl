@@ -51,8 +51,9 @@ function testfun_createVL(T::Type, n = 1_000_000, density = 0.9)
     sv
 end
 
-function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9)
+function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9; m = 3)
     T <: DensedVLSparseVector && return testfun_createVL_cons(T, n, density)
+    T <: DensedSVSparseVector && return testfun_createSV_cons(T, n, m, density)
     sv = T(n)
     Random.seed!(1234)
     ss = randsubseq(1:n, density)
@@ -62,7 +63,7 @@ function testfun_create_cons(T::Type, n = 1_000_000, density = 0.9)
     end
     sv
 end
-function testfun_createSV_cons(T::Type, n = 1_000_000, m = 5, density = 0.9)
+function testfun_createSV_cons(T::Type, n = 1_000_000, m = 3, density = 0.9)
     sv = T(m,n)
     Random.seed!(1234)
     ss = randsubseq(1:n, density)
@@ -227,7 +228,8 @@ end
 
 function testfun_nzvalues(sv)
     S = 0.0
-    for v in nzvalues(sv)
+    # for v in nzvalues(sv)
+    for (i,v) in enumerate(nzvalues(sv))
         S += sum(v)
     end
     (0, S)
