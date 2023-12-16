@@ -328,10 +328,16 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
     DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
-    DensedVLSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti} =
+    DensedVLSparseVector{Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,Tv,Ti} =
         new{Tv,Ti,Val{false}}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
-    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti,BZP} =
+    DensedVLSparseVector{Tv,Ti}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {Tv,Ti} =
+        new{Tv,Ti,Val{false}}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
+                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
+    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,Tv,Ti,BZP} =
         new{Tv,Ti,BZP}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
+    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {Tv,Ti,BZP} =
+        new{Tv,Ti,BZP}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
+                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
