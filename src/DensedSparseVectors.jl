@@ -106,24 +106,10 @@ using Random
 
 
 ## TODO: use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
+## IT'S IMPOSSIBE!!!
+# Only one scenario is the save .zpbc props from DSVs from broadcast expression, store .zpbc=true and run expression.
+# Afterwards returns the saved .zpbc property values.
 #
-## via base/Base.jl:25
-#macro inzeros()   Expr(:meta, :inzeros)   end
-#
-### via essentials.jl:676
-##macro inzeros(blk)
-##    return Expr(:block,
-##        Expr(:inzeros, true),
-##        Expr(:local, Expr(:(=), :val, esc(blk))),
-##        Expr(:inzeros, :pop),
-##        :val)
-##end
-#
-## via essentials.jl:644
-#macro zeroscheck(blk)
-#    return Expr(:if, Expr(:inzeros), esc(blk))
-#    #return Expr(:if, Expr(:zeroscheck), esc(blk))
-#end
 
 # https://github.com/JuliaLang/julia/issues/39952
 basetype(::Type{T}) where T = Base.typename(T).wrapper
