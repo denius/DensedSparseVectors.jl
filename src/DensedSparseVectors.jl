@@ -105,7 +105,7 @@ import SparseArrays: indtype, nonzeroinds, nonzeros
 using Random
 
 
-## TODO: use Espresso.jl package
+## TODO: use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
 #
 ## via base/Base.jl:25
 #macro inzeros()   Expr(:meta, :inzeros)   end
@@ -334,8 +334,8 @@ mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedBlockSparseVector{Tv
         new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
 
     DensedVLSparseVector{Tv,Ti}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
-                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
+        new{Tv,Ti}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],ifirsts[i]+(length(offsets[i])-1)-1) for i=1:length(ifirsts)],
+                   nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
 end
 
 DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
