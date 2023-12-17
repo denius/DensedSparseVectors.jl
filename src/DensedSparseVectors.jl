@@ -1,7 +1,7 @@
 
 # TODO:
 # * Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
-#   to ommit sparse similarity checking and fixing. Then BZP is not need.
+#   to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
 #   Or may be do `@inbounds` do this?
 #
 # * Introduce offsets fields to all types to have indexable iterator
@@ -128,21 +128,21 @@ using Random
 # https://github.com/JuliaLang/julia/issues/39952
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 
-abstract type AbstractAllDensedSparseVector{Tv,Ti,BZP} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractAllDensedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
 "Vector alike DensedSparseVector kind"
-abstract type AbstractDensedSparseVector{Tv,Ti,BZP} <: AbstractAllDensedSparseVector{Tv,Ti,BZP} end
+abstract type AbstractDensedSparseVector{Tv,Ti} <: AbstractAllDensedSparseVector{Tv,Ti} end
 "Matrix alike Vector of Vectors kind"
-abstract type AbstractDensedBlockSparseVector{Tv,Ti,BZP} <: AbstractAllDensedSparseVector{Tv,Ti,BZP} end
+abstract type AbstractDensedBlockSparseVector{Tv,Ti} <: AbstractAllDensedSparseVector{Tv,Ti} end
 
 "Simple VectorDensedSparseVector kind"
-abstract type AbstractSimpleDensedSparseVector{Tv,Ti,BZP} <: AbstractDensedSparseVector{Tv,Ti,BZP} end
+abstract type AbstractSimpleDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 "Based on SortedDict VectorDensedSparseVector kind"
-abstract type AbstractSDictDensedSparseVector{Tv,Ti,BZP} <: AbstractDensedSparseVector{Tv,Ti,BZP} end
+abstract type AbstractSDictDensedSparseVector{Tv,Ti} <: AbstractDensedSparseVector{Tv,Ti} end
 
 
 "All Vector alike types `<: AbstractAllDensedSparseVector`"
-const AbstractCompressedDensedSparseVector{Tv,Ti,BZP} = Union{AbstractSimpleDensedSparseVector{Tv,Ti,BZP}, AbstractDensedBlockSparseVector{Tv,Ti,BZP}}
+const AbstractCompressedDensedSparseVector{Tv,Ti} = Union{AbstractSimpleDensedSparseVector{Tv,Ti}, AbstractDensedBlockSparseVector{Tv,Ti}}
 
 
 
@@ -166,12 +166,11 @@ It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `Den
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
 
-Parameter BZP is an Broadcast Zero Preserve.
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,BZP}
+mutable struct DensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the non-zero chunks"
@@ -185,33 +184,32 @@ mutable struct DensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector
     #axes1::UnitRange{Ti}
     "Number of stored non-zero elements"
     nnz::Int
+    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+    zpbc::Bool
 
-    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedSparseVector{Tv,Ti,Val{false}}(n)
-    DensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0)
+    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
+        new{Tv,Ti}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0, false)
 
     DensedSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks) where {Tv,Ti} =
-        DensedSparseVector{Tv,Ti,Val{false}}(n, nzranges, nzchunks)
-    DensedSparseVector{Tv,Ti,BZP}(n::Integer, nzranges, nzchunks) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
+        new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0), false)
 
 end
 
 
-DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DensedSparseVector{Tv,Ti,BZP}(V)
+DensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = DensedSparseVector{Tv,Ti}(V)
 
-function DensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
+function DensedSparseVector{Tv,Ti}(V::AbstractAllDensedSparseVector) where {Tv,Ti}
     nzranges = Vector{UnitRange{Ti}}(undef, nnzchunks(V))
     nzchunks = Vector{Vector{Tv}}(undef, length(nzranges))
     for (itc, (ids,d)) in enumerate(nzchunkspairs(V))
         nzranges[itc] = UnitRange{Ti}(ids)
         nzchunks[itc] = Vector{Tv}(d)
     end
-    return DensedSparseVector{Tv,Ti,BZP}(length(V), nzranges, nzchunks)
+    return DensedSparseVector{Tv,Ti}(length(V), nzranges, nzchunks)
 end
 
 #"View for DensedSparseVector"
-#struct DensedSparseVectorView{Tv,Ti,T,Tc} <: AbstractCompressedDensedSparseVector{Tv,Ti,BZP}
+#struct DensedSparseVectorView{Tv,Ti,T,Tc} <: AbstractCompressedDensedSparseVector{Tv,Ti}
 #    "Index of first chunk in `view` V"
 #    firstnzchunk_index::Int
 #    "Index of last chunk in `view` V"
@@ -229,7 +227,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseVector{Tv,Ti,Val{true}}
+mutable struct FixedDensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
     "Index of last used chunk" # TODO: it may be immutable struct
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -242,16 +240,17 @@ mutable struct FixedDensedSparseVector{Tv,Ti,BZP} <: AbstractSimpleDensedSparseV
     n::Ti
     "Number of stored non-zero elements"
     nnz::Int
+    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+    zpbc::Bool
 
-    FixedDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, length(nzchunks))
+    FixedDensedSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks, offsets) where {Tv,Ti} =
+        new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, length(nzchunks), true)
 end
 
 
-FixedDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = FixedDensedSparseVector{Tv,Ti,Val{false}}(V)
-FixedDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = FixedDensedSparseVector{Tv,Ti,BZP}(V)
+FixedDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = FixedDensedSparseVector{Tv,Ti}(V)
 
-function FixedDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
+function FixedDensedSparseVector{Tv,Ti}(V::AbstractAllDensedSparseVector) where {Tv,Ti}
     nzranges = Vector{UnitRange{Ti}}(undef, nnzchunks(V))
     nzchunks = Vector{Tv}(undef, nnz(V))
     offsets = Vector{Int}(undef, nnzchunks(V)+1)
@@ -261,7 +260,7 @@ function FixedDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) wh
         offsets[itc+1] = offsets[itc] + length(d)
         @view(nzchunks[offsets[itc]:offsets[itc+1]-1]) .= Tv.(d)
     end
-    return FixedDensedSparseVector{Tv,Ti,BZP}(length(V), nzranges, nzchunks, offsets)
+    return FixedDensedSparseVector{Tv,Ti}(length(V), nzranges, nzchunks, offsets)
 end
 
 
@@ -274,7 +273,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP} # TODO: is it should be AbstractSimple...
+mutable struct DensedSVSparseVector{Tv,Ti,m} <: AbstractDensedBlockSparseVector{Tv,Ti} # TODO: is it should be AbstractSimple...
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -286,17 +285,18 @@ mutable struct DensedSVSparseVector{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVec
     n::Ti
     "Number of stored non-zero elements"
     nnz::Int
+    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+    zpbc::Bool
 
-    DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer, nzranges, nzchunks) where {Tv,Ti,m,BZP} =
-        new{Tv,Ti,m,BZP}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0))
-    DensedSVSparseVector{Tv,Ti,m}(n::Integer = 0) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
-    DensedSVSparseVector{Tv,Ti,m,BZP}(n::Integer = 0) where {Tv,Ti,m,BZP} =
-        new{Tv,Ti,m,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0)
+    DensedSVSparseVector{Tv,Ti,m}(n::Integer, nzranges, nzchunks) where {Tv,Ti,m} =
+        new{Tv,Ti,m}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0), false)
+
+    DensedSVSparseVector{Tv,Ti,m}(n::Integer = 0) where {Tv,Ti,m} =
+        new{Tv,Ti,m}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0, false)
 end
 
-DensedSVSparseVector{Tv,Ti,m}(V) where {Tv,Ti,m} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(V)
-DensedSVSparseVector{Tv,Ti}(m::Integer, n::Integer = 0) where {Tv,Ti} = DensedSVSparseVector{Tv,Ti,m,Val{false}}(n)
-DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m,Val{false}}(n)
+DensedSVSparseVector{Tv,Ti}(m::Integer, n::Integer = 0) where {Tv,Ti} = DensedSVSparseVector{Tv,Ti,m}(n)
+DensedSVSparseVector(m::Integer, n::Integer = 0) = DensedSVSparseVector{Float64,Int,m}(n)
 
 
 
@@ -308,7 +308,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
+mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedBlockSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -322,26 +322,23 @@ mutable struct DensedVLSparseVector{Tv,Ti,BZP} <: AbstractDensedBlockSparseVecto
     n::Ti
     "Number of stored non-zero elements"
     nnz::Int
+    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+    zpbc::Bool
     "Dummy for empty `getindex` returns"
     dummy::Vector{Tv}
 
-    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(n)
-    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, Tv[])
+    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
+        new{Tv,Ti}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, false, Tv[])
+
     DensedVLSparseVector{Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,Tv,Ti} =
-        new{Tv,Ti,Val{false}}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
+        new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
+
     DensedVLSparseVector{Tv,Ti}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {Tv,Ti} =
-        new{Tv,Ti,Val{false}}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
-                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
-    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
-    DensedVLSparseVector{Tv,Ti,BZP}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {Tv,Ti,BZP} =
-        new{Tv,Ti,BZP}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
-                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), Tv[])
+        new{Tv,Ti}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],length(offsets[i])-1) for i=1:length(ifirsts)],
+                              nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
 end
 
-DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int,Val{false}}(n)
-DensedVLSparseVector{Tv,Ti}(V) where {Tv,Ti} = DensedVLSparseVector{Tv,Ti,Val{false}}(V)
+DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
 
 
 
@@ -356,7 +353,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DynamicDensedSparseVector{Tv,Ti,BZP} <: AbstractSDictDensedSparseVector{Tv,Ti,BZP}
+mutable struct DynamicDensedSparseVector{Tv,Ti} <: AbstractSDictDensedSparseVector{Tv,Ti}
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}
     "Storage for indices of the first element of non-zero chunks and corresponding chunks as `SortedDict(Int=>Vector)`"
@@ -365,30 +362,28 @@ mutable struct DynamicDensedSparseVector{Tv,Ti,BZP} <: AbstractSDictDensedSparse
     n::Ti
     "Number of stored non-zero elements"
     nnz::Int
+    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+    zpbc::Bool
 
-    DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(n)
-    function DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer = 0) where {Tv,Ti,BZP}
+    function DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
         nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
-        new{Tv,Ti,BZP}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0)
+        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
     end
 
     DynamicDensedSparseVector{Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
-        DynamicDensedSparseVector{Tv,Ti,Val{false}}(n, nzchunks)
-    DynamicDensedSparseVector{Tv,Ti,BZP}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,BZP,K,V<:AbstractVector} =
-        new{Tv,Ti,BZP}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0))
+        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0), false)
 
 end
 
 #DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
-#DynamicDensedSparseVector{Tv,Ti}(V) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti,Val{false}}(V)
 
-DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = DynamicDensedSparseVector{Tv,Ti,BZP}(V)
-function DynamicDensedSparseVector{Tv,Ti,BZP}(V::AbstractAllDensedSparseVector) where {Tv,Ti,BZP}
+DynamicDensedSparseVector(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = DynamicDensedSparseVector{Tv,Ti}(V)
+function DynamicDensedSparseVector{Tv,Ti}(V::AbstractAllDensedSparseVector) where {Tv,Ti}
     nzchunks = SortedDict{Ti, Vector{Tv}, FOrd}(Forward)
     for (ids,d) in nzchunkspairs(V)
         nzchunks[first(ids)] = Vector{Tv}(d)
     end
-    return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
+    return DynamicDensedSparseVector{Tv,Ti}(length(V), nzchunks)
 end
 
 #=
@@ -442,7 +437,7 @@ Convert any particular `AbstractSparseVector`s to corresponding `AbstractAllDens
 
 """
 function (::Type{T})(V::AbstractSparseVector{Tv,Ti}) where {T<:AbstractAllDensedSparseVector,Tv,Ti}
-    sv = T{Tv,Ti,Val{false}}(length(V))
+    sv = T{Tv,Ti}(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
     end
@@ -455,9 +450,7 @@ Convert any `AbstractSparseVector`s to particular `AbstractAllDensedSparseVector
     DensedSparseVector{Float64,Int}(sv)
 
 """
-(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = basetype(T){Tv,Ti,Val{false}}(V)
-#(::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti} = T{Tv,Ti,Val{false}}(V)
-function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti,BZP}} where {Tv,Ti,BZP}
+function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Tv,Ti}
     sv = T(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
@@ -466,9 +459,7 @@ function (::Type{T})(V::AbstractSparseVector) where {T<:AbstractAllDensedSparseV
 end
 
 
-(::Type{T})(V::DenseVector{Tv}) where {T<:AbstractAllDensedSparseVector,Tv} = T{Tv,Int,Val{false}}(V)
-(::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}} = T{Tv,Ti,Val{false}}(V)
-function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparseVector{Tv,Ti,BZP}}
+function (::Type{T})(V::DenseVector) where {Tv,Ti,T<:AbstractAllDensedSparseVector{Tv,Ti}}
     dsv = T(length(V))
     for (i,d) in enumerate(V)
         dsv[i] = d
@@ -477,12 +468,11 @@ function (::Type{T})(V::DenseVector) where {Tv,Ti,BZP,T<:AbstractAllDensedSparse
     #nzranges = ones(Ti, 1)
     #nzchunks = Vector{Vector{Tv}}(undef, length(nzranges))
     #nzchunks[1] = Vector{Tv}(V)
-    #return DensedSparseVector{Tv,Ti,BZP}(length(V), nzranges, nzchunks)
+    #return DensedSparseVector{Tv,Ti}(length(V), nzranges, nzchunks)
 end
 
 
-is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = false
-is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
+is_broadcast_zero_preserve(V::AbstractAllDensedSparseVector) = V.zpbc
 
 Base.length(V::AbstractAllDensedSparseVector) = getfield(V, :n)
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractAllDensedSparseVector} =
@@ -500,42 +490,42 @@ SparseArrays.indtype(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = Ti
 # Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexLinear()
 Base.IndexStyle(::AbstractAllDensedSparseVector) = IndexCartesian() #?
 
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP} = similar(V, Tv, Ti, BZP)
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}) where {Tv,Ti,BZP,TvNew} = similar(V, TvNew, Ti, BZP)
-Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti,BZP}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,BZP,TvNew,TiNew} = similar(V, TvNew, TiNew, BZP)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}) where {Tv,Ti} = similar(V, Tv, Ti)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}, ::Type{TvNew}) where {Tv,Ti,TvNew} = similar(V, TvNew, Ti)
+Base.similar(V::AbstractAllDensedSparseVector{Tv,Ti}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,TvNew,TiNew} = similar(V, TvNew, TiNew)
 
-function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+function Base.similar(V::DensedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew}
     nzranges = similar(V.nzranges, UnitRange{TiNew})
     nzchunks = similar(V.nzchunks)
     for (itc, (ids,d)) in enumerate(nzchunkspairs(V))
         nzranges[itc] = UnitRange{TiNew}(ids)
         nzchunks[itc] = similar(d, TvNew)
     end
-    return DensedSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks)
+    return DensedSparseVector{TvNew,TiNew}(length(V), nzranges, nzchunks)
 end
-function Base.similar(V::FixedDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+function Base.similar(V::FixedDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew}
     nzranges = Vector{UnitRange{TiNew}}(V.nzranges)
     nzchunks = similar(V.nzchunks, TvNew)
     offsets = Vector{Int}(V.offsets)
-    return FixedDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks, offsets)
+    return FixedDensedSparseVector{TvNew,TiNew}(length(V), nzranges, nzchunks, offsets)
 end
-function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+function Base.similar(V::DynamicDensedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew}
     nzchunks = SortedDict{TiNew, Vector{TvNew}, FOrd}(Forward)
     for (ids,d) in nzchunkspairs(V)
         nzchunks[first(ids)] = similar(d, TvNew)
     end
-    return DynamicDensedSparseVector{TvNew,TiNew,BZP}(length(V), nzchunks)
+    return DynamicDensedSparseVector{TvNew,TiNew}(length(V), nzchunks)
 end
-function Base.similar(V::DensedSVSparseVector{Tv,Ti,m}, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {Tv,Ti,m,TvNew,TiNew,BZP}
+function Base.similar(V::DensedSVSparseVector{Tv,Ti,m}, ::Type{TvNew}, ::Type{TiNew}) where {Tv,Ti,m,TvNew,TiNew}
     nzranges = similar(V.nzranges, UnitRange{TiNew})
     nzchunks = similar(V.nzchunks)
     for (itc, (ids,d)) in enumerate(nzchunkspairs(V))
         nzranges[itc] = ids
         nzchunks[itc] = [SVector(ntuple(_->TvNew(0), m)) for _ in d]
     end
-    return DensedSVSparseVector{TvNew,TiNew,m,BZP}(length(V), nzranges, nzchunks)
+    return DensedSVSparseVector{TvNew,TiNew,m}(length(V), nzranges, nzchunks)
 end
-function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::Type{BZP}) where {TvNew,TiNew,BZP}
+function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew}
     nzranges = similar(V.nzranges, UnitRange{TiNew})
     nzchunks = Vector{Vector{TvNew}}(undef, length(V.nzchunks))
     offsets = deepcopy(V.offsets)
@@ -543,7 +533,7 @@ function Base.similar(V::DensedVLSparseVector, ::Type{TvNew}, ::Type{TiNew}, ::T
         nzranges[itc] = ids
         nzchunks[itc] = Vector{TvNew}(undef, length(d))
     end
-    return DensedVLSparseVector{TvNew,TiNew,BZP}(length(V), nzranges, nzchunks, offsets)
+    return DensedVLSparseVector{TvNew,TiNew}(length(V), nzranges, nzchunks, offsets)
 end
 
 
@@ -569,12 +559,12 @@ function Base.copy(V::T) where {T<:DensedVLSparseVector}
     return T(length(V), nzranges, nzchunks, offsets)
 end
 Base.copy(V::T) where {T<:FixedDensedSparseVector} = T(length(V), copy(V.nzranges), copy(V.nzchunks), copy(V.offsets))
-function Base.copy(V::DynamicDensedSparseVector{Tv,Ti,BZP}) where {Tv,Ti,BZP}
+function Base.copy(V::DynamicDensedSparseVector{Tv,Ti}) where {Tv,Ti}
     nzchunks = SortedDict{Ti, Vector{Tv}, FOrd}(Forward)
     for (ids,d) in nzchunkspairs(V)
         nzchunks[first(ids)] = copy(d)
     end
-    return DynamicDensedSparseVector{Tv,Ti,BZP}(length(V), nzchunks)
+    return DynamicDensedSparseVector{Tv,Ti}(length(V), nzchunks)
 end
 
 
@@ -2318,7 +2308,13 @@ end
 
 _similar_sparse_indices!(C::FixedDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti} = (_check_same_sparse_indices(C, A); return C)
 
-_similar_sparse_indices!(C::AbstractDensedSparseVector{Tv,Ti,BZP}, A::AbstractDensedSparseVector) where {Tv,Ti,BZP<:Val{true}} = C
+function _similar_sparse_indices!(C::AbstractDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
+    if C.zpbc == true
+        return C
+    else
+        throw(ArgumentError("FIXME:"))
+    end
+end
 
 function _similar_sparse_indices!(C::DynamicDensedSparseVector{Tv,Ti}, A::AbstractDensedSparseVector) where {Tv,Ti}
     C.n = A.n

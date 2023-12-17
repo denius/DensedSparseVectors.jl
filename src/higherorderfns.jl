@@ -31,7 +31,7 @@ import ..DensedSparseVectors as DSV
 
 const SparseVector2 = DensedSparseVector
 
-mutable struct SparseMatrixCSC2{Tv,Ti,m,BZP} <: AbstractDensedBlockSparseVector{Tv,Ti,BZP}
+mutable struct SparseMatrixCSC2{Tv,Ti,m} <: AbstractDensedBlockSparseVector{Tv,Ti}
    "Index of last used chunk"
     lastusedchunkindex::Int
     "Storage for indices of the first element of non-zero chunks"
@@ -238,6 +238,7 @@ function _noshapecheck_map(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedSpar
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
     BZPness = _are_broadcast_zero_preserve(A, Bs...)
+    throw(ArgumentError("FIXME: zpbc"))
     if _haszeros(A) && all(_haszeros, Bs)
         fofzeros = f(_zeros_eltypes(A, Bs...)...)
         fpreszeros = _iszero(fofzeros)
@@ -289,6 +290,7 @@ function _diffshape_broadcast(f::Tf, A::DensedSparseVecOrBlk, Bs::Vararg{DensedS
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     axesC = Base.Broadcast.combine_axes(A, Bs...)
     BZPness = _are_broadcast_zero_preserve(A, Bs...)
+    throw(ArgumentError("FIXME: zpbc"))
     dest_arg = _promote_dest_arg((A, Bs...))
     ###shapeC = to_shape(axesC)
     ###maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
@@ -354,8 +356,8 @@ basetype(::Type{T}) where T = Base.typename(T).wrapper
 @inline _promote_dest_arg(As::Tuple{Any,Vararg{Any}}) =
             _promote_dest_arg((_promote_dest_arg((front(As), front(tail(As)))), tail(tail(As))...))
 
-@inline _are_broadcast_zero_preserve(A) = false
-@inline _are_broadcast_zero_preserve(A::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
+@inline _are_broadcast_zero_preserve(A) = is_broadcast_zero_preserve(A)
+# @inline _are_broadcast_zero_preserve(A::AbstractAllDensedSparseVector{<:Any,<:Any,<:Val{true}}) = true
 @inline _are_broadcast_zero_preserve(A, Bs...) = _are_broadcast_zero_preserve(A) || _are_broadcast_zero_preserve(Bs...)
 
 
