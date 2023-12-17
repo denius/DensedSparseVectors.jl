@@ -2268,7 +2268,7 @@ function _similar_resize!(C::DensedSparseVector{Tv,Ti}, A::AbstractDensedSparseV
         else
             C.nzchunks[itc] = Vector{Tv}(undef, length(chunk))
         end
-        C.nzranges[itc] = Ti(first(indices))
+        C.nzranges[itc] = UnitRange{Ti}(indices)
     end
     return C
 end
@@ -2398,7 +2398,7 @@ end
 
 _check_same_sparse_indices(As...) = _are_same_sparse_indices(As...) || throw(DimensionMismatch("argument shapes must match"))
 
-@inline _copy_chunk_to!(C::DensedSparseVector{Tv,Ti}, itc, k, chunk) where {Tv,Ti} = (C.nzranges[itc] = Ti(k); C.nzchunks[itc] .= Tv.(chunk))
+@inline _copy_chunk_to!(C::DensedSparseVector{Tv,Ti}, itc, k, chunk) where {Tv,Ti} = (C.nzranges[itc] = UnitRange{Ti}(k,k+length(chunk)-1); C.nzchunks[itc] .= Tv.(chunk))
 @inline _copy_chunk_to!(C::FixedDensedSparseVector{Tv,Ti}, itc, k, chunk) where {Tv,Ti} = @view(C.nzchunks[C.offsets[itc]:C.offsets[itc+1]-1]) .= Tv.(chunk)
 @inline _copy_chunk_to!(C::DynamicDensedSparseVector{Tv,Ti}, itc, k, chunk) where {Tv,Ti} = C.nzchunks[Ti(k)] .= Tv.(chunk)
 
