@@ -189,10 +189,9 @@ end
 function testfun_nzchunks(sv)
     I = 0
     S = 0.0
-    for (startindex,chunk) in nzchunkspairs(sv)
-        startindex -= 1
+    for (ids,chunk) in nzchunkspairs(sv)
+        I += length(ids)
         for i in axes(chunk,1)
-            I += startindex + i
             S += chunk[i]
         end
     end
