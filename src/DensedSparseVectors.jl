@@ -18,8 +18,8 @@
 # * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
 #   Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
-# * Add ADSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
-#   May be stack of few ADSVIteratorState of previous assesses ranged by access frequency
+# * Add SDSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
+#   May be stack of few SDSVIteratorState of previous assesses ranged by access frequency
 #   or size of chunk?
 #
 # * Add pastendnzchunk_index in all AbstractAllDensedSparseVector
@@ -1125,22 +1125,44 @@ Base.@propagate_inbounds iterate_nzindices(V::Number, state = 0) = (state+1, sta
 # `AbstractAllDensedSparseVector` iteration functions
 #
 
-struct ADSVIteratorState{Ti,Td,Tit}
-    position::Int          # position of current element in the current chunk
-    indices::UnitRange{Ti} # the indices of first and last elements in current chunk
-    # TODO: may be without chunk? Then only the static data in struct.
-    chunk::Td              # current chunk is the view into nzchunk
-    itchunk::Tit           # nzchunk iterator state (Int or Semitoken) in nzchunks
+abstract type AbstractDSVIteratorState{Ti,Td,Tit} end
+
+"Scalar DSV Iterator"
+struct SDSVIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
+    "position of current scalar/block element in the current chunk"
+    itblock::Int
+    "the indices of first and last elements in current chunk"
+    indices::UnitRange{Ti}
+    "current chunk is the view into nzchunk"
+    chunk::Td
+    "nzchunk iterator state (Int or Semitoken) in nzchunks"
+    itchunk::Tit
+end
+
+"Block DSV Iterator"
+struct BDSVIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
+    "position of current scalar/block element in the current chunk"
+    itblock::Int
+    "the indices of first and last elements in current chunk"
+    indices::UnitRange{Ti}
+    "position of current element in current block (for scalar DSV it is always 1 of 1)"
+    i::Int
+    "the indices of first and last elements of the block in current chunk, i.e. `.offsets[itblock]:.offsets[itblock+1]-1`"
+    blockindices::UnitRange{Int}
+    "current chunk is the view into nzchunk"
+    chunk::Td
+    "nzchunk iterator state (Int or Semitoken) in nzchunks"
+    itchunk::Tit
 end
 
 
-SparseArrays.indtype(it::ADSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = Ti
-Base.eltype(it::ADSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = eltype(Td) # FIXME: That's wrong for BlockSparseVectors
+SparseArrays.indtype(it::AbstractDSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = Ti
+Base.eltype(it::AbstractDSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = eltype(Td)
 
 
-@inline function nziteratorstate(::Union{Type{T},Type{SubArray{<:Any,<:Any,<:T}}}, position, indices, chunk::Tvv, it::Tit) where
+@inline function nziteratorstate(::Union{Type{T},Type{SubArray{<:Any,<:Any,<:T}}}, itblock, indices, chunk::Tvv, it::Tit) where
                                           {T<:AbstractCompressedDensedSparseVector{Tv,Ti},Tvv,Tit} where {Tv,Ti}
-    ADSVIteratorState{Ti,Tvv,Tit}(position, indices, chunk, it)
+    SDSVIteratorState{Ti,Tvv,Tit}(itblock, indices, chunk, it)
 end
 
 
@@ -1163,26 +1185,60 @@ end
 
 # TODO: FIXME: Add simple :iterate
 for (fn, ret1, ret2) in
-    ((:iterate_nzpairs     ,  :((indices[position] => chunk[position], nzit))                  , :(nothing)              ),
-     (:iterate_nzpairsview ,  :((indices[position] => view(chunk, position:position), nzit))   , :(nothing)              ),
-     (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[position])), nzit)), :(nothing)     ),
-     (:iterate_nzvalues    ,  :((chunk[position], nzit))                                       , :(nothing)              ),
-     (:iterate_nzvaluesview,  :((view(chunk, position:position), nzit))                        , :(nothing)              ),
-     (:iterate_nzindices   ,  :((indices[position], nzit))                                     , :(nothing)              ),
-     (:iterate_nziterator  ,  :((nzit, nzit))                                                  , :(nothing)              ),
-     (:nziterator_advance  ,  :(nzit)                                                          , :(pastendnziterator(V)) ) )
+    ((:iterate_nzpairs     ,  :((indices[itblock] => chunk[itblock], nzit))                 , :(nothing)              ),
+     (:iterate_nzpairsview ,  :((indices[itblock] => view(chunk, itblock:itblock), nzit))   , :(nothing)              ),
+     (:iterate_nzpairsref  ,  :((indices[itblock] => Ref(chunk, itblock, nzit))             , :(nothing)              ),
+     (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[itblock])), nzit)), :(nothing)     ),
+     (:iterate_nzvalues    ,  :((chunk[itblock], nzit))                                     , :(nothing)              ),
+     (:iterate_nzvaluesview,  :((view(chunk, itblock:itblock), nzit))                       , :(nothing)              ),
+     (:iterate_nzvaluesref ,  :((Ref(chunk, itblock), nzit))                                , :(nothing)              ),
+     (:iterate_nzindices   ,  :((indices[itblock], nzit))                                   , :(nothing)              ),
+     (:iterate_nziterator  ,  :((nzit, nzit))                                               , :(nothing)              ),
+     (:nziterator_advance  ,  :(nzit)                                                       , :(pastendnziterator(V)) ) )
 
     @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
                                                 {T<:AbstractAllDensedSparseVector{Tv,Ti}} where {Ti,Tv}
-        position, indices, chunk, itchunk = fieldvalues(state)
-        position += 1
-        if position <= length(indices)
-            nzit = nziteratorstate(typeof(V), position, indices, chunk, itchunk)
+        itblock, indices, chunk, itchunk = fieldvalues(state)
+        itblock += 1
+        if itblock <= length(indices)
+            nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
             return $ret1
         elseif (st = iterate_nzchunkspairs(V, itchunk)) !== nothing
             ((indices, chunk), itchunk) = st
-            position = 1
-            nzit = nziteratorstate(typeof(V), position, indices, chunk, itchunk)
+            itblock = 1
+            nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
+            return $ret1
+        else
+            return $ret2
+        end
+    end
+end
+
+
+for (fn, ret1, ret2) in
+    (#(:iterate_nzpairs     ,  :((indices[itblock] => chunk[itblock], nzit))                  , :(nothing)              ),
+     #(:iterate_nzpairsview ,  :((indices[itblock] => view(chunk, itblock:itblock), nzit))    , :(nothing)              ),
+     #(:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[itblock])), nzit)), :(nothing)     ),
+     (:iterate_nzvalues    ,  :((chunk[itblock], nzit))                                       , :(nothing)              ),
+     (:iterate_nzvaluesview,  :((view(chunk, itblock:itblock), nzit))                         , :(nothing)              ),
+     (:iterate_nzvaluesref ,  :((Ref(chunk, itblock), nzit))                                  , :(nothing)              ),
+     #(:iterate_nzindices   ,  :((indices[itblock], nzit))                                      , :(nothing)              ),
+     #(:iterate_nziterator  ,  :((nzit, nzit))                                                  , :(nothing)              ),
+     #(:nziterator_advance  ,  :(nzit)                                                          , :(pastendnziterator(V)) )
+    )
+
+    @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
+                                                {T<:DensedVLSparseVector{Tv,Ti}} where {Ti,Tv}
+        itblock, indices, chunk, itchunk = fieldvalues(state)
+        itblock += 1
+        # if itblock <= length(indices)
+        if itblock <= V.offsets[itchunk][length(indices)+1]-1
+            nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
+            return $ret1
+        elseif (st = iterate_nzchunkspairs(V, itchunk)) !== nothing
+            ((indices, chunk), itchunk) = st
+            itblock = 1
+            nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
             return $ret1
         else
             return $ret2
@@ -1194,9 +1250,9 @@ end
 #=
 nziterator_advance(V::AbstractAllDensedSparseVector) = firstnziterator(V)
 
-function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState)
-    if nzit.position < length(nzit.indices)
-        return nziteratorstate(typeof(V), nzit.position + 1, nzit.indices, nzit.chunk, nzit.itchunk)
+function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::SDSVIteratorState)
+    if nzit.itblock < length(nzit.indices)
+        return nziteratorstate(typeof(V), nzit.itblock + 1, nzit.indices, nzit.chunk, nzit.itchunk)
     elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
         return nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk)
     else
@@ -1205,27 +1261,27 @@ function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::ADSVIterator
 end
 =#
 
-function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState, step)
+function nziterator_advance(V::AbstractAllDensedSparseVector, nzit::SDSVIteratorState, step)
     #@boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
     step == 0 && return nzit
-    if step + nzit.position <= length(nzit.indices)
-            return nziteratorstate(typeof(V), nzit.position+step, nzit.indices, nzit.chunk, nzit.itchunk)
+    if step + nzit.itblock <= length(nzit.indices)
+            return nziteratorstate(typeof(V), nzit.itblock+step, nzit.indices, nzit.chunk, nzit.itchunk)
     elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
-        if step + nzit.position == 1 + Int(length(nzit.indices))
+        if step + nzit.itblock == 1 + Int(length(nzit.indices))
             return nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk)
         else
             return nziterator_advance(V, nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk),
-                                      max(0, Int(step - (length(nzit.indices)-nzit.position) - 1)) )
+                                      max(0, Int(step - (length(nzit.indices)-nzit.itblock) - 1)) )
         end
     else
         return pastendnziterator(V)
     end
 end
 
-function nziterator_possible_advance(V, nzit::ADSVIteratorState)
-    if nzit.position != 0
-        if nzit.position <= length(nzit.indices)
-            return Int(length(nzit.indices)) - nzit.position + 1
+function nziterator_possible_advance(V, nzit::SDSVIteratorState)
+    if nzit.itblock != 0
+        if nzit.itblock <= length(nzit.indices)
+            return Int(length(nzit.indices)) - nzit.itblock + 1
         elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
             return Int(length(get_nzchunk_indices(V, itchunk)))
         else
@@ -1392,9 +1448,9 @@ function firstnziterator(V::AbstractVector)
 end
 pastendnziterator(V::AbstractVector) = nziteratorstate(typeof(V), 0, get_indices_and_nzchunk(V)..., pastendnzchunk_index(V))
 
-Base.@propagate_inbounds function Base.to_index(nzit::ADSVIteratorState)
-    if nzit.position != 0
-        @inbounds nzit.indices[nzit.position]
+Base.@propagate_inbounds function Base.to_index(nzit::SDSVIteratorState)
+    if nzit.itblock != 0
+        @inbounds nzit.indices[nzit.itblock]
     else
         first(nzit.indices)
     end
@@ -1402,11 +1458,11 @@ end
 
 
 "Return `view` on pointed data with `step` length"
-@inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState, step) =
-    @inbounds @view(nzit.chunk[nzit.position:nzit.position+step-1])
+@inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::SDSVIteratorState, step) =
+    @inbounds @view(nzit.chunk[nzit.itblock:nzit.itblock+step-1])
 
 "Return `view` on data in `nziterator` diapason"
-@inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState) =
+@inline nziterator_view(V::AbstractAllDensedSparseVector, nzit::SDSVIteratorState) =
     @inbounds @view(nzit.chunk[nzit.indices])
 
 
@@ -1603,7 +1659,7 @@ end
     return @inbounds get_nzchunk(V, first(i))[last(i)]
 end
 
-@inline Base.getindex(V::AbstractAllDensedSparseVector, nzit::ADSVIteratorState) = @inbounds nzit.chunk[nzit.position]
+@inline Base.getindex(V::AbstractAllDensedSparseVector, nzit::SDSVIteratorState) = @inbounds nzit.chunk[nzit.itblock]
 
 
 @inline function Base.getindex(V::AbstractAllDensedSparseVector{Tv,Ti}, idx::Integer) where {Tv,Ti}
@@ -1678,9 +1734,9 @@ end
     return V
 end
 
-@inline function Base.setindex!(V::AbstractAllDensedSparseVector, value, nzit::ADSVIteratorState)
+@inline function Base.setindex!(V::AbstractAllDensedSparseVector, value, nzit::SDSVIteratorState)
     @boundscheck checkbounds(V, nzit)
-    @inbounds get_nzchunk(V, nzit)[nzit.position] = value
+    @inbounds get_nzchunk(V, nzit)[nzit.itblock] = value
     return V
 end
 
