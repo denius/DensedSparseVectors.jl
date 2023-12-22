@@ -146,6 +146,28 @@ end
 #     itchunk::Tit                # nzchunk position state (Int or Semitoken) in nzchunks
 # end
 
+abstract type AbstractCompressedChunk{Tv,N} end
+
+struct CompressedChunk{Tv} <: AbstractCompressedChunk{Tv,1}
+    v::Vector{Tv}
+    o::UnitRange{Int}
+end
+
+struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
+    v::Vector{Tv}
+    o::LinRange{Int,N}
+end
+
+struct CompressedChunkVL{Tv} <: AbstractCompressedChunk{Tv,-1}
+    v::Vector{Tv}
+    o::Vector{Int}
+end
+
+struct CompressedChunk0{Tv} <: AbstractCompressedChunk{Nothing,0}
+    v::Vector{Nothing}
+    o::UnitRange{Int}
+end
+
 """
 The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
 It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
@@ -938,7 +960,7 @@ Base.@propagate_inbounds function iterate_nzchunks(V::AbstractSDictDensedSparseV
     end
 end
 
-"`iterate_nzchunkspairs(V::AbstractVector)` iterates over non-zero chunks and returns indices of elements in chunk and chunk"
+"`iterate_nzchunkspairs(V::AbstractVector)` iterates over non-zero chunks and returns indices of elements in chunk, and chunk"
 Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractCompressedDensedSparseVector, state = 0)
     state += 1
     if state <= length(V.nzranges)
@@ -1011,6 +1033,22 @@ Base.@propagate_inbounds function iterate_nzchunkspairs(V::Vector, state = 0)
     end
 end
 Base.@propagate_inbounds iterate_nzchunkspairs(V::Number, state = V) = (Pair(V, V), state)
+
+
+"`iterate_nzblockspairs(V::AbstractVector)` iterates over blocks in non-zero chunks and
+returns indices of blocks in chunk, and chunk"
+Base.@propagate_inbounds function iterate_nzblockspairs(V::DensedVLSparseVector, state = CartesianIndex(0,0))
+    state = CartesianIndex(state[1]+1, state[2])
+    if state < length(V.offsets[state[1]])
+
+
+
+
+        return (Pair(get_indices_and_nzchunk(V, state)...), state)
+    else
+        return nothing
+    end
+end
 
 "`iterate_nzpairs(V::AbstractAllDensedSparseVector)` iterates over non-zero elements
  of vector and returns pair of index and value"
@@ -1219,9 +1257,9 @@ for (fn, ret1, ret2) in
     (#(:iterate_nzpairs     ,  :((indices[itblock] => chunk[itblock], nzit))                  , :(nothing)              ),
      #(:iterate_nzpairsview ,  :((indices[itblock] => view(chunk, itblock:itblock), nzit))    , :(nothing)              ),
      #(:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[itblock])), nzit)), :(nothing)     ),
-     (:iterate_nzvalues    ,  :((chunk[itblock], nzit))                                       , :(nothing)              ),
-     (:iterate_nzvaluesview,  :((view(chunk, itblock:itblock), nzit))                         , :(nothing)              ),
-     (:iterate_nzvaluesref ,  :((Ref(chunk, itblock), nzit))                                  , :(nothing)              ),
+     (:iterate_nzvalues    ,  :((chunk[iposition], nzit))                                       , :(nothing)              ),
+     (:iterate_nzvaluesview,  :((view(chunk, iposition:iposition), nzit))                         , :(nothing)              ),
+     (:iterate_nzvaluesref ,  :((Ref(chunk, iposition), nzit))                                  , :(nothing)              ),
      #(:iterate_nzindices   ,  :((indices[itblock], nzit))                                      , :(nothing)              ),
      #(:iterate_nziterator  ,  :((nzit, nzit))                                                  , :(nothing)              ),
      #(:nziterator_advance  ,  :(nzit)                                                          , :(pastendnziterator(V)) )
@@ -1229,16 +1267,18 @@ for (fn, ret1, ret2) in
 
     @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
                                                 {T<:DensedVLSparseVector{Tv,Ti}} where {Ti,Tv}
-        itblock, indices, chunk, itchunk = fieldvalues(state)
+        itblock, indices, i, blockindices, chunk, itchunk = fieldvalues(state)
         itblock += 1
         # if itblock <= length(indices)
         if itblock <= V.offsets[itchunk][length(indices)+1]-1
             nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
+            iposition = i+first(blockindices)-1
             return $ret1
         elseif (st = iterate_nzchunkspairs(V, itchunk)) !== nothing
             ((indices, chunk), itchunk) = st
             itblock = 1
             nzit = nziteratorstate(typeof(V), itblock, indices, chunk, itchunk)
+            iposition = i+first(blockindices)-1
             return $ret1
         else
             return $ret2
