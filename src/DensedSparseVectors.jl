@@ -146,27 +146,107 @@ end
 #     itchunk::Tit                # nzchunk position state (Int or Semitoken) in nzchunks
 # end
 
+
+
+"""
+    MutableRange(r::AbstractRange)
+
+Wraps a parent range making it mutable.
+Derived from https://github.com/Tokazama/StaticRanges.jl
+"""
+mutable struct MutableRange{T,P<:AbstractRange{T}} <: AbstractRange{T}
+    parent::P
+end
+
+
+mrange(; kwargs...) = MutableRange(range(; kwargs...))
+mrange(start; kwargs...) = MutableRange(range(start; kwargs...))
+mrange(start, stop; kwargs...) = isempty(kwargs) ? MutableRange(start:stop) : MutableRange(range(start, stop; kwargs...))
+
+
+Base.parent(mr::MutableRange)  = getfield(mr, :parent)
+Base.length(mr::MutableRange)  = length(parent(mr))
+Base.first(mr::MutableRange)   = first(parent(mr))
+Base.last(mr::MutableRange)    = last(parent(mr))
+Base.step(mr::MutableRange)    = step(parent(mr))
+Base.isempty(mr::MutableRange) = isempty(parent(mr))
+Base.map(mr::MutableRange)     = map(parent(mr))
+Base.getindex(mr::MutableRange, i::Integer) = getindex(parent(mr), i)
+Base.intersect(mr1::MutableRange, mr2::MutableRange) = MutableRange(intersect(parent(mr1), parent(mr2)))
+Base.show(io::IO, mr::MutableRange)     = show(io::IO, parent(mr))
+
+
+function Base.push!(mr::MutableRange{Ti,P}, x) where {Ti,P<:UnitRange}
+    r = mr.parent
+    @assert x == last(r) + step(r)
+    mr.parent = UnitRange{Ti}(first(r), x)
+    return mr
+end
+function Base.push!(mr::MutableRange{Ti,P}, x) where {Ti,P<:StepRange}
+    r = mr.parent
+    @assert x == last(r) + step(r)
+    mr.parent = StepRange{Ti,Ti}(first(r), step(r), x)
+    return mr
+end
+
+
+
 abstract type AbstractCompressedChunk{Tv,N} end
 
-struct CompressedChunk{Tv} <: AbstractCompressedChunk{Tv,1}
-    v::Vector{Tv}
-    o::UnitRange{Int}
+"""
+Parametrised storage:
+`N = 0` -- scalar values stored in `vls`;
+`N = number` -- vector blocks with length N stored in `vls`;
+`N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
+
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
+struct CompressedChunk{Tv,N} <: AbstractCompressedChunk{Tv,N}
+    vls::Vector{Tv}
+    "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
+    ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRange{Int,Int}}, Vector{Int}}
+    function CompressedChunk{Tv,0}(vls) where Tv
+        new{Tv,0}(vls, mrange(1, length(vls)+1))
+    end
+    function CompressedChunk{Tv,N}(vls) where {Tv,N}
+        @assert mod(length(vls), N) == 0
+        new{Tv,N}(vls, mrange(start=1, step=N, length=div(length(vls), N)+1))
+    end
+    function CompressedChunk{Tv,-1}(vls, ofs) where Tv
+        new{Tv,-1}(vls, ofs)
+    end
 end
 
-struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
-    v::Vector{Tv}
-    o::LinRange{Int,N}
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,0}, i::Integer, j::Integer) where {Tv}   = cc.vls[i]
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,N}, i::Integer, j::Integer) where {Tv,N} = cc.vls[(i-1)*N + j]
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,-1}, i::Integer, j::Integer) where {Tv}  = cc.vls[cc.ofs[i]+j-1]
+#
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,0}, i::Integer) where {Tv}               = @view(cc.vls[i:i])
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,N}, i::Integer) where {Tv,N}             = @view(cc.vls[1+(i-1)*N:i*N])
+# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,-1}, i::Integer) where {Tv}              = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
+
+Base.@propagate_inbounds Base.getindex(cc::CompressedChunk, i::Integer, j::Integer) = cc.vls[cc.ofs[i]+j-1]
+Base.@propagate_inbounds Base.getindex(cc::CompressedChunk, i::Integer)             = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
+
+Base.@propagate_inbounds Base.setindex!(cc::CompressedChunk, val, i::Integer, j::Integer) = (cc.vls[cc.ofs[i]+j-1] = val; cc)
+Base.@propagate_inbounds Base.setindex!(cc::CompressedChunk, val, i::Integer)             = (@view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; cc)
+
+
+function Base.push!(cc::CompressedChunk{Tv,-1}, val) where {Tv}
+    push!(cc.vls, val)
+    push!(cc.ofs, last(cc.ofs) + 1)
+    return cc
+end
+function Base.push!(cc::CompressedChunk{Tv,-1}, val::AbstractVector) where {Tv}
+    append!(cc.vls, val)
+    push!(cc.ofs, last(cc.ofs) + length(val))
+    return cc
 end
 
-struct CompressedChunkVL{Tv} <: AbstractCompressedChunk{Tv,-1}
-    v::Vector{Tv}
-    o::Vector{Int}
-end
 
-struct CompressedChunk0{Tv} <: AbstractCompressedChunk{Nothing,0}
-    v::Vector{Nothing}
-    o::UnitRange{Int}
-end
+
 
 """
 The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
@@ -1225,8 +1305,8 @@ end
 for (fn, ret1, ret2) in
     ((:iterate_nzpairs     ,  :((indices[itblock] => chunk[itblock], nzit))                 , :(nothing)              ),
      (:iterate_nzpairsview ,  :((indices[itblock] => view(chunk, itblock:itblock), nzit))   , :(nothing)              ),
-     (:iterate_nzpairsref  ,  :((indices[itblock] => Ref(chunk, itblock, nzit))             , :(nothing)              ),
-     (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[itblock])), nzit)), :(nothing)     ),
+        (:iterate_nzpairsref  ,  :((indices[itblock] => Ref(chunk, itblock, nzit)))             , :(nothing)              ),
+    (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, indices[itblock])), nzit)), :(nothing)     ),
      (:iterate_nzvalues    ,  :((chunk[itblock], nzit))                                     , :(nothing)              ),
      (:iterate_nzvaluesview,  :((view(chunk, itblock:itblock), nzit))                       , :(nothing)              ),
      (:iterate_nzvaluesref ,  :((Ref(chunk, itblock), nzit))                                , :(nothing)              ),
