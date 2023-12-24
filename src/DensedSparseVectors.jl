@@ -215,7 +215,7 @@ end
 
 
 
-abstract type AbstractCompressedChunk{Tv,N} end
+abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
 
 """
 Parametrised storage:
@@ -281,8 +281,25 @@ struct CompressedChunkVL{Tv,N} <: AbstractCompressedChunk{Tv,-1}
 end
 
 
+size2(cc::CompressedChunk{Tv,0}) where {Tv}    = 1
+size2(cc::CompressedChunk0)                    = 1
+size2(cc::CompressedChunk{Tv,N}) where {Tv,N}  = N
+size2(cc::CompressedChunkN{Tv,N}) where {Tv,N} = N
+function size2(cc::AbstractCompressedChunk)
+    l = 0
+    for i = 1:length(cc)
+        l = max(l, cc.ofs[i+1]-cc.ofs[i])
+    end
+    l
+end
 
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ofs) - 1
+Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk)             = (length(cc), )
+# Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,N}) where {Tv,N}  = (length(cc), N)
+# Base.@propagate_inbounds Base.size(cc::CompressedChunkN{Tv,N}) where {Tv,N} = (length(cc), N)
+# Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,-1}) where Tv     = (length(cc), size2(cc))
+# Base.@propagate_inbounds Base.size(cc::CompressedChunkVL)                   = (length(cc), size2(cc))
+# Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk, d) = axes(cc)[d]
 
 # Is there should be by values iteration or by blocks?
 Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[1,1], 2) : nothing
