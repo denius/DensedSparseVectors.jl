@@ -253,13 +253,18 @@ struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
     end
 end
 
-struct CompressedChunk0{Tv,N} <: AbstractCompressedChunk{Tv,1}
+struct CompressedChunk0{Tv,N} <: AbstractCompressedChunk{Tv,0}
     idx::UnitRange{Int}
     vls::Vector{Tv}
     ofs::UnitRange{Int}
-    function CompressedChunk0{Tv}(i, vls) where Tv
+
+    CompressedChunk0{Tv,N}(i, vls) where {Tv,N} = CompressedChunk0{Tv}(i, vls)
+    CompressedChunk0{Tv}(i::Number, vls) where Tv = CompressedChunk0{Tv}(range(i, length=length(vls)), vls)
+    function CompressedChunk0{Tv}(r::UnitRange, vls) where Tv
         n = length(vls)
-        new{Tv,0}(range(i,length=n), vls, range(1, n+1))
+        @assert length(r) == n
+        ur = range(1, n+1)
+        new{Tv,0}(r, vls, ur)
     end
 end
 
@@ -267,12 +272,15 @@ struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
     idx::UnitRange{Int}
     vls::Vector{Tv}
     ofs::StepRangeLen{Int,Int,Int,Int}
-    function CompressedChunkN{Tv,N}(i, vls) where {Tv,N}
+
+    CompressedChunkN{Tv,N}(i::Number, vls) where {Tv,N} = CompressedChunkN{Tv,N}(range(i, length=length(vls)), vls)
+    function CompressedChunkN{Tv,N}(r::UnitRange, vls) where {Tv,N}
         @assert mod(length(vls), N) == 0
         lenv = length(vls)
         n = div(lenv, N)
-        lr = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
-        new{Tv,N}(range(i,length=n), vls, lr)
+        @assert length(r) == n
+        srl = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
+        new{Tv,N}(r, vls, srl)
     end
 end
 
@@ -280,11 +288,15 @@ struct CompressedChunkVL{Tv,N} <: AbstractCompressedChunk{Tv,-1}
     idx::UnitRange{Int}
     vls::Vector{Tv}
     ofs::Vector{Int}
-    function CompressedChunkVL{Tv}(i, vls, ofs) where Tv
+
+    CompressedChunkVL{Tv,N}(i, vls, ofs) where {Tv,N} = CompressedChunkVL{Tv}(i, vls, ofs)
+    CompressedChunkVL{Tv}(i::Number, vls, ofs) where {Tv} = CompressedChunkVL{Tv}(range(i, length=length(vls)), vls, ofs)
+    function CompressedChunkVL{Tv}(r::UnitRange, vls, ofs) where Tv
         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
         @assert issorted(ofs)
         n = length(ofs) - 1
-        new{Tv,-1}(range(i,length=n), vls, ofs)
+        @assert length(r) == n
+        new{Tv,-1}(r, vls, ofs)
     end
 end
 
@@ -334,12 +346,14 @@ Base.@propagate_inbounds Base.setindex!(cc::AbstractCompressedChunk, val, i::Int
 Base.@propagate_inbounds Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer)             = (@view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; cc)
 
 
-function Base.push!(cc::AbstractCompressedChunk, val)
+Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx), push!(cc.vls, val))
+function Base.push!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     push!(cc.vls, val)
     ofs = cc.ofs
     push!(ofs, last(ofs) + 1)
-    return cc
+    return T(range(first(cc.idx), last(cc.idx)+1), cc.vls, cc.ofs)
 end
+
 function Base.pushfirst!(cc::AbstractCompressedChunk, val)
     pushfirst!(cc.vls, val)
 
