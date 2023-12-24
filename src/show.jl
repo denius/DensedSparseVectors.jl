@@ -137,7 +137,8 @@ end
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
-    print(io, length(x), "-element ", typeof(x))
+    # print(io, length(x), "-element ", typeof(x))
+    print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
     if length(x) != 0
         println(io, ":")
         show(IOContext(io, :typeinfo => eltype(x)), x)
@@ -154,7 +155,7 @@ function Base.show(io::IOContext, x::Union{CompressedChunk0{Tv},CompressedChunk{
     end
     for k = eachindex(x)
         if k < half_screen_rows || k > length(x) - half_screen_rows
-            print(io, "  ")
+            print(io, " ")
             if isassigned(x, Int(k))
                 show(io, x[k,1])
             else
@@ -162,14 +163,16 @@ function Base.show(io::IOContext, x::Union{CompressedChunk0{Tv},CompressedChunk{
             end
             k != length(x) && println(io)
         elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            # println(io, "   ", " "^pad, "   \u22ee")
+            println(io, " \u22ee")
         end
     end
 end
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::AbstractCompressedChunk)
-    print(io, length(x), "-element ", typeof(x))
+    # print(io, length(x), "-element ", typeof(x))
+    print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
     if length(x) != 0
         println(io, ":")
         # show(IOContext(io, :typeinfo => eltype(x)), x)
@@ -187,7 +190,7 @@ function Base.show(io::IOContext, x::AbstractCompressedChunk)
     end
     for k = eachindex(x)
         if k < half_screen_rows || k > length(x) - half_screen_rows
-            print(io, "  ")
+            print(io, " ")
             if isassigned(x, Int(k))
                 show(io, x[k])
             else
@@ -195,7 +198,8 @@ function Base.show(io::IOContext, x::AbstractCompressedChunk)
             end
             k != length(x) && println(io)
         elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            # println(io, "   ", " "^pad, "   \u22ee")
+            println(io, " \u22ee")
         end
     end
 end
