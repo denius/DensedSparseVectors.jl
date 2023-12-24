@@ -188,6 +188,18 @@ function Base.push!(mr::MutableRange{Ti,P}, x) where {Ti,P<:StepRange}
     mr.parent = StepRange{Ti,Ti}(first(r), step(r), x)
     return mr
 end
+function Base.pushfirst!(mr::MutableRange{Ti,P}, x) where {Ti,P<:UnitRange}
+    r = mr.parent
+    @assert x == first(r)
+    mr.parent = UnitRange{Ti}(x, last(r)+step(r))
+    return mr
+end
+function Base.pushfirst!(mr::MutableRange{Ti,P}, x) where {Ti,P<:StepRange}
+    r = mr.parent
+    @assert x == first(r)
+    mr.parent = StepRange{Ti,Ti}(x, step(r), last(r)+step(r))
+    return mr
+end
 
 
 
@@ -203,10 +215,11 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk{Tv,N} <: AbstractCompressedChunk{Tv,N}
+struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
     vls::Vector{Tv}
     "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
     ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRange{Int,Int}}, Vector{Int}}
+
     function CompressedChunk{Tv,0}(vls) where Tv
         new{Tv,0}(vls, mrange(1, length(vls)+1))
     end
@@ -215,9 +228,16 @@ struct CompressedChunk{Tv,N} <: AbstractCompressedChunk{Tv,N}
         new{Tv,N}(vls, mrange(start=1, step=N, length=div(length(vls), N)+1))
     end
     function CompressedChunk{Tv,-1}(vls, ofs) where Tv
+        @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
+        @assert issorted(ofs)
         new{Tv,-1}(vls, ofs)
     end
 end
+
+Base.@propagate_inbounds Base.length(cc::CompressedChunk) = length(cc.ofs) - 1
+
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk) = length(cc) > 0 ? (cc[1], 2) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk, state) = state <= length(cc) ? (cc[state], state+1) : nothing
 
 # Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,0}, i::Integer, j::Integer) where {Tv}   = cc.vls[i]
 # Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,N}, i::Integer, j::Integer) where {Tv,N} = cc.vls[(i-1)*N + j]
@@ -239,9 +259,21 @@ function Base.push!(cc::CompressedChunk{Tv,-1}, val) where {Tv}
     push!(cc.ofs, last(cc.ofs) + 1)
     return cc
 end
-function Base.push!(cc::CompressedChunk{Tv,-1}, val::AbstractVector) where {Tv}
+function Base.pushfirst!(cc::CompressedChunk{Tv,-1}, val) where {Tv}
+    pushfirst!(cc.vls, val)
+
+    pushfirst!(cc.ofs, 1)
+    return cc
+end
+function Base.append!(cc::CompressedChunk{Tv,-1}, val::AbstractVector) where {Tv}
     append!(cc.vls, val)
     push!(cc.ofs, last(cc.ofs) + length(val))
+    return cc
+end
+function Base.prepend!(cc::CompressedChunk{Tv,-1}, val::AbstractVector) where {Tv}
+    prepend!(cc.vls, val)
+
+    pushfirst!(cc.ofs, length(val))
     return cc
 end
 
