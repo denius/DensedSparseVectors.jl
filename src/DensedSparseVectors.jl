@@ -231,7 +231,7 @@ struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
     idx::UnitRange{Int}
     vls::Vector{Tv}
     "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
-    # ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,LinRange{Int,Int}}, Vector{Int}}
+    # ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}, Vector{Int}}
     ofs::R
 
     function CompressedChunk{Tv,0}(i, vls) where Tv
@@ -242,8 +242,8 @@ struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
         @assert mod(length(vls), N) == 0
         lenv = length(vls)
         n = div(lenv, N)
-        mlr = MutableRange{Int,LinRange{Int,Int}}(LinRange{Int,Int}(1,lenv+1,n+1))
-        new{Tv,N,MutableRange{Int,LinRange{Int,Int}}}(range(i,length=n), vls, mlr)
+        mlr = MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}(StepRangeLen{Int,Int,Int,Int}(1,N,n+1))
+        new{Tv,N,MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}}(range(i,length=n), vls, mlr)
     end
     function CompressedChunk{Tv,-1}(i, vls, ofs) where Tv
         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
@@ -266,12 +266,12 @@ end
 struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
     idx::UnitRange{Int}
     vls::Vector{Tv}
-    ofs::LinRange{Int,Int}
+    ofs::StepRangeLen{Int,Int,Int,Int}
     function CompressedChunkN{Tv,N}(i, vls) where {Tv,N}
         @assert mod(length(vls), N) == 0
         lenv = length(vls)
         n = div(lenv, N)
-        lr = LinRange{Int,Int}(1,lenv+1,n+1)
+        lr = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
         new{Tv,N}(range(i,length=n), vls, lr)
     end
 end
