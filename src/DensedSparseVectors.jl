@@ -299,6 +299,7 @@ Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk)             = (l
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkN{Tv,N}) where {Tv,N} = (length(cc), N)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,-1}) where Tv     = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkVL)                   = (length(cc), size2(cc))
+# Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk, d) = axes(cc)[d]
 
 # Is there should be by values iteration or by blocks?
