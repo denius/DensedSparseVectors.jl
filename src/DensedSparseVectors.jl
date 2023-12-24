@@ -284,6 +284,12 @@ end
 
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ofs) - 1
 
+# Is there should be by values iteration or by blocks?
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[1,1], 2) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0, state) = state <= length(cc) ? (cc[state,1], state+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}) where Tv = length(cc) > 0 ? (cc[1,1], 2) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv = state <= length(cc) ? (cc[state,1], state+1) : nothing
+
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[1], 2) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= length(cc) ? (cc[state], state+1) : nothing
 
@@ -330,7 +336,8 @@ end
 # popfirst!
 # insert!
 # deleteat!
-# resize!
+# splice! -- to inset use `splice!(collection, n:n-1, replacement)`
+# resize! -- not need
 
 
 
