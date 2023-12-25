@@ -331,19 +331,53 @@ Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[1], 2) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= length(cc) ? (cc[state], state+1) : nothing
 
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,0}, i::Integer, j::Integer) where {Tv}   = cc.vls[i]
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,N}, i::Integer, j::Integer) where {Tv,N} = cc.vls[(i-1)*N + j]
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,-1}, i::Integer, j::Integer) where {Tv}  = cc.vls[cc.ofs[i]+j-1]
+Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer, j::Integer)
+    @boundscheck in(i, cc.idx)
+    _getindex(cc, i, j)
+end
+Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer)
+    @boundscheck in(i, cc.idx)
+    _getindex(cc, i)
+end
+
+# Base.@propagate_inbounds _getindex(cc::CompressedChunk0, i::Integer, j::Integer)                    = cc.vls[i]
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkN{Tv,N}, i::Integer, j::Integer) where {Tv,N} = cc.vls[(i-1)*N + j]
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkVL, i::Integer, j::Integer)                   = cc.vls[cc.ofs[i]+j-1]
 #
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,0}, i::Integer) where {Tv}               = @view(cc.vls[i:i])
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,N}, i::Integer) where {Tv,N}             = @view(cc.vls[1+(i-1)*N:i*N])
-# Base.@propagate_inbounds Base.getindex(cc::CompressedChunk{Tv,-1}, i::Integer) where {Tv}              = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
+# Base.@propagate_inbounds _getindex(cc::CompressedChunk0, i::Integer)                                = @view(cc.vls[i:i])
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkN{Tv,N}, i::Integer) where {Tv,N}             = @view(cc.vls[1+(i-1)*N:i*N])
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkVL, i::Integer)                               = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
 
-Base.@propagate_inbounds Base.getindex(cc::AbstractCompressedChunk, i::Integer, j::Integer) = cc.vls[cc.ofs[i]+j-1]
-Base.@propagate_inbounds Base.getindex(cc::AbstractCompressedChunk, i::Integer)             = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
+Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-first(cc.idx)+1; cc.vls[cc.ofs[i]+j-1])
+Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]))
 
-Base.@propagate_inbounds Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer) = (cc.vls[cc.ofs[i]+j-1] = val; cc)
-Base.@propagate_inbounds Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer)             = (@view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; cc)
+Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
+    @boundscheck in(i, cc.idx)
+    _setindex!(cc, val, i, j)
+end
+Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer)
+    @boundscheck in(i, cc.idx)
+    _setindex!(cc, val, i)
+end
+Base.@propagate_inbounds function setblockindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
+    if in(i, cc.idx)
+        _setindex!(cc, val, i, j)
+        return true
+    else
+        return false
+    end
+end
+Base.@propagate_inbounds function setblockindex!(cc::AbstractCompressedChunk, val, i::Integer)
+    if in(i, cc.idx)
+        _setindex!(cc, val, i)
+        return true
+    else
+        return false
+    end
+end
+
+Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer, j::Integer) = (i=idx-first(cc.idx)+1; cc.vls[cc.ofs[i]+j-1] = val; val)
+Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; val)
 
 
 Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx), push!(cc.vls, val))
