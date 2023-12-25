@@ -348,34 +348,67 @@ Base.@propagate_inbounds Base.setindex!(cc::AbstractCompressedChunk, val, i::Int
 
 Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx), push!(cc.vls, val))
 function Base.push!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
-    push!(cc.vls, val)
+    vls = cc.vls
+    push!(vls, val)
     ofs = cc.ofs
     push!(ofs, last(ofs) + 1)
-    return T(range(first(cc.idx), last(cc.idx)+1), cc.vls, cc.ofs)
+    return T(first(cc.idx), vls, ofs)
 end
 
-function Base.pushfirst!(cc::AbstractCompressedChunk, val)
-    pushfirst!(cc.vls, val)
 
-    pushfirst!(cc.ofs, 1)
-    return cc
+Base.pushfirst!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx)-1, pushfirst!(cc.vls, val))
+function Base.pushfirst!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+    vls = cc.vls
+    ofs = cc.ofs
+    pushfirst!(vls, val)
+    pushfirst!(ofs, 1)
+    for i = 2:length(ofs)
+        ofs[i] += 1
+    end
+    return T(first(cc.idx)-1, vls, ofs)
 end
+
+
+"Delete some element and thus split vector in two parts and retuns them in tuple."
+function Base.deleteat!(cc::T, idx) where {Tv,T<:AbstractCompressedChunk{Tv,0}}
+    vls = cc.vls
+    ofs = cc.ofs
+    pos = idx - first(vls.idx) + 1
+    vls2 = vls[ofs[pos+1]:end]
+    resize!(vls, ofs[pos]-1)
+    return (T(first(cc.idx), vls), T(idx+1, vls2))
+end
+function Base.deleteat!(cc::T, idx) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+    vls = cc.vls
+    ofs = cc.ofs
+    pos = idx - first(vls.idx) + 1
+    vls2 = vls[ofs[pos+1]:end]
+    ofs2 = ofs[pos+1:end]
+    i0 = first(ofs2) - 1
+    ofs2 .-= i0
+    resize!(vls, ofs[pos]-1)
+    resize!(ofs, pos)
+    return (T(first(cc.idx), vls, ofs), T(idx+1, vls2, ofs2))
+end
+
+
+
 function Base.append!(cc::AbstractCompressedChunk, val::AbstractVector)
     append!(cc.vls, val)
     ofs = cc.ofs
     push!(ofs, last(ofs) + length(val))
     return cc
 end
+
 function Base.prepend!(cc::AbstractCompressedChunk, val::AbstractVector)
     prepend!(cc.vls, val)
 
     pushfirst!(cc.ofs, length(val))
     return cc
 end
-# pop!
-# popfirst!
+
 # insert!
-# deleteat!
+# deleteat! -- to multiple delete use range or some other collection: deleteat!(collection, inds)
 # splice! -- to inset use `splice!(collection, n:n-1, replacement)`
 # resize! -- not need
 
