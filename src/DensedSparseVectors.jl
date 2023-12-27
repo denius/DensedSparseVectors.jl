@@ -402,20 +402,72 @@ function Base.pushfirst!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}
     return T(first(cc.idx)-1, vls, ofs)
 end
 
-
-"Delete some element and thus split vector in two parts and retuns them in tuple."
-function Base.deleteat!(cc::T, idx) where {Tv,T<:AbstractCompressedChunk{Tv,0}}
+"Return a `CompressedChunk` consisting of all but the last component of `cc`."
+function tail!(cc::T) where {T<:AbstractCompressedChunk}
+    length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
+    return T(first(cc.idx)+1, popfirst!(cc.vls))
+end
+function tail!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+    length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
     vls = cc.vls
     ofs = cc.ofs
-    pos = idx - first(vls.idx) + 1
+    len = ofs[2] - ofs[1]
+    popfirst!(vls)
+    popfirst!(ofs)
+    for i = 1:length(ofs)
+        ofs[i] -= len
+    end
+    return T(first(cc.idx)+1, vls, ofs)
+end
+
+"Return a `CompressedChunk` consisting of all but the last component of `cc`."
+function front!(cc::T) where {T<:AbstractCompressedChunk}
+    length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
+    return T(first(cc.idx), pop!(cc.vls))
+end
+function front!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+    length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
+    vls = cc.vls
+    pop!(vls)
+    ofs = cc.ofs
+    pop!(ofs)
+    return T(first(cc.idx), vls, ofs)
+end
+
+
+function Base.append!(cc::AbstractCompressedChunk, vals)
+
+
+
+
+
+
+    append!(cc.vls, vals)
+    ofs = cc.ofs
+    push!(ofs, last(ofs) + length(vals))
+    return cc
+end
+
+function Base.prepend!(cc::AbstractCompressedChunk, vals)
+    prepend!(cc.vls, vals)
+
+    pushfirst!(cc.ofs, length(vals))
+    return cc
+end
+
+"Delete specified element with index `idx` and thus split vector `cc` in two parts and retuns them in tuple."
+function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,0}}
+    vls = cc.vls
+    ofs = cc.ofs
+    pos = Int(idx - first(vls.idx) + 1)
     vls2 = vls[ofs[pos+1]:end]
     resize!(vls, ofs[pos]-1)
     return (T(first(cc.idx), vls), T(idx+1, vls2))
 end
-function Base.deleteat!(cc::T, idx) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     vls = cc.vls
     ofs = cc.ofs
-    pos = idx - first(vls.idx) + 1
+    pos = Int(idx - first(vls.idx) + 1)
     vls2 = vls[ofs[pos+1]:end]
     ofs2 = ofs[pos+1:end]
     i0 = first(ofs2) - 1
@@ -426,20 +478,6 @@ function Base.deleteat!(cc::T, idx) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
 end
 
 
-
-function Base.append!(cc::AbstractCompressedChunk, val::AbstractVector)
-    append!(cc.vls, val)
-    ofs = cc.ofs
-    push!(ofs, last(ofs) + length(val))
-    return cc
-end
-
-function Base.prepend!(cc::AbstractCompressedChunk, val::AbstractVector)
-    prepend!(cc.vls, val)
-
-    pushfirst!(cc.ofs, length(val))
-    return cc
-end
 
 # insert!
 # deleteat! -- to multiple delete use range or some other collection: deleteat!(collection, inds)
