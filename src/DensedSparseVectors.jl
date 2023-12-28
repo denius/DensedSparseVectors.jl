@@ -313,6 +313,7 @@ function size2(cc::AbstractCompressedChunk)
     l
 end
 
+@inline Base.in(i::Integer, cc::AbstractCompressedChunk) = in(i, cc.idx)
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ofs) - 1
 Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk)             = (length(cc), )
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,N}) where {Tv,N}  = (length(cc), N)
@@ -352,23 +353,33 @@ Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j:
 Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]))
 
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
-    @boundscheck in(i, cc.idx)
+    @boundscheck in(i, cc)
     _setindex!(cc, val, i, j)
 end
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer)
-    @boundscheck in(i, cc.idx)
+    @boundscheck in(i, cc)
     _setindex!(cc, val, i)
 end
-Base.@propagate_inbounds function setblockindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
-    if in(i, cc.idx)
+
+Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
+    if in(i, cc) && j <= blocklen(cc, i)
         _setindex!(cc, val, i, j)
         return true
     else
         return false
     end
 end
-Base.@propagate_inbounds function setblockindex!(cc::AbstractCompressedChunk, val, i::Integer)
-    if in(i, cc.idx)
+
+Base.@propagate_inbounds function issetindex!(cc::CompressedChunk0, val::Number, i::Integer)
+    if in(i, cc)
+        _setindex!(cc, val, i)
+        return true
+    else
+        return false
+    end
+end
+Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, val, i::Integer)
+    if in(i, cc) && length(val) == blocklen(cc, i)
         _setindex!(cc, val, i)
         return true
     else
@@ -376,7 +387,14 @@ Base.@propagate_inbounds function setblockindex!(cc::AbstractCompressedChunk, va
     end
 end
 
+@inline blocklen(_::CompressedChunk0) = 1
+@inline blocklen(_::CompressedChunkN{Tv,N}) where {Tv,N} = N
+@inline blocklen(cc::AbstractCompressedChunk, i::Integer) = (idx = i-first(cc.idx)+1; cc.ofs[idx+1] - cc.ofs[idx])
+
 Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer, j::Integer) = (i=idx-first(cc.idx)+1; cc.vls[cc.ofs[i]+j-1] = val; val)
+
+
+Base.@propagate_inbounds _setindex!(cc::CompressedChunk0, val::Number, idx::Integer) = (i=idx-first(cc.idx)+1; cc.vls[i] = val; val)
 Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; val)
 
 
@@ -477,7 +495,10 @@ function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-
     return (T(first(cc.idx), vls, ofs), T(idx+1, vls2, ofs2))
 end
 
+"`setindex!` either for non-stored `idx` element, either for element not match by length."
+function setblockindex!(cc::T, val, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
 
+end
 
 # insert!
 # deleteat! -- to multiple delete use range or some other collection: deleteat!(collection, inds)
