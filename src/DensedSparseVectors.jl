@@ -300,6 +300,7 @@ struct CompressedChunkVL{Tv,N} <: AbstractCompressedChunk{Tv,-1}
     end
 end
 
+const CompressedBlockChunk{Tv,N} = Union{CompressedChunkN{Tv,N}, CompressedChunkVL{Tv,-1}}
 
 size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
 size2(cc::CompressedChunk0)                   = 1
@@ -401,56 +402,91 @@ Base.@propagate_inbounds _setindex!(cc::CompressedChunk0, val::Number, idx::Inte
 Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; val)
 
 
-Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(firstindex(cc), push!(cc.vls, val))
-function Base.push!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+Base.push!(cc::T, val) where {T<:CompressedChunk0} = T(firstindex(cc), push!(cc.vls, val))
+function Base.push!(cc::T, vals::Union{AbstractVector,Tuple}) where {Tv,N,T<:CompressedChunkN{Tv,N}}
+    @boundscheck length(vals) == N
+    vals isa Tuple && (vals = map(x -> convert(Tv, x), vals))
     vls = cc.vls
-    push!(vls, val)
+    append!(vls, vals)
+    return T(firstindex(cc), vls)
+end
+function Base.push!(cc::T, vals::Union{AbstractVector,Tuple}) where {Tv,T<:CompressedChunkVL{Tv}}
+    vals isa Tuple && (vals = map(x -> convert(Tv, x), vals))
+    vls = cc.vls
+    append!(vls, vals)
     ofs = cc.ofs
-    push!(ofs, last(ofs) + 1)
+    push!(ofs, last(ofs) + length(vals))
     return T(firstindex(cc), vls, ofs)
 end
 
 
-Base.pushfirst!(cc::T, val) where {T<:AbstractCompressedChunk} = T(firstindex(cc)-1, pushfirst!(cc.vls, val))
-function Base.pushfirst!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+Base.pushfirst!(cc::T, val) where {T<:CompressedChunk0} = T(firstindex(cc)-1, pushfirst!(cc.vls, val))
+function Base.pushfirst!(cc::T, vals::Union{AbstractVector,Tuple}) where {Tv,N,T<:CompressedChunkN{Tv,N}}
+    @boundscheck length(vals) == N
+    vals isa Tuple && (vals = map(x -> convert(Tv, x), vals))
     vls = cc.vls
     ofs = cc.ofs
-    pushfirst!(vls, val)
+    prepend!(vls, vals)
+    return T(firstindex(cc)-1, vls)
+end
+function Base.pushfirst!(cc::T, vals::Union{AbstractVector,Tuple}) where {Tv,T<:CompressedChunkVL{Tv}}
+    vals isa Tuple && (vals = map(x -> convert(Tv, x), vals))
+    vls = cc.vls
+    ofs = cc.ofs
+    prepend!(vls, vals)
     pushfirst!(ofs, 1)
+    len = length(vals)
     for i = 2:length(ofs)
-        ofs[i] += 1
+        ofs[i] += len
     end
     return T(firstindex(cc)-1, vls, ofs)
 end
 
-"Return a `CompressedChunk` consisting of all but the last component of `cc`."
-function tail!(cc::T) where {T<:AbstractCompressedChunk}
+"Return a `CompressedChunk` consisting of all but the first component of `cc`."
+function tail!(cc::T) where {T<:CompressedChunk0}
     length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
     return T(firstindex(cc)+1, popfirst!(cc.vls))
 end
-function tail!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+function tail!(cc::T) where {Tv,N,T<:CompressedChunkN{Tv,N}}
+    length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
+    vls = cc.vls
+    deleteat!(vls, 1:N)
+    return T(firstindex(cc)+1, vls, ofs)
+end
+function tail!(cc::T) where {Tv,T<:CompressedChunkVL{Tv}}
     length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
     vls = cc.vls
     ofs = cc.ofs
-    len = ofs[2] - ofs[1]
-    popfirst!(vls)
+    N = ofs[2] - ofs[1]
+    deleteat!(vls, 1:N)
     popfirst!(ofs)
     for i = 1:length(ofs)
-        ofs[i] -= len
+        ofs[i] -= N
     end
     return T(firstindex(cc)+1, vls, ofs)
 end
 
 "Return a `CompressedChunk` consisting of all but the last component of `cc`."
-function front!(cc::T) where {T<:AbstractCompressedChunk}
+function front!(cc::T) where {T<:CompressedChunk0}
     length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
     return T(firstindex(cc), pop!(cc.vls))
 end
-function front!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+function front!(cc::T) where {Tv,N,T<:CompressedChunkN{Tv,N}}
     length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
     vls = cc.vls
-    pop!(vls)
     ofs = cc.ofs
+    len = length(vls) - N
+    resize!(vls, len)
+    pop!(ofs)
+    return T(firstindex(cc), vls, ofs)
+end
+function front!(cc::T) where {Tv,T<:CompressedChunkVL{Tv}}
+    length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
+    vls = cc.vls
+    ofs = cc.ofs
+    N = ofs[end] - ofs[end-1]
+    len = length(vls) - N
+    resize!(vls, len)
     pop!(ofs)
     return T(firstindex(cc), vls, ofs)
 end
