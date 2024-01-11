@@ -332,6 +332,9 @@ Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[1], 2) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= length(cc) ? (cc[state], state+1) : nothing
 
+@inline Base.firstindex(cc::AbstractCompressedChunk) = first(cc.idx)
+@inline Base.lastindex(cc::AbstractCompressedChunk) = last(cc.idx)-1
+
 Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer, j::Integer)
     @boundscheck in(i, cc.idx)
     _getindex(cc, i, j)
@@ -349,8 +352,8 @@ end
 # Base.@propagate_inbounds _getindex(cc::CompressedChunkN{Tv,N}, i::Integer) where {Tv,N}             = @view(cc.vls[1+(i-1)*N:i*N])
 # Base.@propagate_inbounds _getindex(cc::CompressedChunkVL, i::Integer)                               = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
 
-Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-first(cc.idx)+1; cc.vls[cc.ofs[i]+j-1])
-Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]))
+Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.vls[cc.ofs[i]+j-1])
+Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]))
 
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
     @boundscheck in(i, cc)
@@ -362,7 +365,7 @@ Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, va
 end
 
 Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, val, i::Integer, j::Integer)
-    if in(i, cc) && j <= blocklen(cc, i)
+    if in(i, cc) && j <= blocklength(cc, i)
         _setindex!(cc, val, i, j)
         return true
     else
@@ -379,7 +382,7 @@ Base.@propagate_inbounds function issetindex!(cc::CompressedChunk0, val::Number,
     end
 end
 Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, val, i::Integer)
-    if in(i, cc) && length(val) == blocklen(cc, i)
+    if in(i, cc) && length(val) == blocklength(cc, i)
         _setindex!(cc, val, i)
         return true
     else
@@ -387,28 +390,28 @@ Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, val, 
     end
 end
 
-@inline blocklen(_::CompressedChunk0) = 1
-@inline blocklen(_::CompressedChunkN{Tv,N}) where {Tv,N} = N
-@inline blocklen(cc::AbstractCompressedChunk, i::Integer) = (idx = i-first(cc.idx)+1; cc.ofs[idx+1] - cc.ofs[idx])
+@inline blocklength(_::CompressedChunk0, i::Integer=1) = 1
+@inline blocklength(_::CompressedChunkN{Tv,N}, i::Integer=1) where {Tv,N} = N
+@inline blocklength(cc::AbstractCompressedChunk, i::Integer) = (idx = i-firstindex(cc)+1; cc.ofs[idx+1] - cc.ofs[idx])
 
-Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer, j::Integer) = (i=idx-first(cc.idx)+1; cc.vls[cc.ofs[i]+j-1] = val; val)
-
-
-Base.@propagate_inbounds _setindex!(cc::CompressedChunk0, val::Number, idx::Integer) = (i=idx-first(cc.idx)+1; cc.vls[i] = val; val)
-Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer) = (i=idx-first(cc.idx)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; val)
+Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.vls[cc.ofs[i]+j-1] = val; val)
 
 
-Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx), push!(cc.vls, val))
+Base.@propagate_inbounds _setindex!(cc::CompressedChunk0, val::Number, idx::Integer) = (i=idx-firstindex(cc)+1; cc.vls[i] = val; val)
+Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, val, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= val; val)
+
+
+Base.push!(cc::T, val) where {T<:AbstractCompressedChunk} = T(firstindex(cc), push!(cc.vls, val))
 function Base.push!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     vls = cc.vls
     push!(vls, val)
     ofs = cc.ofs
     push!(ofs, last(ofs) + 1)
-    return T(first(cc.idx), vls, ofs)
+    return T(firstindex(cc), vls, ofs)
 end
 
 
-Base.pushfirst!(cc::T, val) where {T<:AbstractCompressedChunk} = T(first(cc.idx)-1, pushfirst!(cc.vls, val))
+Base.pushfirst!(cc::T, val) where {T<:AbstractCompressedChunk} = T(firstindex(cc)-1, pushfirst!(cc.vls, val))
 function Base.pushfirst!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     vls = cc.vls
     ofs = cc.ofs
@@ -417,13 +420,13 @@ function Base.pushfirst!(cc::T, val) where {Tv,T<:AbstractCompressedChunk{Tv,-1}
     for i = 2:length(ofs)
         ofs[i] += 1
     end
-    return T(first(cc.idx)-1, vls, ofs)
+    return T(firstindex(cc)-1, vls, ofs)
 end
 
 "Return a `CompressedChunk` consisting of all but the last component of `cc`."
 function tail!(cc::T) where {T<:AbstractCompressedChunk}
     length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
-    return T(first(cc.idx)+1, popfirst!(cc.vls))
+    return T(firstindex(cc)+1, popfirst!(cc.vls))
 end
 function tail!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     length(cc) == 0 && throw(ArgumentError("Cannot call tail! on an empty tuple"))
@@ -435,13 +438,13 @@ function tail!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     for i = 1:length(ofs)
         ofs[i] -= len
     end
-    return T(first(cc.idx)+1, vls, ofs)
+    return T(firstindex(cc)+1, vls, ofs)
 end
 
 "Return a `CompressedChunk` consisting of all but the last component of `cc`."
 function front!(cc::T) where {T<:AbstractCompressedChunk}
     length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
-    return T(first(cc.idx), pop!(cc.vls))
+    return T(firstindex(cc), pop!(cc.vls))
 end
 function front!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     length(cc) == 0 && throw(ArgumentError("Cannot call front! on an empty tuple"))
@@ -449,29 +452,119 @@ function front!(cc::T) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     pop!(vls)
     ofs = cc.ofs
     pop!(ofs)
-    return T(first(cc.idx), vls, ofs)
+    return T(firstindex(cc), vls, ofs)
 end
 
 
-function Base.append!(cc::AbstractCompressedChunk, vals)
+# derived from base/array.jl
+Base.append!(cc::AbstractCompressedChunk, iter...) = foldl(append!, iter, init=cc)
+Base.push!(cc::AbstractCompressedChunk, iter...) = append!(cc, iter)
 
-
-
-
-
-
-    append!(cc.vls, vals)
+function Base.append!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:AbstractCompressedChunk{Tv}}
+    items isa Tuple && (items = map(x -> convert(Tv, x), items))
+    vls = cc.vls
+    append!(vls, items)
     ofs = cc.ofs
-    push!(ofs, last(ofs) + length(vals))
-    return cc
+    push!(ofs, last(ofs) + length(items))
+    return T(firstindex(cc), vls, ofs)
+end
+function Base.append!(cc::T, items::AbstractCompressedChunk) where {T<:AbstractCompressedChunk}
+    vls = cc.vls
+    append!(vls, items.vls)
+    return T(firstindex(cc), vls)
+end
+function Base.append!(cc::T, items::AbstractCompressedChunk) where {T<:CompressedChunkVL}
+    vls = cc.vls
+    ofs = cc.ofs
+    len = length(ofs) - 1
+    append!(vls, items.vls)
+    length(items.ofs) > 1 && append!(ofs, @view(items.ofs[2:end]))
+    for i = len+1+1:length(ofs)
+        ofs[i] += ofs[i-1] - 1
+    end
+    return T(firstindex(cc), vls, ofs)
+end
+function Base.append!(cc::T, iter) where {T<:AbstractCompressedChunk}
+    vls = cc.vls
+    for item in iter
+        push!(vls, item)
+    end
+    return T(firstindex(cc), vls)
+end
+function Base.append!(cc::T, iter) where {T<:CompressedChunkVL}
+    vls = cc.vls
+    ofs = cc.ofs
+    n = 0
+    for item in iter
+        n += 1
+        push!(vls, item)
+    end
+    push!(ofs, last(ofs) + n)
+    return T(firstindex(cc), vls, ofs)
 end
 
-function Base.prepend!(cc::AbstractCompressedChunk, vals)
-    prepend!(cc.vls, vals)
 
-    pushfirst!(cc.ofs, length(vals))
-    return cc
+# derived from base/array.jl
+Base.prepend!(cc::AbstractCompressedChunk, iter...) = foldr((v, cc) -> prepend!(cc, v), iter, init=cc)
+Base.pushfirst!(cc::AbstractCompressedChunk, iter...) = prepend!(cc, iter)
+
+function Base.prepend!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:AbstractCompressedChunk{Tv}}
+    items isa Tuple && (items = map(x -> convert(Tv, x), items))
+    vls = cc.vls
+    ofs = cc.ofs
+    len = length(items)
+    prepend!(vls, items)
+    pushfirst!(ofs, 1)
+    for i = 2:length(ofs)
+        ofs[i] += len
+    end
+    return T(firstindex(cc)-n, vls, ofs)
 end
+function Base.prepend!(cc::T, items::AbstractCompressedChunk) where {T<:AbstractCompressedChunk}
+    vls = cc.vls
+    prepend!(vls, items.vls)
+    return T(firstindex(cc)-length(items), vls)
+end
+function Base.prepend!(cc::T, items::AbstractCompressedChunk) where {T<:CompressedChunkVL}
+    vls = cc.vls
+    ofs = cc.ofs
+    len = length(items.ofs) - 1
+    prepend!(vls, items.vls)
+    if len > 0
+        popfirst!(ofs)
+        prepend!(ofs, items.ofs)
+    end
+    for i = len+1+1:length(ofs)
+        ofs[i] += ofs[i-1] - 1
+    end
+    return T(firstindex(cc)-len, vls, ofs)
+end
+function Base.prepend!(cc::T, iter) where {T<:AbstractCompressedChunk}
+    vls = cc.vls
+    n = 0
+    for item in iter
+        n += 1
+        pushfirst!(vls, item)
+    end
+    reverse!(vls, 1, n)
+    return T(firstindex(cc)-n, vls)
+end
+function Base.prepend!(cc::T, iter) where {T<:CompressedChunkVL}
+    vls = cc.vls
+    ofs = cc.ofs
+    n = 0
+    for item in iter
+        n += 1
+        pushfirst!(vls, item)
+    end
+    reverse!(vls, 1, n)
+    pushfirst!(ofs, 1)
+    for i = 2:length(ofs)
+        ofs[i] += n
+    end
+    return T(firstindex(cc)-n, vls, ofs)
+end
+
 
 "Delete specified element with index `idx` and thus split vector `cc` in two parts and retuns them in tuple."
 function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,0}}
@@ -480,7 +573,7 @@ function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,0
     pos = Int(idx - first(vls.idx) + 1)
     vls2 = vls[ofs[pos+1]:end]
     resize!(vls, ofs[pos]-1)
-    return (T(first(cc.idx), vls), T(idx+1, vls2))
+    return (T(firstindex(cc), vls), T(idx+1, vls2))
 end
 function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
     vls = cc.vls
@@ -492,12 +585,20 @@ function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-
     ofs2 .-= i0
     resize!(vls, ofs[pos]-1)
     resize!(ofs, pos)
-    return (T(first(cc.idx), vls, ofs), T(idx+1, vls2, ofs2))
+    return (T(firstindex(cc), vls, ofs), T(idx+1, vls2, ofs2))
 end
 
 "`setindex!` either for non-stored `idx` element, either for element not match by length."
 function setblockindex!(cc::T, val, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+    if blocklength(cc, idx) == length(val)
+        _getindex(cc, idx) .= val
+    elseif blocklength(cc, idx) > length(val)
 
+
+
+    else
+    end
+    return cc
 end
 
 # insert!
