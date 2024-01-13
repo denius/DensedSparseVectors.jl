@@ -217,8 +217,44 @@ end
 
 abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
 
+# """
+# Parameterized storage:
+# `N = 0` -- scalar values stored in `vls`;
+# `N = number` -- vector blocks with length N stored in `vls`;
+# `N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
+#
+# $(TYPEDEF)
+# Struct fields:
+# $(TYPEDFIELDS)
+# """
+# struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
+#     idx::UnitRange{Int}
+#     vls::Vector{Tv}
+#     "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
+#     # ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}, Vector{Int}}
+#     ofs::R
+#
+#     function CompressedChunk{Tv,0}(i, vls) where Tv
+#         n = length(vls)
+#         new{Tv,0,MutableRange{Int,UnitRange{Int}}}(range(i,length=n), vls, mrange(1, n+1))
+#     end
+#     function CompressedChunk{Tv,N}(i, vls) where {Tv,N}
+#         @assert mod(length(vls), N) == 0
+#         lenv = length(vls)
+#         n = div(lenv, N)
+#         mlr = MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}(StepRangeLen{Int,Int,Int,Int}(1,N,n+1))
+#         new{Tv,N,MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}}(range(i,length=n), vls, mlr)
+#     end
+#     function CompressedChunk{Tv,-1}(i, vls, ofs) where Tv
+#         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
+#         @assert issorted(ofs)
+#         n = length(ofs) - 1
+#         new{Tv,-1,Vector{Int}}(range(i,length=n), vls, ofs)
+#     end
+# end
+
 """
-Parametrised storage:
+Parameterized storage:
 `N = 0` -- scalar values stored in `vls`;
 `N = number` -- vector blocks with length N stored in `vls`;
 `N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
@@ -227,32 +263,6 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
-    idx::UnitRange{Int}
-    vls::Vector{Tv}
-    "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
-    # ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}, Vector{Int}}
-    ofs::R
-
-    function CompressedChunk{Tv,0}(i, vls) where Tv
-        n = length(vls)
-        new{Tv,0,MutableRange{Int,UnitRange{Int}}}(range(i,length=n), vls, mrange(1, n+1))
-    end
-    function CompressedChunk{Tv,N}(i, vls) where {Tv,N}
-        @assert mod(length(vls), N) == 0
-        lenv = length(vls)
-        n = div(lenv, N)
-        mlr = MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}(StepRangeLen{Int,Int,Int,Int}(1,N,n+1))
-        new{Tv,N,MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}}(range(i,length=n), vls, mlr)
-    end
-    function CompressedChunk{Tv,-1}(i, vls, ofs) where Tv
-        @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
-        @assert issorted(ofs)
-        n = length(ofs) - 1
-        new{Tv,-1,Vector{Int}}(range(i,length=n), vls, ofs)
-    end
-end
-
 struct CompressedChunk0{Tv,N} <: AbstractCompressedChunk{Tv,0}
     idx::UnitRange{Int}
     vls::Vector{Tv}
@@ -303,9 +313,9 @@ end
 
 const CompressedBlockChunk{Tv,N} = Union{CompressedChunkN{Tv,N}, CompressedChunkVL{Tv,-1}}
 
-size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
+# size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
+# size2(_::CompressedChunk{Tv,N}) where {Tv,N}  = N
 size2(cc::CompressedChunk0)                   = 1
-size2(_::CompressedChunk{Tv,N}) where {Tv,N}  = N
 size2(_::CompressedChunkN{Tv,N}) where {Tv,N} = N
 function size2(cc::AbstractCompressedChunk)
     l = 0
@@ -329,8 +339,8 @@ Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc
 # Is there should be by values iteration or by blocks?
 Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}) where Tv = length(cc) > 0 ? (cc[1,1], 2) : nothing
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv = state <= length(cc) ? (cc[state,1], state+1) : nothing
+# Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}) where Tv = length(cc) > 0 ? (cc[1,1], 2) : nothing
+# Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv = state <= length(cc) ? (cc[state,1], state+1) : nothing
 
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc)], firstindex(cc)+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= lastindex(cc) ? (cc[state], state+1) : nothing
@@ -528,7 +538,7 @@ function Base.append!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv
     end
     return T(firstindex(cc), vls)
 end
-function Base.append!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv,T<:AbstractCompressedChunk{Tv,-1},C<:Union{AbstractVector,Tuple}}
+function Base.append!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv,T<:CompressedChunkVL{Tv},C<:Union{AbstractVector,Tuple}}
     vls = cc.vls
     ofs = cc.ofs
     for item in items
@@ -595,8 +605,7 @@ function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {T
     end
     return T(firstindex(cc)-len, vls)
 end
-function Base.prepend!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
-    items isa Tuple && (items = map(x -> convert(Tv, x), items))
+function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv,T<:CompressedChunkVL{Tv},C<:Union{AbstractVector,Tuple}}
     vls = cc.vls
     ofs = cc.ofs
     for item in items
