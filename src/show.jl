@@ -136,38 +136,38 @@ function Base.show(io::IOContext, x::DensedVLSparseVector)
 end
 
 
-function Base.show(io::IO, ::MIME"text/plain", x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
-    # print(io, length(x), "-element ", typeof(x))
-    print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
-    if length(x) != 0
-        println(io, ":")
-        show(IOContext(io, :typeinfo => eltype(x)), x)
-    end
-end
-function Base.show(io::IOContext, x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
-    if isempty(x)
-        return show(io, MIME("text/plain"), x)
-    end
-    limit = get(io, :limit, false)::Bool
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
-    end
-    for k = eachindex(x)
-        if k < half_screen_rows || k > length(x) - half_screen_rows
-            print(io, " ")
-            if isassigned(x, Int(k))
-                show(io, x[k,1])
-            else
-                print(io, Base.undef_ref_str)
-            end
-            k != length(x) && println(io)
-        elseif k == half_screen_rows
-            # println(io, "   ", " "^pad, "   \u22ee")
-            println(io, " \u22ee")
-        end
-    end
-end
+# function Base.show(io::IO, ::MIME"text/plain", x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
+#     # print(io, length(x), "-element ", typeof(x))
+#     print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
+#     if length(x) != 0
+#         println(io, ":")
+#         show(IOContext(io, :typeinfo => eltype(x)), x)
+#     end
+# end
+# function Base.show(io::IOContext, x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
+#     if isempty(x)
+#         return show(io, MIME("text/plain"), x)
+#     end
+#     limit = get(io, :limit, false)::Bool
+#     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+#     if !haskey(io, :compact)
+#         io = IOContext(io, :compact => true)
+#     end
+#     for k = eachindex(x)
+#         if k < half_screen_rows || k > length(x) - half_screen_rows
+#             print(io, " ")
+#             if isassigned(x, Int(k))
+#                 show(io, x[k,1])
+#             else
+#                 print(io, Base.undef_ref_str)
+#             end
+#             k != lastindex(x) && println(io)
+#         elseif k == half_screen_rows
+#             # println(io, "   ", " "^pad, "   \u22ee")
+#             println(io, " \u22ee")
+#         end
+#     end
+# end
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::AbstractCompressedChunk)
@@ -196,7 +196,7 @@ function Base.show(io::IOContext, x::AbstractCompressedChunk)
             else
                 print(io, Base.undef_ref_str)
             end
-            k != length(x) && println(io)
+            k != lastindex(x) && println(io)
         elseif k == half_screen_rows
             # println(io, "   ", " "^pad, "   \u22ee")
             println(io, " \u22ee")
