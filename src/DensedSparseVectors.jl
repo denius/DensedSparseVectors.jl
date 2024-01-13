@@ -274,7 +274,7 @@ struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
     vls::Vector{Tv}
     ofs::StepRangeLen{Int,Int,Int,Int}
 
-    CompressedChunkN{Tv,N}(i::Number, vls) where {Tv,N} = CompressedChunkN{Tv,N}(range(i, length=length(vls)), vls)
+    CompressedChunkN{Tv,N}(i::Number, vls) where {Tv,N} = CompressedChunkN{Tv,N}(range(i, length=div(length(vls),N)), vls)
     function CompressedChunkN{Tv,N}(r::UnitRange, vls) where {Tv,N}
         @assert mod(length(vls), N) == 0
         lenv = length(vls)
@@ -291,7 +291,7 @@ struct CompressedChunkVL{Tv,N} <: AbstractCompressedChunk{Tv,-1}
     ofs::Vector{Int}
 
     CompressedChunkVL{Tv,N}(i, vls, ofs) where {Tv,N} = CompressedChunkVL{Tv}(i, vls, ofs)
-    CompressedChunkVL{Tv}(i::Number, vls, ofs) where {Tv} = CompressedChunkVL{Tv}(range(i, length=length(vls)), vls, ofs)
+    CompressedChunkVL{Tv}(i::Number, vls, ofs) where {Tv} = CompressedChunkVL{Tv}(range(i, length=length(ofs)-1), vls, ofs)
     function CompressedChunkVL{Tv}(r::UnitRange, vls, ofs) where Tv
         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
         @assert issorted(ofs)
@@ -317,25 +317,27 @@ end
 
 @inline Base.in(i::Integer, cc::AbstractCompressedChunk) = in(i, cc.idx)
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ofs) - 1
-Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk)             = (length(cc), )
+Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk) = (length(cc), )
+Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc):lastindex(cc),)
+
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,N}) where {Tv,N}  = (length(cc), N)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkN{Tv,N}) where {Tv,N} = (length(cc), N)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,-1}) where Tv     = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkVL)                   = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
-# Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk, d) = axes(cc)[d]
 
 # Is there should be by values iteration or by blocks?
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[1,1], 2) : nothing
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0, state) = state <= length(cc) ? (cc[state,1], state+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}) where Tv = length(cc) > 0 ? (cc[1,1], 2) : nothing
 Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv = state <= length(cc) ? (cc[state,1], state+1) : nothing
 
-Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[1], 2) : nothing
-Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= length(cc) ? (cc[state], state+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc)], firstindex(cc)+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= lastindex(cc) ? (cc[state], state+1) : nothing
 
 @inline Base.firstindex(cc::AbstractCompressedChunk) = first(cc.idx)
-@inline Base.lastindex(cc::AbstractCompressedChunk) = last(cc.idx)-1
+@inline Base.lastindex(cc::AbstractCompressedChunk) = last(cc.idx)
+# @inline Base.eachindex(cc::AbstractCompressedChunk) = firstindex(cc):lastindex(cc)
 
 Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer, j::Integer)
     @boundscheck in(i, cc.idx)
@@ -355,6 +357,7 @@ end
 # Base.@propagate_inbounds _getindex(cc::CompressedChunkVL, i::Integer)                               = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
 
 Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.vls[cc.ofs[i]+j-1])
+Base.@propagate_inbounds _getindex(cc::CompressedChunk0, idx::Integer) = (i=idx-firstindex(cc)+1; cc.vls[i])
 Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]))
 
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, item, i::Integer, j::Integer)
@@ -392,16 +395,30 @@ Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, item,
     end
 end
 
-@inline blocklength(_::CompressedChunk0, i::Integer=1) = 1
-@inline blocklength(_::CompressedChunkN{Tv,N}, i::Integer=1) where {Tv,N} = N
+@inline blocklength(::CompressedChunk0, i::Integer=1) = 1
+@inline blocklength(::CompressedChunkN{Tv,N}, i::Integer=1) where {Tv,N} = N
 @inline blocklength(cc::AbstractCompressedChunk, i::Integer) = (idx = i-firstindex(cc)+1; cc.ofs[idx+1] - cc.ofs[idx])
 
 Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, item, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.vls[cc.ofs[i]+j-1] = item; item)
 
 
 Base.@propagate_inbounds _setindex!(cc::CompressedChunk0, item::Number, idx::Integer) = (i=idx-firstindex(cc)+1; cc.vls[i] = item; item)
-Base.@propagate_inbounds _setindex!(cc::AbstractCompressedChunk, item, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= item; item)
-
+Base.@propagate_inbounds _setindex!(cc::CompressedChunkN, item, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= item; item)
+Base.@propagate_inbounds function _setindex!(cc::CompressedChunkVL, item, idx::Integer)
+    i = idx-firstindex(cc)+1
+    if blocklength(cc, idx) == length(item)
+        @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= item
+    else #if blocklength(cc, idx) != length(item)
+        vls = cc.vls
+        ofs = cc.ofs
+        splice!(vls, ofs[i]:ofs[i+1]-1, item)
+        dif = (ofs[i+1]-ofs[i]) - length(item)
+        for k = i+1:length(ofs)
+            ofs[k] -= dif
+        end
+    end
+    return item
+end
 
 Base.push!(cc::T, item) where {T<:CompressedChunk0} = T(firstindex(cc), push!(cc.vls, item))
 function Base.push!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,N,T<:CompressedChunkN{Tv,N}}
@@ -661,21 +678,6 @@ function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-
     return (T(firstindex(cc), vls, ofs), T(idx+1, vls2, ofs2))
 end
 
-"`setindex!` either for non-stored `idx` element, either for element not match by length."
-function setblockindex!(cc::T, item, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
-    if blocklength(cc, idx) == length(item)
-        _getindex(cc, idx) .= item
-    else #if blocklength(cc, idx) != length(item)
-        vls = cc.vls
-        ofs = cc.ofs
-        splice!(vls, ofs[idx]:ofs[idx+1]-1, item)
-        dif = (ofs[idx+1]-ofs[idx]) - length(item)
-        for i = idx+1:length(ofs)
-            ofs[i] -= dif
-        end
-    end
-    return cc
-end
 
 # insert!
 # deleteat! -- to multiple delete use range or some other collection: deleteat!(collection, inds)
