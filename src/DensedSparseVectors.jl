@@ -263,67 +263,69 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk0{Tv,N} <: AbstractCompressedChunk{Tv,0}
-    idx::UnitRange{Int}
+struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
+    idx::UnitRange{Ti}
     vls::Vector{Tv}
     ofs::UnitRange{Int}
 
-    CompressedChunk0{Tv,N}(i, vls) where {Tv,N} = CompressedChunk0{Tv}(i, vls)
-    CompressedChunk0{Tv}(i::Number, vls) where Tv = CompressedChunk0{Tv}(range(i, length=length(vls)), vls)
-    function CompressedChunk0{Tv}(r::UnitRange, vls) where Tv
+    CompressedChunk0(i, vls) = CompressedChunk0{eltype(vls),eltype(i)}(i, vls)
+    CompressedChunk0{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk0{Tv,Ti}(i, vls)
+    CompressedChunk0{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(range(i, length=length(vls)), vls)
+    CompressedChunk0{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(UnitRange{Ti}(r), vls)
+    function CompressedChunk0{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
         n = length(vls)
         @assert length(r) == n
         ur = range(1, n+1)
-        new{Tv,0}(r, vls, ur)
+        new{Tv,0,Ti}(r, vls, ur)
     end
 end
 
-struct CompressedChunkN{Tv,N} <: AbstractCompressedChunk{Tv,N}
-    idx::UnitRange{Int}
+struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,N}
+    idx::UnitRange{Ti}
     # May be resizable Matrix{Tv}(N,m)? https://github.com/JuliaArrays/ElasticArrays.jl
     vls::Vector{Tv}
     ofs::StepRangeLen{Int,Int,Int,Int}
 
-    CompressedChunkN{Tv,N}(i::Number, vls) where {Tv,N} = CompressedChunkN{Tv,N}(range(i, length=div(length(vls),N)), vls)
-    function CompressedChunkN{Tv,N}(r::UnitRange, vls) where {Tv,N}
+    CompressedChunkN{Tv,Ti,N}(i::Number, vls) where {Tv,Ti,N} = CompressedChunkN{Tv,Ti,N}(range(i, length=div(length(vls),N)), vls)
+    function CompressedChunkN{Tv,Ti,N}(r::UnitRange, vls) where {Tv,Ti,N}
         @assert mod(length(vls), N) == 0
         lenv = length(vls)
         n = div(lenv, N)
         @assert length(r) == n
         srl = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
-        new{Tv,N}(r, vls, srl)
+        new{Tv,Ti,N}(UnitRange{Ti}(r), vls, srl)
     end
 end
 
-struct CompressedChunkVL{Tv,N} <: AbstractCompressedChunk{Tv,-1}
-    idx::UnitRange{Int}
+struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,-1}
+    idx::UnitRange{Ti}
     vls::Vector{Tv}
     ofs::Vector{Int}
 
-    CompressedChunkVL{Tv,N}(i, vls, ofs) where {Tv,N} = CompressedChunkVL{Tv}(i, vls, ofs)
-    CompressedChunkVL{Tv}(i::Number, vls, ofs) where {Tv} = CompressedChunkVL{Tv}(range(i, length=length(ofs)-1), vls, ofs)
-    function CompressedChunkVL{Tv}(r::UnitRange, vls, ofs) where Tv
+    CompressedChunkVL{Tv,Ti,N}(i, vls, ofs) where {Tv,Ti,N} = CompressedChunkVL{Tv,Ti}(i, vls, ofs)
+    CompressedChunkVL{Tv,Ti}(i::Number, vls, ofs) where {Tv,Ti} = CompressedChunkVL{Tv,Ti}(range(i, length=length(ofs)-1), vls, ofs)
+    function CompressedChunkVL{Tv,Ti}(r::UnitRange, vls, ofs) where {Tv,Ti}
         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
         @assert issorted(ofs)
         n = length(ofs) - 1
         @assert length(r) == n
-        new{Tv,-1}(r, vls, ofs)
+        new{Tv,Ti,-1}(UnitRange{Ti}(r), vls, ofs)
     end
 end
 
 const CompressedBlockChunk{Tv,N} = Union{CompressedChunkN{Tv,N}, CompressedChunkVL{Tv,-1}}
 
-# size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
-# size2(_::CompressedChunk{Tv,N}) where {Tv,N}  = N
-size2(cc::CompressedChunk0)                   = 1
-size2(_::CompressedChunkN{Tv,N}) where {Tv,N} = N
-function size2(cc::AbstractCompressedChunk)
-    l = 0
-    for i = 1:length(cc)
-        l = max(l, cc.ofs[i+1]-cc.ofs[i])
-    end
-    l
-end
+# # size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
+# # size2(_::CompressedChunk{Tv,N}) where {Tv,N}  = N
+# size2(cc::CompressedChunk0)                   = 1
+# size2(_::CompressedChunkN{Tv,N}) where {Tv,N} = N
+# function size2(cc::AbstractCompressedChunk)
+#     l = 0
+#     for i = 1:length(cc)
+#         l = max(l, cc.ofs[i+1]-cc.ofs[i])
+#     end
+#     l
+# end
 
 @inline Base.in(i::Integer, cc::AbstractCompressedChunk) = in(i, cc.idx)
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ofs) - 1
