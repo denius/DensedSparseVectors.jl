@@ -88,8 +88,9 @@ export is_broadcast_zero_preserve
 export get_iterable, iterateempty
 
 
-import Base: ForwardOrdering, Forward
-const FOrd = ForwardOrdering
+using Base.Order
+
+const FOrd = Base.Order.ForwardOrdering
 
 import Base.Broadcast: BroadcastStyle
 using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
@@ -1916,7 +1917,7 @@ end
 rawindex_advance(V::SparseVector) = firstrawindex(V)
 rawindex_advance(V::SparseVector, i) = first(i) < nnz(V) ? Pair(first(i) + oftype(first(i), 1), 1) : pastendrawindex(V)
 function rawindex_advance(V::SparseVector, i, step)
-    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    @boundscheck step >= 0 || throw(ArgumentError(LazyString("step ", step, " must be non-negative")))
     if first(i) + step - 1 < nnz(V)
         Pair(first(i) + oftype(first(i), min(nnz(V)-first(i)+1, step)), 1)
     else
@@ -1942,7 +1943,7 @@ function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair)
 end
 
 function rawindex_advance(V::AbstractAllDensedSparseVector, i::Pair, step)
-    @boundscheck step >= 0 || throw(ArgumentError("step $step must be non-negative"))
+    @boundscheck step >= 0 || throw(ArgumentError(LazyString("step", step, " must be non-negative")))
     step == 0 && return i
     if last(i) != 0
         indices = get_nzchunk_indices(V, first(i))
@@ -2841,7 +2842,7 @@ function _expand_full!(V::DynamicDensedSparseVector{Tv,Ti}) where {Tv,Ti}
     V.nnz = length(V)
     return V
 end
-_expand_full!(V::FixedDensedSparseVector) = throw(MethodError("attempt to reshape $(typeof(V)) vector"))
+_expand_full!(V::FixedDensedSparseVector) = throw(ArgumentError(LazyString("attempt to reshape ", typeof(V), " vector")))
 
 
 function Base.fill!(V::AbstractAllDensedSparseVector{Tv,Ti}, value) where {Tv,Ti}
@@ -3038,7 +3039,7 @@ function Base.empty!(V::DynamicDensedSparseVector)
     V.nnz = 0
     V
 end
-Base.empty!(V::FixedDensedSparseVector) = throw(MethodError("attempt to empty $(typeof(V)) vector"))
+Base.empty!(V::FixedDensedSparseVector) = throw(ArgumentError(LazyString("attempt to empty ", typeof(V), " vector")))
 
 
 #
