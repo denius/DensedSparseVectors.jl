@@ -13,6 +13,14 @@ const list_of_Tv_to_test = (Int, Float64)
 const list_of_containers_types_to_test = (DensedSparseVector, DynamicDensedSparseVector)
 #const list_of_containers_types_to_test = (DensedSparseVector, DensedSVSparseVector, DensedVLSparseVector, DynamicDensedSparseVector)
 
+@testset "CompressedChunk" begin
+    for Ti in list_of_Ti_to_test
+        for Tv in list_of_Tv_to_test
+            TypeCC = CompressedChunk0{$Tv,$Ti,0}
+            @eval cc = $TypeCC(10, $Ti[1,2,3,6,7], $Tv[2,4,6,8,10])
+        end
+    end
+end
 
 @testset "Broadcast" begin
     for Ti in list_of_Ti_to_test
