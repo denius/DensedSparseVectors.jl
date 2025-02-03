@@ -29,6 +29,9 @@
 #   `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
 #   Then there are may be type stable even for Tuple/Vector of iterators.
 #
+# * Try "An adaptive packed-memory array." algorithm used in https://github.com/atoptima/DynamicSparseArrays.jl.
+#   See also https://github.com/j-fu/ExtendableSparse.jl.
+#
 #
 #
 # Notes:
