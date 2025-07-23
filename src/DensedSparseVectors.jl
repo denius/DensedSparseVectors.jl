@@ -162,6 +162,7 @@ It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `Den
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
 
+# TODO: it should be `immutable`!
 $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)

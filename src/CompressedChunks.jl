@@ -81,6 +81,10 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
     end
 end
 
+# TODO: Not the one-starting views for the CompressedChunk to have
+# for DensedSparseVectors the ability to have this option.
+# It is possible via the OffsetArrays.jl
+
 """
 $(TYPEDEF)
 Struct fields:
