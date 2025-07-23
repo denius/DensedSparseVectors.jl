@@ -155,41 +155,6 @@ end
 
 abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
 
-# """
-# Parameterized storage:
-# `N = 0` -- scalar values stored in `vls`;
-# `N = number` -- vector blocks with length N stored in `vls`;
-# `N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
-#
-# $(TYPEDEF)
-# Struct fields:
-# $(TYPEDFIELDS)
-# """
-# struct CompressedChunk{Tv,N,R} <: AbstractCompressedChunk{Tv,N}
-#     idx::UnitRange{Int}
-#     vls::Vector{Tv}
-#     "Range{Int} or Vector{Int} with starts of block positions in `vls`, the `last(ofs)` points to afterlast element ov `vls`"
-#     # ofs::Union{MutableRange{Int,UnitRange{Int}}, MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}, Vector{Int}}
-#     ofs::R
-#
-#     function CompressedChunk{Tv,0}(i, vls) where Tv
-#         n = length(vls)
-#         new{Tv,0,MutableRange{Int,UnitRange{Int}}}(range(i,length=n), vls, mrange(1, n+1))
-#     end
-#     function CompressedChunk{Tv,N}(i, vls) where {Tv,N}
-#         @assert mod(length(vls), N) == 0
-#         lenv = length(vls)
-#         n = div(lenv, N)
-#         mlr = MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}(StepRangeLen{Int,Int,Int,Int}(1,N,n+1))
-#         new{Tv,N,MutableRange{Int,StepRangeLen{Int,Int,Int,Int}}}(range(i,length=n), vls, mlr)
-#     end
-#     function CompressedChunk{Tv,-1}(i, vls, ofs) where Tv
-#         @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
-#         @assert issorted(ofs)
-#         n = length(ofs) - 1
-#         new{Tv,-1,Vector{Int}}(range(i,length=n), vls, ofs)
-#     end
-# end
 
 """
 Parameterized storage:
