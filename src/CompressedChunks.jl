@@ -316,7 +316,9 @@ end
 
 
 function Base.pushfirst!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,N,T<:AbstractCompressedChunk{Tv,N}}
-    @boundscheck length(items) == N
+    @boundscheck if N != 0
+        @boundscheck length(items) == N
+    end
     items isa Tuple && (items = map(x -> convert(Tv, x), items))
     vls = cc.vls
     prepend!(vls, items)
