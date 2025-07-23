@@ -56,6 +56,10 @@ for fast access to the start positions of blocks in the chunk.
 abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
 
 
+# TODO: Not the one-starting views for the CompressedChunk to have
+# for DensedSparseVectors the ability to have this option.
+# It is possible via the OffsetArrays.jl
+
 """
 $(TYPEDEF)
 Struct fields:
@@ -80,10 +84,6 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
         new{Tv,0,Ti}(r, vls, ur)
     end
 end
-
-# TODO: Not the one-starting views for the CompressedChunk to have
-# for DensedSparseVectors the ability to have this option.
-# It is possible via the OffsetArrays.jl
 
 """
 $(TYPEDEF)
