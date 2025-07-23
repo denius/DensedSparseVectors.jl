@@ -1,7 +1,11 @@
 
+"""
+_CompressedChunk_ is an minimal continuous storage "block" in DensedSparseVector,
+i.e. CompressedChunk is the continuous non-zeros data between "sparse holes".
+"""
 module CompressedChunks
 
-export AbstractCompressedChunk, CompressedChunk0, CompressedChunkN, CompressedChunkVL
+export AbstractCompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkN, CompressedChunkVL
 
 
 import Base.Broadcast: BroadcastStyle
@@ -21,23 +25,33 @@ using Random
 
 """
 The _Compressed Chunk_ types are the structs like the `Vector`
-with continuously stored blocks,
+with continuously stored blocks (or scalars as blocks with N=1),
 but the `getindex` and another operations are for the blocks.
 
-Parameterized storage:
+One-dimensional `getindex` will always return `view` on block.
+Two-dimensional `getindex` will return an value of block at the
+_second_index_. The behavior of `setindex` is similar.
 
-`N = 0` -- scalar values stored in `vls`, i.e. blocks length N = 1.
+Parameterized type storage:
 
-Or may be
-In this case the struct store only one block in chunk,
-thus it can be imagine as N = length(cc.vls);
+`N = 0` -- In this case the CompressedChunk store only one block in chunk,
+thus it can be imagine as N = length(cc.vls) (useless?);
+
+`N = 1` -- scalar values stored in `vls`, i.e. blocks length N = 1.
 
 `N = number` -- vector blocks with length N stored in `vls`;
 
 `N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
 
+`idx` is the UnitRange with the first and last indices of blocks in current chunk:
+`firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
+`idx` can be considered as offset axes.
+Useful for fast access to the blocks indices without the math and the length evaluations.
+
 `ofs` is the unified interface for all AbstractCompressedChunk to have the indices
-for fast access to the start positions of blocks in chunk.
+for fast access to the start positions of blocks in the chunk.
+
+`vls` is the Vector which continuously store all block/scalar values.
 """
 abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
 
@@ -60,6 +74,32 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
     CompressedChunk0{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(range(i, length=length(vls)), vls)
     CompressedChunk0{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(UnitRange{Ti}(r), vls)
     function CompressedChunk0{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
+        n = length(vls)
+        @assert length(r) == n
+        ur = range(1, n+1)
+        new{Tv,0,Ti}(r, vls, ur)
+    end
+end
+
+"""
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
+struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
+    # TODO: FIXME redo from CompressedChunk0
+    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
+    idx::UnitRange{Ti}
+    "the blocks are stored continuously in `vls`"
+    vls::Vector{Tv}
+    "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
+    ofs::UnitRange{Int}
+
+    CompressedChunk1(i, vls) = CompressedChunk1{eltype(vls),eltype(i)}(i, vls)
+    CompressedChunk1{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk1{Tv,Ti}(i, vls)
+    CompressedChunk1{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(range(i, length=length(vls)), vls)
+    CompressedChunk1{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(UnitRange{Ti}(r), vls)
+    function CompressedChunk1{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
         n = length(vls)
         @assert length(r) == n
         ur = range(1, n+1)
@@ -107,6 +147,12 @@ struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,-1}
 end
 
 const CompressedBlockChunk{Tv,N} = Union{CompressedChunkN{Tv,N}, CompressedChunkVL{Tv,-1}}
+
+
+#
+# TODO: Refactor all code below as the CompressedChunk0 and CompressedChunk1 are the distinct types
+# and thus there is no reason for separate functions -- all functions should be AbstractCompressedChunk only!
+#
 
 # # size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
 # # size2(_::CompressedChunk{Tv,N}) where {Tv,N}  = N
