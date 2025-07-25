@@ -39,10 +39,15 @@ The iterator will return the view on blocks.
 
 Parameterized type storage:
 
+`N = ''` -- scalar values stored in `vls`, i.e. blocks length N = 1.
+
 `N = 0` -- In this case the CompressedChunk store only one block in chunk,
-thus it can be imagine as N = length(cc.vls) (Is it useless?);
+thus it can be imagine as N = length(cc.vls) (IS IT USELESS?);
 
 `N = 1` -- scalar values stored in `vls`, i.e. blocks length N = 1.
+IS IT NEED??? There is exist CompressedChunkN{Tv,Ti,1}!!!!!
+The only small advantage is the some faster `ofs` calculation
+because UnitRange nor StepRangeLen.
 
 `N = number` -- vector blocks with length N stored in `vls`;
 
@@ -95,7 +100,7 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,0}
         if vls isa Vector{Tv}
             new{Tv,Ti,0}(r, ur, vls)
         else
-            throw(MethodError(CompressedChunk0{Tv,Ti}, r, vls))
+            throw(MethodError(CompressedChunk0{Tv,Ti}, (r, vls)))
         end
     end
 end
@@ -126,7 +131,7 @@ struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
         if vls isa Vector{Tv}
             new{Tv,Ti,1}(r, ur, vls)
         else
-            throw(MethodError(CompressedChunk1{Tv,Ti}, r, vls))
+            throw(MethodError(CompressedChunk1{Tv,Ti}, (r, vls)))
         end
     end
 end
@@ -159,7 +164,7 @@ struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
         if vls isa Vector{Tv}
             new{Tv,Ti,1}(r, ur, vls)
         else
-            throw(MethodError(CompressedChunk{Tv,Ti}, r, vls))
+            throw(MethodError(CompressedChunk{Tv,Ti}, (r, vls)))
         end
     end
 end
@@ -181,6 +186,7 @@ struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
 
+    CompressedChunkN(i, vls, N::Number) = CompressedChunkN{eltype(vls),eltype(i),N}(i, vls)
     CompressedChunkN{Tv,Ti,N}(i::Number, vls) where {Tv,Ti,N} = CompressedChunkN{Tv,Ti,N}(range(i, length=div(length(vls),N)), vls)
     function CompressedChunkN{Tv,Ti,N}(r::UnitRange, vls) where {Tv,Ti,N}
         @assert mod(length(vls), N) == 0
@@ -188,7 +194,11 @@ struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
         n = div(lenv, N)
         @assert length(r) == n
         srl = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
-        new{Tv,Ti,N}(UnitRange{Ti}(r), srl, vls)
+        if vls isa Vector{Tv}
+            new{Tv,Ti,N}(UnitRange{Ti}(r), srl, vls)
+        else
+            throw(MethodError(CompressedChunkN{Tv,Ti,N}, (UnitRange{Ti}(r), srl, vls)))
+        end
     end
 end
 
