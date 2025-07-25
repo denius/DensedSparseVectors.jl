@@ -25,11 +25,11 @@ using Random
 
 
 """
-The _Compressed Chunk_ types are the structs like the `Vector`
+The _Compressed Chunk_ types are the structs like the `OffsetVector`
 with continuously stored blocks (or scalars as blocks with L=1),
 but the `getindex` and another operations are for the blocks.
 
-I.e. it is the Vector of Vectors structure.
+I.e. CompressedChunk is the OffsetVector of Vectors structure.
 
 One-dimensional `getindex` will always return `view` on block.
 Two-dimensional `getindex` will return an value in the block at the
@@ -40,6 +40,7 @@ The iterator will return the view on blocks.
 Parameterized type storage:
 
 `L = ''` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+The iterators will returns scalars nor blocks.
 
 `L = 0` -- In this case the CompressedChunk store only one block in chunk,
 thus it can be imagine as L = length(cc.vls) (IS IT USELESS?);
@@ -56,10 +57,10 @@ because UnitRange nor StepRangeLen.
 `idx` is the UnitRange{Ti} with the first and last indices of blocks in current chunk:
 `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
 `idx` can be considered as offset axes.
-Useful for fast access to the blocks indices without the math and the length evaluations.
+It is useful for fast access to the blocks indices without the math and the length evaluations.
 
 `ofs` is the unified interface for all AbstractCompressedChunk to have the indices
-for fast access to the start positions of blocks in the chunk.
+for fast access to the start positions of blocks in the storage `vls`.
 
 `vls` is the Vector which continuously store all block/scalar values.
 """
@@ -225,11 +226,15 @@ struct CompressedChunkVL{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,-1}
         @assert issorted(ofs)
         n = length(ofs) - 1
         @assert length(r) == n
-        new{Tv,Ti,-1}(UnitRange{Ti}(r), ofs, vls)
+        if vls isa Vector{Tv} && ofs isa Vector{Int}
+            new{Tv,Ti,-1}(UnitRange{Ti}(r), ofs, vls)
+        else
+            throw(MethodError(CompressedChunkVL{Tv,Ti,-1}, (UnitRange{Ti}(r), ofs, vls)))
+        end
     end
 end
 
-const CompressedBlockChunk{Tv,Ti,L} = Union{CompressedChunkN0{Tv,Ti,0}, CompressedChunkN1{Tv,Ti,1}, CompressedChunkL{Tv,Ti,L}, CompressedChunkVL{Tv,Ti,-1}}
+const CompressedBlockChunk{Tv,Ti,L} = Union{CompressedChunk0{Tv,Ti,0}, CompressedChunk1{Tv,Ti,1}, CompressedChunkL{Tv,Ti,L}, CompressedChunkVL{Tv,Ti,-1}}
 
 
 #
@@ -260,11 +265,9 @@ Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkVL)                   = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
 
-# There should be only by blocks iterations.
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk0, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
-# Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}) where Tv = length(cc) > 0 ? (cc[1,1], 2) : nothing
-# Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{Tv,0}, state) where Tv = state <= length(cc) ? (cc[state,1], state+1) : nothing
+# There should be only by blocks iterations except `CompressedChunk`.
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
 
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc)], firstindex(cc)+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= lastindex(cc) ? (cc[state], state+1) : nothing
@@ -298,7 +301,7 @@ Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, it
     _setindex!(cc, item, i, j)
 end
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, item, i::Integer)
-    # FIXME: What are to return in *BLOCK* assingment function?
+    # FIXME: What should be returned in the *BLOCK* assignment function?
     @boundscheck in(i, cc)
     _setindex!(cc, item, i)
 end
@@ -312,7 +315,7 @@ Base.@propagate_inbounds function issetindex!(cc::AbstractCompressedChunk, item,
     end
 end
 
-Base.@propagate_inbounds function issetindex!(cc::CompressedChunk0, item::Number, i::Integer)
+Base.@propagate_inbounds function issetindex!(cc::CompressedChunk, item::Number, i::Integer)
     if in(i, cc)
         _setindex!(cc, item, i)
         return true
@@ -331,7 +334,7 @@ end
 
 @inline blocklength(cc::CompressedChunk0, _::Integer=1) = length(cc.ofs) - 1
 @inline blocklength(::CompressedChunk1, _::Integer=1) = 1
-@inline blocklength(::CompressedChunkL{Tv,L}, i::Integer=1) where {Tv,L} = L
+@inline blocklength(::CompressedChunkL{Tv,Ti,L}, i::Integer=1) where {Tv,Ti,L} = L
 @inline blocklength(cc::AbstractCompressedChunk, i::Integer) = (idx = i-firstindex(cc)+1; cc.ofs[idx+1] - cc.ofs[idx])
 
 Base.@propagate_inbounds function _setindex!(cc::AbstractCompressedChunk{Tv}, item, idx::Integer, j::Integer) where Tv
@@ -353,14 +356,24 @@ Base.@propagate_inbounds function _setindex!(cc::CompressedChunk0{Tv}, item, idx
     return Tv(item);
 end
 
-Base.@propagate_inbounds function _setindex!(cc::CompressedChunk1{Tv}, item, idx::Integer) where Tv
+Base.@propagate_inbounds function _setindex!(cc::CompressedChunk{Tv}, item, idx::Integer) where Tv
     i = idx-firstindex(cc)+1
     cc.vls[i] = Tv(item)
 end
 
-Base.@propagate_inbounds function _setindex!(cc::CompressedChunkL, item, idx::Integer)
+Base.@propagate_inbounds function _setindex!(cc::CompressedChunkL{Tv}, item::Tv, idx::Integer) where Tv
     i = idx-firstindex(cc)+1
     @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= item
+    item
+end
+Base.@propagate_inbounds function _setindex!(cc::CompressedChunkL{Tv}, item::Union{AbstractVector{Tv},AbstractRange{Tv}}, idx::Integer) where Tv
+    i = idx-firstindex(cc)+1
+    @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= item
+    item
+end
+Base.@propagate_inbounds function _setindex!(cc::CompressedChunkL{Tv}, item, idx::Integer) where Tv
+    i = idx-firstindex(cc)+1
+    @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1]) .= Tv.(item)
     item
 end
 
