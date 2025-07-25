@@ -74,10 +74,10 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,0}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "the only one block is the whole `vls`"
-    vls::Vector{Tv}
     "in this case the `ofs` refers to the 1 and the past last position in `vls`"
     ofs::UnitRange{Int}
+    "the only one block is the whole `vls`"
+    vls::Vector{Tv}
 
     # Note: during creating CompressedChunk0 via constructor the Vector with values `vls`
     # should be appropriate type of Vector{Tv} if CompressedChunk0{Tv}(...., vls) wass called.
@@ -93,7 +93,7 @@ struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,0}
         @assert length(r) == n
         ur = range(1, n+1)
         if vls isa Vector{Tv}
-            new{Tv,Ti,0}(r, vls, ur)
+            new{Tv,Ti,0}(r, ur, vls)
         else
             throw(MethodError(CompressedChunk0{Tv,Ti}, r, vls))
         end
@@ -110,10 +110,10 @@ struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
     "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
     ofs::UnitRange{Int}
+    "the blocks are stored continuously in `vls`"
+    vls::Vector{Tv}
 
     CompressedChunk1(i, vls) = CompressedChunk1{eltype(vls),eltype(i)}(i, vls)
     CompressedChunk1{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk1{Tv,Ti}(i, vls)
@@ -124,7 +124,7 @@ struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
         @assert length(r) == n
         ur = range(1, n+1)
         if vls isa Vector{Tv}
-            new{Tv,Ti,1}(r, vls, ur)
+            new{Tv,Ti,1}(r, ur, vls)
         else
             throw(MethodError(CompressedChunk1{Tv,Ti}, r, vls))
         end
@@ -143,10 +143,10 @@ struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
     "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
     ofs::UnitRange{Int}
+    "the blocks are stored continuously in `vls`"
+    vls::Vector{Tv}
 
     CompressedChunk(i, vls) = CompressedChunk{eltype(vls),eltype(i)}(i, vls)
     CompressedChunk{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk{Tv,Ti}(i, vls)
@@ -157,7 +157,7 @@ struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
         @assert length(r) == n
         ur = range(1, n+1)
         if vls isa Vector{Tv}
-            new{Tv,Ti,1}(r, vls, ur)
+            new{Tv,Ti,1}(r, ur, vls)
         else
             throw(MethodError(CompressedChunk{Tv,Ti}, r, vls))
         end
@@ -175,11 +175,11 @@ $(TYPEDFIELDS)
 struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
+    "the `ofs` refers to the start positions of blocks in `vls`"
+    ofs::StepRangeLen{Int,Int,Int,Int}
     # May be resizable Matrix{Tv}(N,m)? https://github.com/JuliaArrays/ElasticArrays.jl
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
-    "the `ofs` refers to the start positions of blocks in `vls`"
-    ofs::StepRangeLen{Int,Int,Int,Int}
 
     CompressedChunkN{Tv,Ti,N}(i::Number, vls) where {Tv,Ti,N} = CompressedChunkN{Tv,Ti,N}(range(i, length=div(length(vls),N)), vls)
     function CompressedChunkN{Tv,Ti,N}(r::UnitRange, vls) where {Tv,Ti,N}
@@ -188,7 +188,7 @@ struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
         n = div(lenv, N)
         @assert length(r) == n
         srl = StepRangeLen{Int,Int,Int,Int}(1,N,n+1)
-        new{Tv,Ti,N}(UnitRange{Ti}(r), vls, srl)
+        new{Tv,Ti,N}(UnitRange{Ti}(r), srl, vls)
     end
 end
 
@@ -203,10 +203,10 @@ $(TYPEDFIELDS)
 struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,-1}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
     "in `ofs` stored the start positions of blocks in `vls`. And in the last position store after the last index of `vls`"
     ofs::Vector{Int}
+    "the blocks are stored continuously in `vls`"
+    vls::Vector{Tv}
 
     CompressedChunkVL{Tv,Ti,N}(i, vls, ofs) where {Tv,Ti,N} = CompressedChunkVL{Tv,Ti}(i, vls, ofs)
     CompressedChunkVL{Tv,Ti}(i::Number, vls, ofs) where {Tv,Ti} = CompressedChunkVL{Tv,Ti}(range(i, length=length(ofs)-1), vls, ofs)
@@ -215,7 +215,7 @@ struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,-1}
         @assert issorted(ofs)
         n = length(ofs) - 1
         @assert length(r) == n
-        new{Tv,Ti,-1}(UnitRange{Ti}(r), vls, ofs)
+        new{Tv,Ti,-1}(UnitRange{Ti}(r), ofs, vls)
     end
 end
 
