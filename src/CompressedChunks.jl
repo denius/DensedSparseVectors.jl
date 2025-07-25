@@ -66,24 +66,35 @@ Struct fields:
 $(TYPEDFIELDS)
 """
 struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
-    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
+    "the indices of first block and last block in chunk:
+     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     "the only one block is the whole `vls`"
     vls::Vector{Tv}
     "in this case the `ofs` refers to the 1 and the past last position in `vls`"
     ofs::UnitRange{Int}
 
+    # Note: during creating CompressedChunk0 via constructor the Vector with values `vls`
+    # should be appropriate type of Vector{Tv} if CompressedChunk0{Tv}(...., vls) wass called.
+    # In this case Vector{Tv} with values vls will be included in
+    # new CompressedChunk0 like the SparseVector() do.
+    # Else MethodError.
     CompressedChunk0(i, vls) = CompressedChunk0{eltype(vls),eltype(i)}(i, vls)
     CompressedChunk0{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk0{Tv,Ti}(i, vls)
-    CompressedChunk0{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(range(i, length=length(vls)), vls)
+    CompressedChunk0{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(range(i, length=1), vls)
     CompressedChunk0{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(UnitRange{Ti}(r), vls)
     function CompressedChunk0{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
-        n = length(vls)
+        n = 1
         @assert length(r) == n
         ur = range(1, n+1)
-        new{Tv,0,Ti}(r, vls, ur)
+        if vls isa Vector{Tv}
+            new{Tv,Ti,0}(r, vls, ur)
+        else
+            throw(MethodError(CompressedChunk0{Tv,Ti}, r, vls))
+        end
     end
 end
+
 
 """
 $(TYPEDEF)
@@ -91,8 +102,8 @@ Struct fields:
 $(TYPEDFIELDS)
 """
 struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
-    # TODO: FIXME redo from CompressedChunk0
-    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
+    "the indices of first block and last block in chunk:
+     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
@@ -107,12 +118,17 @@ struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
         n = length(vls)
         @assert length(r) == n
         ur = range(1, n+1)
-        new{Tv,0,Ti}(r, vls, ur)
+        if vls isa Vector{Tv}
+            new{Tv,Ti,1}(r, vls, ur)
+        else
+            throw(MethodError(CompressedChunk1{Tv,Ti}, r, vls))
+        end
     end
 end
 
+
 """
-Almost the same as `CompressedChunk1`, but iterates by scalars nor blocks.
+Almost the same as `CompressedChunk1`, but iterators returns scalars nor blocks.
 
 $(TYPEDEF)
 Struct fields:
@@ -178,7 +194,7 @@ struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,-1}
     end
 end
 
-const CompressedBlockChunk{Tv,N} = Union{CompressedChunkN{Tv,N}, CompressedChunkVL{Tv,-1}}
+const CompressedBlockChunk{Tv,Ti,N} = Union{CompressedChunkN0{Tv,Ti,0}, CompressedChunkN1{Tv,Ti,1}, CompressedChunkN{Tv,Ti,N}, CompressedChunkVL{Tv,Ti,-1}}
 
 
 #
