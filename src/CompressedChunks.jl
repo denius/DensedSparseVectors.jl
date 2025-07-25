@@ -5,7 +5,8 @@ i.e. CompressedChunk is the continuous non-zeros data between "sparse holes".
 """
 module CompressedChunks
 
-export AbstractCompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkN, CompressedChunkVL
+export AbstractCompressedChunk
+export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkN, CompressedChunkVL
 
 
 import Base.Broadcast: BroadcastStyle
@@ -139,8 +140,8 @@ Struct fields:
 $(TYPEDFIELDS)
 """
 struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
-    # TODO: FIXME redo from CompressedChunk0
-    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
+    "the indices of first block and last block in chunk:
+     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
@@ -155,10 +156,22 @@ struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
         n = length(vls)
         @assert length(r) == n
         ur = range(1, n+1)
-        new{Tv,0,Ti}(r, vls, ur)
+        if vls isa Vector{Tv}
+            new{Tv,Ti,1}(r, vls, ur)
+        else
+            throw(MethodError(CompressedChunk{Tv,Ti}, r, vls))
+        end
     end
 end
 
+
+"""
+CompressedChunk with blocks with length N.
+
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
 struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
@@ -179,6 +192,14 @@ struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
     end
 end
 
+
+"""
+CompressedChunk with blocks with variable lengths.
+
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
 struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,-1}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
