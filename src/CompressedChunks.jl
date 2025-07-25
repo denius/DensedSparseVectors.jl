@@ -28,14 +28,18 @@ The _Compressed Chunk_ types are the structs like the `Vector`
 with continuously stored blocks (or scalars as blocks with N=1),
 but the `getindex` and another operations are for the blocks.
 
+I.e. it is the Vector of Vectors structure.
+
 One-dimensional `getindex` will always return `view` on block.
 Two-dimensional `getindex` will return an value in the block at the
-_second_index_. The behavior of `setindex!` is similar.
+_second_index_ position. The behavior of `setindex!` is similar.
+
+The iterator will return the view on blocks.
 
 Parameterized type storage:
 
 `N = 0` -- In this case the CompressedChunk store only one block in chunk,
-thus it can be imagine as N = length(cc.vls) (useless?);
+thus it can be imagine as N = length(cc.vls) (Is it useless?);
 
 `N = 1` -- scalar values stored in `vls`, i.e. blocks length N = 1.
 
@@ -43,7 +47,7 @@ thus it can be imagine as N = length(cc.vls) (useless?);
 
 `N = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
 
-`idx` is the UnitRange with the first and last indices of blocks in current chunk:
+`idx` is the UnitRange{Ti} with the first and last indices of blocks in current chunk:
 `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
 `idx` can be considered as offset axes.
 Useful for fast access to the blocks indices without the math and the length evaluations.
@@ -53,7 +57,7 @@ for fast access to the start positions of blocks in the chunk.
 
 `vls` is the Vector which continuously store all block/scalar values.
 """
-abstract type AbstractCompressedChunk{Tv,N} <: AbstractVector{Tv} end
+abstract type AbstractCompressedChunk{Tv,Ti,N} <: AbstractVector{Tv} end
 
 
 # TODO: Not the one-starting views for the CompressedChunk to have
@@ -65,7 +69,7 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,0}
+struct CompressedChunk0{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,0}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
@@ -101,7 +105,7 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
+struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
@@ -134,7 +138,7 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
+struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,1}
     # TODO: FIXME redo from CompressedChunk0
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
@@ -155,7 +159,7 @@ struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
     end
 end
 
-struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,N}
+struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,N}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     # May be resizable Matrix{Tv}(N,m)? https://github.com/JuliaArrays/ElasticArrays.jl
@@ -175,7 +179,7 @@ struct CompressedChunkN{Tv,Ti,N} <: AbstractCompressedChunk{Tv,N}
     end
 end
 
-struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,-1}
+struct CompressedChunkVL{Tv,Ti,N} <: AbstractCompressedChunk{Tv,Ti,-1}
     "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     "the blocks are stored continuously in `vls`"
@@ -363,7 +367,7 @@ function Base.push!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:Comp
 end
 
 
-function Base.pushfirst!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,N,T<:AbstractCompressedChunk{Tv,N}}
+function Base.pushfirst!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,N,T<:AbstractCompressedChunk{Tv,Ti,N}}
     @boundscheck if N != 0
         @boundscheck length(items) == N
     end
@@ -582,7 +586,7 @@ end
 
 
 "Delete specified element with index `idx` and thus split vector `cc` in two parts and retuns them in tuple."
-function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv}}
+function splitat!(cc::T, idx::Integer) where {T<:AbstractCompressedChunk}
     vls = cc.vls
     ofs = cc.ofs
     pos = Int(idx - first(vls.idx) + 1)
@@ -590,7 +594,7 @@ function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv}}
     resize!(vls, ofs[pos]-1)
     return (T(firstindex(cc), vls), T(idx+1, vls2))
 end
-function splitat!(cc::T, idx::Integer) where {Tv,T<:AbstractCompressedChunk{Tv,-1}}
+function splitat!(cc::T, idx::Integer) where {Tv,Ti,T<:AbstractCompressedChunk{Tv,Ti,-1}}
     vls = cc.vls
     ofs = cc.ofs
     pos = Int(idx - first(vls.idx) + 1)
