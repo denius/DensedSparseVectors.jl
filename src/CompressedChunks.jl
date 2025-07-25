@@ -29,8 +29,8 @@ with continuously stored blocks (or scalars as blocks with N=1),
 but the `getindex` and another operations are for the blocks.
 
 One-dimensional `getindex` will always return `view` on block.
-Two-dimensional `getindex` will return an value of block at the
-_second_index_. The behavior of `setindex` is similar.
+Two-dimensional `getindex` will return an value in the block at the
+_second_index_. The behavior of `setindex!` is similar.
 
 Parameterized type storage:
 
@@ -104,6 +104,34 @@ struct CompressedChunk1{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
     CompressedChunk1{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(range(i, length=length(vls)), vls)
     CompressedChunk1{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(UnitRange{Ti}(r), vls)
     function CompressedChunk1{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
+        n = length(vls)
+        @assert length(r) == n
+        ur = range(1, n+1)
+        new{Tv,0,Ti}(r, vls, ur)
+    end
+end
+
+"""
+Almost the same as `CompressedChunk1`, but iterates by scalars nor blocks.
+
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
+struct CompressedChunk{Tv,Ti,N} <: AbstractCompressedChunk{Tv,1}
+    # TODO: FIXME redo from CompressedChunk0
+    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
+    idx::UnitRange{Ti}
+    "the blocks are stored continuously in `vls`"
+    vls::Vector{Tv}
+    "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
+    ofs::UnitRange{Int}
+
+    CompressedChunk(i, vls) = CompressedChunk{eltype(vls),eltype(i)}(i, vls)
+    CompressedChunk{Tv,Ti,N}(i, vls) where {Tv,N,Ti} = CompressedChunk{Tv,Ti}(i, vls)
+    CompressedChunk{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk{Tv,Ti}(range(i, length=length(vls)), vls)
+    CompressedChunk{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk{Tv,Ti}(UnitRange{Ti}(r), vls)
+    function CompressedChunk{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
         n = length(vls)
         @assert length(r) == n
         ur = range(1, n+1)
