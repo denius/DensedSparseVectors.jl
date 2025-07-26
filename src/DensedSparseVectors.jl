@@ -94,7 +94,7 @@ export is_broadcast_zero_preserve
 export get_iterable, iterateempty
 
 
-using Base.Order
+using Base.Order # there is also Base.Order.Forward
 
 const FOrd = Base.Order.ForwardOrdering
 
@@ -154,6 +154,58 @@ end
 # end
 
 
+"""
+The `UniversalDensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
+It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
+is almost the same as on the `Vector`, but the speed by direct index access is almost few times
+slower then the for `Vector`'s one.
+
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
+struct UniversalDensedSparseVector{TL,Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
+    "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
+    lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
+    "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
+    nzchunks::Vector{CompressedChunk{TL,Tv,Ti}}
+    "Vector length. Avoid using this value, use `length` or `axes` instead."
+    nn::Ref{Ti}
+
+    DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
+        new{Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{TL,Tv,Ti}}(), Ref{Ti}(Ti(n)))
+
+end
+
+
+"""
+The `DynamicDensedSparseVector` is alike the `SparseVector` but should have the almost all indices are consecuitive stored.
+The speed of `Broadcasting` on `DynamicDensedSparseVector` is almost the same as
+on the `Vector` excluding the cases where the indices are wide broaded and
+there is no consecuitive ranges of indices. The speed by direct index access is ten or
+more times slower then the for `Vector`'s one. The main purpose of this type is
+the construction of the `DynamicDensedSparseVector` vectors with further conversion to `DensedSparseVector`.
+$(TYPEDEF)
+Struct fields:
+$(TYPEDFIELDS)
+"""
+struct DynamicDensedSparseVector{TL,Tv,Ti} <: AbstractSDictDensedSparseVector{Tv,Ti}
+    "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
+    lastused::MVector{1,ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
+    "Storage for indices of the first element of non-zero chunks and corresponding CompressedChunk as `SortedDict(Int=>CompressedChunk)`"
+    nzchunks::SortedDict{Ti,CompressedChunk{TL,Tv,Ti},FOrd}
+    "Vector length. Avoid using this value, use `length` or `axes` instead."
+    nn::Ref{Ti}
+
+    function DynamicDensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti}
+        nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Forward)
+        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
+    end
+
+    DynamicDensedSparseVector{Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
+        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0), false)
+
+end
 
 
 """
@@ -162,34 +214,30 @@ It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `Den
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
 
-# TODO: it should be `immutable`!
 $(TYPEDEF)
-Mutable struct fields:
+Struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
-    "Index of last used chunk"
-    lastused::ChunkLastUsed{Ti,Int}
-    "Storage for indices of the non-zero chunks"
-    nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's indices
-    "Storage for chunks of non-zero values as `Vector` of `Vector`s"
-    nzchunks::Vector{Vector{Tv}}
-    "Vector length"
-    n::Ti
-    #"Vector range, `firstindex(V) = first(V.axes1)` and so on"
-    # see https://github.com/JuliaArrays/CustomUnitRanges.jl
-    #axes1::UnitRange{Ti}
-    "Number of stored non-zero elements"
-    nnz::Int
-    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
-    zpbc::Bool
+struct DensedSparseVector{Tv,Ti} <: AbstractSimpleDensedSparseVector{Tv,Ti}
+    "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
+    lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
+    "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
+    nzchunks::Vector{CompressedChunk{Tv,Ti,1}}
+    "Vector length. Avoid using this value, use `length` or `axes` instead."
+    nn::Ref{Ti}
 
     DensedSparseVector{Tv,Ti}(n::Integer = 0) where {Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), n, 0, false)
+        new{Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{Tv,Ti,1}}(), Ref{Ti}(Ti(n)))
 
-    DensedSparseVector{Tv,Ti}(n::Integer, nzranges, nzchunks) where {Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, n, foldl((s,c)->(s+length(c)), nzchunks; init=0), false)
+end
 
+function DensedSparseVector{Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector{TV}) where {Tv,Ti,TR<:AbstractRange,TV<:AbstractVector}
+    V = DensedSparseVector{Tv,Ti}(n)
+    for (ids, nzvls) in zip(nzranges, nzchunks)
+        @assert length(ids) == length(nzvls)
+        append!(V.nzchunks, CompressedChunk{Tv,Ti}(Ti(first(ids)), Vector{Tv}(nzvls)) )
+    end
+    V
 end
 
 
