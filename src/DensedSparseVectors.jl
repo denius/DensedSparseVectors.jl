@@ -78,10 +78,17 @@ module DensedSparseVectors
 
 include("CompressedChunks.jl")
 using .CompressedChunks
+# reexport CompressedChunks
+export AbstractCompressedChunk
+export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
+export field_ofs_type
 
-export AbstractDensedCompressedVector
+export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynamicDensedSparseVector
 export DensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
+export DSV_0, DSV_1, DSV_L, DSV_VL, DDSV_0, DDSV_1, DDSV_L, DDSV_VL
+export ChunkLastUsed
+
 export nzpairs, nzpairsview, nzblocks, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export startindex
 export rawindex, from_rawindex, rawindex_advance, rawindex_possible_advance, rawindex_compare, rawindex_view
@@ -232,6 +239,16 @@ struct DynamicDensedSparseVector{L,Tv,Ti,TCC} <: AbstractDynamicDensedSparseVect
         new{L,Tv,Ti,Tcc}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, Ref{Ti}(Ti(n)))
 
 end
+
+const DSV_0{L,Tv,Ti}   = DensedSparseVector{0,Tv,Ti,CompressedChunk{0,Tv,Ti,UnitRange{Int}}}
+const DSV_1{L,Tv,Ti}   = DensedSparseVector{1,Tv,Ti,CompressedChunk{1,Tv,Ti,UnitRange{Int}}}
+const DSV_L{L,Tv,Ti}   = DensedSparseVector{L,Tv,Ti,CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}}
+const DSV_VL{L,Tv,Ti}  = DensedSparseVector{-1,Tv,Ti,Vector{Int}}
+
+const DDSV_0{L,Tv,Ti}  = DynamicDensedSparseVector{0,Tv,Ti,CompressedChunk{0,Tv,Ti,UnitRange{Int}}}
+const DDSV_1{L,Tv,Ti}  = DynamicDensedSparseVector{1,Tv,Ti,CompressedChunk{1,Tv,Ti,UnitRange{Int}}}
+const DDSV_L{L,Tv,Ti}  = DynamicDensedSparseVector{L,Tv,Ti,CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}}
+const DDSV_VL{L,Tv,Ti} = DynamicDensedSparseVector{-1,Tv,Ti,Vector{Int}}
 
 
 
@@ -447,7 +464,7 @@ end
 
 is_broadcast_zero_preserve(V::AbstractDensedCompressedVector) = V.zpbc
 
-Base.length(V::AbstractDensedCompressedVector) = getfield(V, :n)
+Base.length(V::AbstractDensedCompressedVector) = V.nn[]
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} =
         foldl((s,c)->(s+Int(length(c))), nzchunks(V); init=Int(0))
 Base.@propagate_inbounds SparseArrays.nnz(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} = nnz(parent(V))

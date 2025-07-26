@@ -5,7 +5,7 @@
 # derived from stdlib/SparseArrays/src/sparsevector.jl
 #
 
-function quick_get_max_pad(V::AbstractAllDensedSparseVector)
+function quick_get_max_pad(V::AbstractDensedCompressedVector)
     pad = 0
     for (indices, _) in nzchunkspairs(V)
         pad = max(pad, ndigits(first(indices)), ndigits(last(indices)))
@@ -13,7 +13,7 @@ function quick_get_max_pad(V::AbstractAllDensedSparseVector)
     pad
 end
 
-function Base.show(io::IOContext, x::AbstractDensedSparseVector)
+function Base.show(io::IOContext, x::AbstractDensedCompressedVector)
     n = length(x)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
