@@ -189,12 +189,12 @@ struct DensedSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
     "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
-    nzchunks::Vector{CompressedChunk{L,Tv,Ti,field_ofs_type(L)}}
+    nzchunks::Vector{CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}}
     "Vector length. Avoid using this value, use `length` or `axes` instead."
     nn::Ref{Ti}
 
     DensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti} =
-        new{L,Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{L,Tv,Ti,field_ofs_type(L)}}(), Ref{Ti}(Ti(n)))
+        new{L,Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}}(), Ref{Ti}(Ti(n)))
 
 end
 
@@ -214,12 +214,12 @@ struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractDynamicDensedSparseVector{L
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
     "Storage for indices of the first element of non-zero chunks and corresponding CompressedChunk as `SortedDict(Int=>CompressedChunk)`"
-    nzchunks::SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ofs_type(L)},FOrd}
+    nzchunks::SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))},FOrd}
     "Vector length. Avoid using this value, use `length` or `axes` instead."
     nn::Ref{Ti}
 
     function DynamicDensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
-        nzchunks = SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ofs_type(L)},FOrd}(Base.Order.Forward)
+        nzchunks = SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))},FOrd}(Base.Order.Forward)
         new{L,Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
     end
 

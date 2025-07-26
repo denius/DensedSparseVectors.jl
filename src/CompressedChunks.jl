@@ -88,7 +88,7 @@ abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
     elseif N == 1
         return UnitRange{Int}
     else
-        return StepRangeLen{Int, Int, Int}
+        return StepRangeLen{Int, Int, Int, Int}
     end
 end
 
@@ -107,6 +107,10 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
 
+    function CompressedChunk{L,Tv,Ti,TO}(idx::UnitRange{Ti}, ofs::TO, vls::Vector{Tv}) where {L,Tv,Ti,TO}
+        # TODO: checks sizes via asserts
+        return new{L,Tv,Ti,TO}(idx, ofs, vls)
+    end
 
     CompressedChunk(i::Number, vls) = CompressedChunk(range(i, length=length(vls)), vls)
     CompressedChunk(i::UnitRange, vls) = CompressedChunk{0,eltype(vls),eltype(i),field_ofs_type(Val(0))}(i, vls)
@@ -162,12 +166,26 @@ end
 
 const CompressedChunk0{L,Tv,Ti} = CompressedChunk{0,Tv,Ti,UnitRange{Int}}
 const CompressedChunk1{L,Tv,Ti} = CompressedChunk{1,Tv,Ti,UnitRange{Int}}
-const CompressedChunkL{L,Tv,Ti} = CompressedChunk{L,Tv,Ti,StepRangeLen{Int, Int, Int}}
+const CompressedChunkL{L,Tv,Ti} = CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}
 const CompressedChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
 
 const CompressedScalarChunk{L,Tv,Ti} = Union{CompressedChunk0{Tv,Ti}}
 const CompressedBlockChunk{L,Tv,Ti} = Union{CompressedChunk1{Tv,Ti}, CompressedChunkL{L,Tv,Ti}, CompressedChunkVL{Tv,Ti}}
 
+
+function Base.similar(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
+    idx = copy(cc.idx)
+    ofs = copy(cc.ofs)
+    vls = similar(cc.vls)
+    return CompressedChunk{L,Tv,Ti,TO}(idx, ofs, vls)
+end
+
+function Base.copy(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
+    idx = copy(cc.idx)
+    ofs = copy(cc.ofs)
+    vls = copy(cc.vls)
+    return CompressedChunk{L,Tv,Ti,TO}(idx, ofs, vls)
+end
 
 #
 # TODO: Refactor all code below as the CompressedChunk{0} and CompressedChunk1 are the distinct types
