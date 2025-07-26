@@ -192,10 +192,10 @@ end
 # and thus there is no reason for separate functions -- all functions should be AbstractCompressedChunk only!
 #
 
-# # size2(cc::CompressedChunk{Tv,0}) where {Tv}   = 1
-# # size2(_::CompressedChunk{Tv,L}) where {Tv,L}  = L
+# # size2(cc::CompressedChunk{0,Tv}) where {Tv}   = 1
+# # size2(_::CompressedChunk{L,Tv}) where {L,Tv}  = L
 # size2(cc::CompressedChunk{0})                   = 1
-# size2(_::CompressedChunkL{Tv,L}) where {Tv,L} = L
+# size2(_::CompressedChunkL{L,Tv}) where {L,Tv} = L
 # function size2(cc::AbstractCompressedChunk)
 #     l = 0
 #     for i = 1:length(cc)
@@ -209,9 +209,9 @@ Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.of
 Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk) = (length(cc), )
 Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc):lastindex(cc),)
 
-# Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,L}) where {Tv,L}  = (length(cc), L)
-# Base.@propagate_inbounds Base.size(cc::CompressedChunkL{Tv,L}) where {Tv,L} = (length(cc), L)
-# Base.@propagate_inbounds Base.size(cc::CompressedChunk{Tv,-1}) where Tv     = (length(cc), size2(cc))
+# Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv}  = (length(cc), L)
+# Base.@propagate_inbounds Base.size(cc::CompressedChunkL{L,Tv}) where {L,Tv} = (length(cc), L)
+# Base.@propagate_inbounds Base.size(cc::CompressedChunk{-1,Tv}) where Tv     = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{-1})                   = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
 
@@ -236,11 +236,11 @@ Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::
 end
 
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{0}, i::Integer, j::Integer)                    = cc.vls[i]
-# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{Tv,L}, i::Integer, j::Integer) where {Tv,L} = cc.vls[(i-1)*L + j]
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{L,Tv}, i::Integer, j::Integer) where {L,Tv} = cc.vls[(i-1)*L + j]
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{-1}, i::Integer, j::Integer)                   = cc.vls[cc.ofs[i]+j-1]
 #
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{0}, i::Integer)                                = @view(cc.vls[i:i])
-# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{Tv,L}, i::Integer) where {Tv,L}             = @view(cc.vls[1+(i-1)*L:i*L])
+# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{L,Tv}, i::Integer) where {L,Tv}             = @view(cc.vls[1+(i-1)*L:i*L])
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{-1}, i::Integer)                               = @view(cc.vls[cc.ofs[i]:cc.ofs[i+1]-1])
 
 Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.vls[cc.ofs[i]+j-1])
@@ -343,7 +343,7 @@ Base.@propagate_inbounds function _setindex!(cc::CompressedChunk{-1}, item, idx:
 end
 
 Base.push!(cc::T, item) where {T<:CompressedChunk{0}} = T(firstindex(cc), push!(cc.vls, item))
-function Base.push!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,L,T<:CompressedChunk{L,Tv}}
+function Base.push!(cc::T, items::Union{AbstractVector,Tuple}) where {L,Tv,T<:CompressedChunk{L,Tv}}
     @boundscheck length(items) == L
     items isa Tuple && (items = map(x -> convert(Tv, x), items))
     vls = cc.vls
@@ -507,7 +507,7 @@ function Base.prepend!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:C
     prepend!(vls, items)
     return T(firstindex(cc)-length(items), vls)
 end
-function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv,L,T<:CompressedChunkL{Tv,L},C<:Union{AbstractVector,Tuple}}
+function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {L,Tv,T<:CompressedChunkL{L,Tv},C<:Union{AbstractVector,Tuple}}
     vls = cc.vls
     len = 0
     for item in items
@@ -587,7 +587,7 @@ function splitat!(cc::T, idx::Integer) where {T<:AbstractCompressedChunk}
     resize!(vls, ofs[pos]-1)
     return (T(firstindex(cc), vls), T(idx+1, vls2))
 end
-function splitat!(cc::T, idx::Integer) where {Tv,Ti,T<:AbstractCompressedChunk{Tv,Ti,-1}}
+function splitat!(cc::T, idx::Integer) where {Tv,Ti,T<:AbstractCompressedChunk{-1,Tv,Ti}}
     vls = cc.vls
     ofs = cc.ofs
     pos = Int(idx - first(vls.idx) + 1)
