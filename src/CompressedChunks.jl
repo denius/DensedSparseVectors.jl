@@ -39,16 +39,20 @@ The iterator will return the view on blocks.
 
 Parameterized type storage:
 
-`L = ''` -- scalar values stored in `vls`, i.e. blocks length L = 1.
-The iterators will returns scalars nor blocks.
+~~`L = ''` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+The iterators will returns scalars nor blocks.~~
 
-`L = 0` -- In this case the CompressedChunk store only one block in chunk,
-thus it can be imagine as L = length(cc.vls) (IS IT USELESS?);
+~~`L = 0` -- In this case the CompressedChunk store only one block in chunk,
+thus it can be imagine as L = length(cc.vls) (IS IT USELESS?);~~
+
+`L = 0` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+Almost the same as `L = 1`, but iterators will returns scalars nor blocks.
 
 `L = 1` -- scalar values stored in `vls`, i.e. blocks length L = 1.
-IS IT NEED??? There is exist CompressedChunkL{Tv,Ti,1}!!!!!
-The only small advantage is the some faster `ofs` calculation
-because UnitRange nor StepRangeLen.
+IS IT NEED separate `L = 1` if there is exist `L = 0` for scalars???
+There is exist common CompressedChunk{1,Tv,Ti}!!!!!
+The only small advantage over common CompressedChunk{L} is the some faster `ofs`
+calculation because UnitRange nor StepRangeLen.
 
 `L = number` -- vector blocks with length L stored in `vls`;
 
@@ -59,12 +63,12 @@ because UnitRange nor StepRangeLen.
 `idx` can be considered as offset axes.
 It is useful for fast access to the blocks indices without the math and the length evaluations.
 
-`ofs` is the unified interface for all AbstractCompressedChunk to have the indices
+`ofs` is the unified interface for all AbstractCompressedChunk to have the `Int` indices
 for fast access to the start positions of blocks in the storage `vls`.
 
-`vls` is the Vector which continuously store all block/scalar values.
+`vls` is the Vector{Tv} which continuously stored all block/scalar values.
 """
-abstract type AbstractCompressedChunk{Tv,Ti,L} <: AbstractVector{Tv} end
+abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
 
 
 # TODO: Not the one-starting views for the CompressedChunk to have
@@ -72,170 +76,91 @@ abstract type AbstractCompressedChunk{Tv,Ti,L} <: AbstractVector{Tv} end
 # See https://docs.julialang.org/en/v1/devdocs/offset-arrays/
 # It is possible via the OffsetArrays.jl
 
+
+
+" Evaluate type for `ofs` field of `struct CompressedChunk` during compilation"
+@inline function field_ofs_type(::Val{N}) where {N}
+    if N == -1
+        return Vector{Int}
+    elseif N == 0
+        return UnitRange{Int}
+    elseif N == 1
+        return UnitRange{Int}
+    else
+        return StepRangeLen{Int, Int, Int}
+    end
+end
+
 """
 $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk0{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,0}
+struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
     "the indices of first block and last block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "in this case the `ofs` refers to the 1 and the past last position in `vls`"
-    ofs::UnitRange{Int}
-    "the only one block is the whole `vls`"
-    vls::Vector{Tv}
-
-    # Note: during creating CompressedChunk0 via constructor the Vector with values `vls`
-    # should be appropriate type of Vector{Tv} if CompressedChunk0{Tv}(...., vls) wass called.
-    # In this case Vector{Tv} with values vls will be included in
-    # new CompressedChunk0 like the SparseVector() do.
-    # Else MethodError.
-    CompressedChunk0(i, vls) = CompressedChunk0{eltype(vls),eltype(i)}(i, vls)
-    CompressedChunk0{Tv,Ti,L}(i, vls) where {Tv,L,Ti} = CompressedChunk0{Tv,Ti}(i, vls)
-    CompressedChunk0{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(range(i, length=1), vls)
-    CompressedChunk0{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk0{Tv,Ti}(UnitRange{Ti}(r), vls)
-    function CompressedChunk0{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
-        n = 1
-        @assert length(r) == n
-        ur = range(1, n+1)
-        if vls isa Vector{Tv}
-            new{Tv,Ti,0}(r, ur, vls)
-        else
-            throw(MethodError(CompressedChunk0{Tv,Ti}, (r, vls)))
-        end
-    end
-end
-
-
-"""
-$(TYPEDEF)
-Struct fields:
-$(TYPEDFIELDS)
-"""
-struct CompressedChunk1{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,1}
-    "the indices of first block and last block in chunk:
-     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
-    idx::UnitRange{Ti}
-    "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
-    ofs::UnitRange{Int}
+    "`ofs` refers to start positions of each block in `vls`. And in the last position store after the last index of `vls`"
+    #ofs::UnitRange{Int}
+    ofs::TO
     "the blocks are stored continuously in `vls`"
     vls::Vector{Tv}
 
-    CompressedChunk1(i, vls) = CompressedChunk1{eltype(vls),eltype(i)}(i, vls)
-    CompressedChunk1{Tv,Ti,L}(i, vls) where {Tv,L,Ti} = CompressedChunk1{Tv,Ti}(i, vls)
-    CompressedChunk1{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(range(i, length=length(vls)), vls)
-    CompressedChunk1{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk1{Tv,Ti}(UnitRange{Ti}(r), vls)
-    function CompressedChunk1{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
-        n = length(vls)
-        @assert length(r) == n
-        ur = range(1, n+1)
-        if vls isa Vector{Tv}
-            new{Tv,Ti,1}(r, ur, vls)
-        else
-            throw(MethodError(CompressedChunk1{Tv,Ti}, (r, vls)))
+
+    CompressedChunk(i::Number, vls) = CompressedChunk(range(i, length=length(vls)), vls)
+    CompressedChunk(i::UnitRange, vls) = CompressedChunk{0,eltype(vls),eltype(i),field_ofs_type(Val(0))}(i, vls)
+
+    CompressedChunk{L}(i, vls) where L = CompressedChunk{L,eltype(vls),eltype(i),field_ofs_type(Val(L))}(i, vls)
+
+    function CompressedChunk{L}(i::Number, vls) where L
+        if L == 0 || (L == -1 && length(vls) == 0)
+            CompressedChunk{L,eltype(vls),eltype(i),field_ofs_type(Val(L))}(range(i, length=length(vls)), vls)
+        elseif L > 0
+            CompressedChunk{L,eltype(vls),eltype(i),field_ofs_type(Val(L))}(range(i, length=div(length(vls), L)), vls)
+        else # if L == -1
+            throw(MethodError(CompressedChunk{L}, (i, vls)))
         end
     end
+
+    function CompressedChunk{L,Tv,Ti,TO}(r::UnitRange, vls) where {L,Tv,Ti,TO}
+        if L < 0 || !isa(vls, Vector{Tv})
+            throw(MethodError(CompressedChunk{L,Tv,Ti,TO}, (r, vls)))
+        end
+        if L == 0 || L == 1
+            n = length(vls)
+            @assert length(r) == n
+            ur = range(1, n+1)
+            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), ur, vls)
+        elseif L > 0
+            @assert mod(length(vls), L) == 0
+            lenv = length(vls)
+            n = div(lenv, L)
+            @assert length(r) == n
+            srl = StepRangeLen{Int,Int,Int,Int}(1,L,n+1)
+            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), srl, vls)
+        else#if L == -1
+            # create empty CompressedChunk{-1}
+            @assert length(r) == 0 && length(vls) == 0
+            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), Int[1], vls)
+        #else#if L == -1
+        #    @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
+        #    @assert issorted(ofs)
+        #    n = length(ofs) - 1
+        #    @assert length(r) == n
+        #    if vls isa Vector{Tv} && ofs isa Vector{Int}
+        #        new{-1,Tv,Ti}(UnitRange{Ti}(r), ofs, vls)
+        #    else
+        #        throw(MethodError(CompressedChunkVL{-1,Tv,Ti}, (UnitRange{Ti}(r), ofs, vls)))
+        #    end
+        end
+    end
+
 end
 
 
-"""
-Almost the same as `CompressedChunk1`, but iterators returns scalars nor blocks.
 
-$(TYPEDEF)
-Struct fields:
-$(TYPEDFIELDS)
-"""
-struct CompressedChunk{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,1}
-    "the indices of first block and last block in chunk:
-     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
-    idx::UnitRange{Ti}
-    "in this case the `ofs` refers to each position in `vls`, and the past last position in `vls`"
-    ofs::UnitRange{Int}
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
-
-    CompressedChunk(i, vls) = CompressedChunk{eltype(vls),eltype(i)}(i, vls)
-    CompressedChunk{Tv,Ti,L}(i, vls) where {Tv,L,Ti} = CompressedChunk{Tv,Ti}(i, vls)
-    CompressedChunk{Tv,Ti}(i::Number, vls) where {Tv,Ti} = CompressedChunk{Tv,Ti}(range(i, length=length(vls)), vls)
-    CompressedChunk{Tv,Ti}(r::UnitRange, vls) where {Tv,Ti} = CompressedChunk{Tv,Ti}(UnitRange{Ti}(r), vls)
-    function CompressedChunk{Tv,Ti}(r::UnitRange{Ti}, vls) where {Tv,Ti}
-        n = length(vls)
-        @assert length(r) == n
-        ur = range(1, n+1)
-        if vls isa Vector{Tv}
-            new{Tv,Ti,1}(r, ur, vls)
-        else
-            throw(MethodError(CompressedChunk{Tv,Ti}, (r, vls)))
-        end
-    end
-end
-
-
-"""
-CompressedChunk with blocks with length L.
-
-$(TYPEDEF)
-Struct fields:
-$(TYPEDFIELDS)
-"""
-struct CompressedChunkL{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,L}
-    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
-    idx::UnitRange{Ti}
-    "the `ofs` refers to the start positions of blocks in `vls`"
-    ofs::StepRangeLen{Int,Int,Int,Int}
-    # May be resizable Matrix{Tv}(L,m)? https://github.com/JuliaArrays/ElasticArrays.jl
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
-
-    CompressedChunkL(i, vls, L::Number) = CompressedChunkL{eltype(vls),eltype(i),L}(i, vls)
-    CompressedChunkL{Tv,Ti,L}(i::Number, vls) where {Tv,Ti,L} = CompressedChunkL{Tv,Ti,L}(range(i, length=div(length(vls),L)), vls)
-    function CompressedChunkL{Tv,Ti,L}(r::UnitRange, vls) where {Tv,Ti,L}
-        @assert mod(length(vls), L) == 0
-        lenv = length(vls)
-        n = div(lenv, L)
-        @assert length(r) == n
-        srl = StepRangeLen{Int,Int,Int,Int}(1,L,n+1)
-        if vls isa Vector{Tv}
-            new{Tv,Ti,L}(UnitRange{Ti}(r), srl, vls)
-        else
-            throw(MethodError(CompressedChunkL{Tv,Ti,L}, (UnitRange{Ti}(r), srl, vls)))
-        end
-    end
-end
-
-
-"""
-CompressedChunk with blocks with variable lengths.
-
-$(TYPEDEF)
-Struct fields:
-$(TYPEDFIELDS)
-"""
-struct CompressedChunkVL{Tv,Ti,L} <: AbstractCompressedChunk{Tv,Ti,-1}
-    "the indices of first block and last block in chunk: `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
-    idx::UnitRange{Ti}
-    "in `ofs` stored the start positions of blocks in `vls`. And in the last position store after the last index of `vls`"
-    ofs::Vector{Int}
-    "the blocks are stored continuously in `vls`"
-    vls::Vector{Tv}
-
-    CompressedChunkVL{Tv,Ti,L}(i, vls, ofs) where {Tv,Ti,L} = CompressedChunkVL{Tv,Ti}(i, vls, ofs)
-    CompressedChunkVL{Tv,Ti}(i::Number, vls, ofs) where {Tv,Ti} = CompressedChunkVL{Tv,Ti}(range(i, length=length(ofs)-1), vls, ofs)
-    function CompressedChunkVL{Tv,Ti}(r::UnitRange, vls, ofs) where {Tv,Ti}
-        @assert first(ofs) == 1 && last(ofs) - 1 == length(vls)
-        @assert issorted(ofs)
-        n = length(ofs) - 1
-        @assert length(r) == n
-        if vls isa Vector{Tv} && ofs isa Vector{Int}
-            new{Tv,Ti,-1}(UnitRange{Ti}(r), ofs, vls)
-        else
-            throw(MethodError(CompressedChunkVL{Tv,Ti,-1}, (UnitRange{Ti}(r), ofs, vls)))
-        end
-    end
-end
-
-const CompressedBlockChunk{Tv,Ti,L} = Union{CompressedChunk0{Tv,Ti,0}, CompressedChunk1{Tv,Ti,1}, CompressedChunkL{Tv,Ti,L}, CompressedChunkVL{Tv,Ti,-1}}
+const CompressedScalarChunk{L,Tv,Ti,TO} = Union{CompressedChunk{0,Tv,Ti,TO}}
+const CompressedBlockChunk{L,Tv,Ti,TO} = Union{CompressedChunk{1,Tv,Ti,TO}, CompressedChunk{L,Tv,Ti,TO}, CompressedChunk{-1,Tv,Ti,TO}}
 
 
 #
@@ -266,9 +191,9 @@ Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkVL)                   = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
 
-# There should be only by blocks iterations except `CompressedChunk`.
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
-Base.@propagate_inbounds Base.iterate(cc::CompressedChunk, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
+# There should be only by blocks iterations except `CompressedChunk{0}`.
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{0}) = length(cc) > 0 ? (cc[firstindex(cc),1], firstindex(cc)+1) : nothing
+Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{0}, state) = state <= lastindex(cc) ? (cc[state,1], state+1) : nothing
 
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc)], firstindex(cc)+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= lastindex(cc) ? (cc[state], state+1) : nothing
@@ -408,7 +333,7 @@ function Base.push!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:Comp
     append!(vls, items)
     ofs = cc.ofs
     push!(ofs, last(ofs) + length(items))
-    return T(firstindex(cc), vls, ofs)
+    return T(firstindex(cc), ofs, vls)
 end
 
 
@@ -431,7 +356,7 @@ function Base.pushfirst!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<
     for i = 2:length(ofs)
         ofs[i] += len
     end
-    return T(firstindex(cc)-1, vls, ofs)
+    return T(firstindex(cc)-1, ofs, vls)
 end
 
 "Return a `CompressedChunk` consisting of all but the first component of `cc`."
@@ -455,7 +380,7 @@ function tail!(cc::T) where {Tv,T<:CompressedChunkVL{Tv}}
     for i = 1:length(ofs)
         ofs[i] -= L
     end
-    return T(firstindex(cc)+1, vls, ofs)
+    return T(firstindex(cc)+1, ofs, vls)
 end
 
 "Return a `CompressedChunk` consisting of all but the last component of `cc`."
@@ -480,7 +405,7 @@ function front!(cc::T) where {Tv,T<:CompressedChunkVL{Tv}}
     len = length(vls) - L
     resize!(vls, len)
     pop!(ofs)
-    return T(firstindex(cc), vls, ofs)
+    return T(firstindex(cc), ofs, vls)
 end
 
 
@@ -511,7 +436,7 @@ function Base.append!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {Tv
         append!(vls, item)
         push!(ofs, last(ofs) + length(item))
     end
-    return T(firstindex(cc), vls, ofs)
+    return T(firstindex(cc), ofs, vls)
 end
 function Base.append!(cc::T, items::AbstractCompressedChunk) where {T<:AbstractCompressedChunk}
     vls = cc.vls
@@ -527,7 +452,7 @@ function Base.append!(cc::T, items::AbstractCompressedChunk) where {T<:Compresse
     for i = len+1+1:length(ofs)
         ofs[i] += ofs[i-1] - 1
     end
-    return T(firstindex(cc), vls, ofs)
+    return T(firstindex(cc), ofs, vls)
 end
 function Base.append!(cc::T, iter) where {T<:AbstractCompressedChunk}
     vls = cc.vls
@@ -545,7 +470,7 @@ function Base.append!(cc::T, iter) where {T<:CompressedChunkVL}
         push!(vls, item)
     end
     push!(ofs, last(ofs) + n)
-    return T(firstindex(cc), vls, ofs)
+    return T(firstindex(cc), ofs, vls)
 end
 
 
@@ -582,7 +507,7 @@ function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {T
             ofs[i] += L
         end
     end
-    return T(firstindex(cc)-length(items), vls, ofs)
+    return T(firstindex(cc)-length(items), ofs, vls)
 end
 function Base.prepend!(cc::T, items::AbstractCompressedChunk) where {T<:AbstractCompressedChunk}
     vls = cc.vls
@@ -601,7 +526,7 @@ function Base.prepend!(cc::T, items::AbstractCompressedChunk) where {T<:Compress
     for i = len+1+1:length(ofs)
         ofs[i] += ofs[i-1] - 1
     end
-    return T(firstindex(cc)-len, vls, ofs)
+    return T(firstindex(cc)-len, ofs, vls)
 end
 function Base.prepend!(cc::T, iter) where {T<:AbstractCompressedChunk}
     vls = cc.vls
@@ -626,7 +551,7 @@ function Base.prepend!(cc::T, iter) where {T<:CompressedChunkVL}
     for i = 2:length(ofs)
         ofs[i] += n
     end
-    return T(firstindex(cc)-n, vls, ofs)
+    return T(firstindex(cc)-n, ofs, vls)
 end
 
 
