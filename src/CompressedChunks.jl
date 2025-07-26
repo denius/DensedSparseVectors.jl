@@ -25,51 +25,9 @@ using Random
 
 
 
-"""
-The _Compressed Chunk_ types are the structs like the `OffsetVector`
-with continuously stored blocks (or scalars as blocks with L=1),
-but the `getindex` and another operations are for the blocks.
-
-I.e. CompressedChunk is the OffsetVector of Vectors structure.
-
-One-dimensional `getindex` will always return `view` on block.
-Two-dimensional `getindex` will return an value in the block at the
-_second_index_ position. The behavior of `setindex!` is similar.
-
-The iterator will return the view on blocks.
-
-Parameterized type storage:
-
-~~`L = ''` -- scalar values stored in `vls`, i.e. blocks length L = 1.
-The iterators will returns scalars nor blocks.~~
-
-~~`L = 0` -- In this case the CompressedChunk store only one block in chunk,
-thus it can be imagine as L = length(cc.vls) (IS IT USELESS?);~~
-
-`L = 0` -- scalar values stored in `vls`, i.e. blocks length L = 1.
-Almost the same as `L = 1`, but iterators will returns scalars instead of blocks.
-
-`L = 1` -- scalar values stored in `vls`, i.e. blocks length L = 1.
-IS IT NEED separate `L = 1` if there is exist `L = 0` for scalars???
-There is exist common CompressedChunk{1,Tv,Ti}!!!!!
-The only small advantage over common CompressedChunk{L} is the some faster `ofs`
-calculation because UnitRange instead StepRangeLen.
-
-`L = number` -- vector blocks with length L stored in `vls`;
-
-`L = -1` -- variable length blocks stored in `vls`, in `ofs` stored the starts of blocks in `vls`.
-
-`idx` is the UnitRange{Ti} with the first and last indices of blocks in current chunk:
-`firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
-`idx` can be considered as offset axes.
-It is useful for fast access to the blocks indices without the math and the length evaluations.
-
-`ofs` is the unified interface for all AbstractCompressedChunk to have the `Int` indices
-for fast access to the start positions of blocks in the storage `vls`.
-
-`vls` is the Vector{Tv} which continuously stored all block/scalar values.
-"""
 abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
+
+# TODO: Try https://github.com/JuliaArrays/HybridArrays.jl as the storage.
 
 
 # TODO: Not the one-starting views for the CompressedChunk to have
@@ -92,7 +50,65 @@ abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
     end
 end
 
+
 """
+The _Compressed Chunk_ types are the structs like the `OffsetVector`
+with continuously stored blocks (or scalars as blocks with L=1),
+but the `getindex` and another operations are for the blocks.
+
+I.e. CompressedChunk is the OffsetVector of Vectors structure.
+
+One-dimensional `getindex` will always return `view` on block.
+Two-dimensional `getindex` will return an value in the block at the
+_second_index_ position. The behavior of `setindex!` is similar.
+
+The iterator will return the view on blocks.
+
+`struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}`
+is an universal struct which properties are determined by type parameters.
+
+## Parameterized type storage:
+
+~~`L = ''` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+The iterators will returns scalars nor blocks.~~
+
+~~`L = 0` -- In this case the CompressedChunk store only one block in chunk,
+thus it can be imagine as L = length(cc.vls) (IS IT USELESS?);~~
+
+`L = 0` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+Almost the same as `L = 1`, but iterators will returns scalars instead of blocks.
+
+`L = 1` -- scalar values stored in `vls`, i.e. blocks length L = 1.
+IS IT NEED separate `L = 1` if there is exist `L = 0` for scalars???
+There is exist common CompressedChunk{1,Tv,Ti}!!!!!
+The only small advantage over common CompressedChunk{L} is the some faster `ofs`
+calculation because UnitRange instead StepRangeLen.
+
+`L = number` -- vector blocks with length L stored in `vls`;
+
+`L = -1` -- variable length blocks stored in `vls`,
+in `ofs` stored the starts of blocks in `vls`.
+
+## Other parameters
+
+`Tv` and `Ti` are the type of stored values and type of its indices.
+
+`TO` is the type for internal storage for offsets `ofs`. It is different for different `L`,
+and can't be evaluated at compilation time, thus it calculated by `field_ofs_type(Val(L))`
+at creating.
+
+## Internals
+
+`idx` is the UnitRange{Ti} with the first and last indices of blocks in current chunk:
+`firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
+`idx` can be considered as offset axes.
+It is useful for fast access to the blocks indices without the math and the length evaluations.
+
+`ofs` is the unified interface for all AbstractCompressedChunk to have the `Int` indices
+for fast access to the start positions of blocks in the storage `vls`.
+
+`vls` is the Vector{Tv} which continuously stored all block/scalar values.
+
 $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
@@ -108,7 +124,7 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
     vls::Vector{Tv}
 
     function CompressedChunk{L,Tv,Ti,TO}(idx::UnitRange{Ti}, ofs::TO, vls::Vector{Tv}) where {L,Tv,Ti,TO}
-        # TODO: checks sizes via asserts
+        # TODO: checks sizes via asserts. Check alignment of idx, ofs and vls.
         return new{L,Tv,Ti,TO}(idx, ofs, vls)
     end
 
