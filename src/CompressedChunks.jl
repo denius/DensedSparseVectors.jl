@@ -69,6 +69,7 @@ abstract type AbstractCompressedChunk{Tv,Ti,L} <: AbstractVector{Tv} end
 
 # TODO: Not the one-starting views for the CompressedChunk to have
 # for DensedSparseVectors the ability to have this option.
+# See https://docs.julialang.org/en/v1/devdocs/offset-arrays/
 # It is possible via the OffsetArrays.jl
 
 """
