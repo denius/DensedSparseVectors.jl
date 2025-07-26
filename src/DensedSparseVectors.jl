@@ -98,7 +98,7 @@ export firstnziterator, pastendnziterator
 export findfirstnz, findlastnz, findfirstnzindex, findlastnzindex
 export iterate_nzpairs, iterate_nzpairsview, iterate_nzvalues, iterate_nzvaluesview, iterate_nzindices
 export is_broadcast_zero_preserve
-export get_iterable, iterateempty
+export get_iterable
 
 
 using Base.Order # there is also Base.Order.Forward
@@ -232,7 +232,7 @@ struct DynamicDensedSparseVector{L,Tv,Ti,TCC} <: AbstractDynamicDensedSparseVect
     function DynamicDensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
         Tcc = CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}
         nzchunks = SortedDict{Ti,Tcc,FOrd}(Base.Order.Forward)
-        new{L,Tv,Ti,Tcc}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
+        new{L,Tv,Ti,Tcc}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, Ref{Ti}(Ti(n)))
     end
 
     DynamicDensedSparseVector{L,Tv,Ti}(n::Integer, nzchunks::SortedDict{Ti,Tcc}) where {L,Tv,Ti,Tcc<:AbstractCompressedChunk{L,Tv,Ti}} =
