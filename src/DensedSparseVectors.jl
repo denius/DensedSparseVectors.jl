@@ -121,21 +121,29 @@ using Random
 # https://github.com/JuliaLang/julia/issues/39952
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 
+# alike SparseArrays:
+#   SparseArrays.AbstractCompressedVector <: AbstractSparseVector
+#   SparseVector <: SparseArrays.AbstractCompressedVector
+#
+# abstract type AbstractDensedCompressedVector{L,Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
+#
+# abstract type AbstractDynamicDensedSparseVector{L,Tv,Ti} <: AbstractDensedCompressedVector{L,Tv,Ti} end
+# abstract type AbstractDensedSparseVector{L,Tv,Ti} <: AbstractDensedCompressedVector{L,Tv,Ti} end
+#
+# abstract type AbstractDynamicDensedSparseVector
+# abstract type AbstractDensedSparseVector
+# abstract type AbstractSimpleDensedSparseVector
+
 abstract type AbstractAllDensedSparseVector{L,Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
-"Vector alike DensedSparseVector kind"
 abstract type AbstractDensedSparseVector{L,Tv,Ti} <: AbstractAllDensedSparseVector{L,Tv,Ti} end
-"Matrix alike Vector of Vectors kind"
-abstract type AbstractDensedBlockSparseVector{L,Tv,Ti} <: AbstractAllDensedSparseVector{L,Tv,Ti} end
+abstract type AbstractCompressedDensedSparseVector{L,Tv,Ti} <: AbstractAllDensedSparseVector{L,Tv,Ti} end
 
 "Simple VectorDensedSparseVector kind"
 abstract type AbstractSimpleDensedSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{L,Tv,Ti} end
 "Based on SortedDict VectorDensedSparseVector kind"
-abstract type AbstractSDictDensedSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{L,Tv,Ti} end
+abstract type AbstractDynamicDensedSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{L,Tv,Ti} end
 
-
-"All Vector alike types `<: AbstractAllDensedSparseVector`"
-const AbstractCompressedDensedSparseVector{L,Tv,Ti} = Union{AbstractSimpleDensedSparseVector{L,Tv,Ti}, AbstractDensedBlockSparseVector{L,Tv,Ti}}
 
 
 
@@ -155,7 +163,7 @@ end
 
 
 """
-The `UniversalDensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
+The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
 It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
 is almost the same as on the `Vector`, but the speed by direct index access is almost few times
 slower then the for `Vector`'s one.
@@ -164,7 +172,7 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct UniversalDensedSparseVector{L,Tv,Ti} <: AbstractSimpleDensedSparseVector{L,Tv,Ti}
+struct DensedSparseVector{L,Tv,Ti} <: AbstractSimpleDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
     "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
@@ -189,7 +197,7 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractSDictDensedSparseVector{L,Tv,Ti}
+struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractDynamicDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
     "Storage for indices of the first element of non-zero chunks and corresponding CompressedChunk as `SortedDict(Int=>CompressedChunk)`"
@@ -208,28 +216,28 @@ struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractSDictDensedSparseVector{L,T
 end
 
 
-"""
-The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
-It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
-is almost the same as on the `Vector`, but the speed by direct index access is almost few times
-slower then the for `Vector`'s one.
-
-$(TYPEDEF)
-Struct fields:
-$(TYPEDFIELDS)
-"""
-struct DensedSparseVector{L,Tv,Ti} <: AbstractSimpleDensedSparseVector{L,Tv,Ti}
-    "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
-    lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
-    "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
-    nzchunks::Vector{CompressedChunk{Tv,Ti,1}}
-    "Vector length. Avoid using this value, use `length` or `axes` instead."
-    nn::Ref{Ti}
-
-    DensedSparseVector{L,Tv,Ti}(n::Integer = 0) where {L,Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{Tv,Ti,1}}(), Ref{Ti}(Ti(n)))
-
-end
+#"""
+#The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
+#It is the subtype of `AbstractSparseVector`. The speed of `Broadcasting` on `DensedSparseVector`
+#is almost the same as on the `Vector`, but the speed by direct index access is almost few times
+#slower then the for `Vector`'s one.
+#
+#$(TYPEDEF)
+#Struct fields:
+#$(TYPEDFIELDS)
+#"""
+#struct DensedSparseVector{L,Tv,Ti} <: AbstractSimpleDensedSparseVector{L,Tv,Ti}
+#    "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
+#    lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
+#    "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
+#    nzchunks::Vector{CompressedChunk{Tv,Ti,1}}
+#    "Vector length. Avoid using this value, use `length` or `axes` instead."
+#    nn::Ref{Ti}
+#
+#    DensedSparseVector{L,Tv,Ti}(n::Integer = 0) where {L,Tv,Ti} =
+#        new{Tv,Ti}(lostused(Ti,Int), Vector{CompressedChunk{Tv,Ti,1}}(), Ref{Ti}(Ti(n)))
+#
+#end
 
 function DensedSparseVector{L,Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector{TV}) where {L,Tv,Ti,TR<:AbstractRange,TV<:AbstractVector}
     V = DensedSparseVector{L,Tv,Ti}(n)
@@ -318,7 +326,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedSVSparseVector{L,Tv,Ti} <: AbstractDensedBlockSparseVector{L,Tv,Ti} # TODO: is it should be AbstractSimple...
+mutable struct DensedSVSparseVector{L,Tv,Ti} <: AbstractCompressedDensedSparseVector{L,Tv,Ti} # TODO: is it should be AbstractSimple...
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -353,7 +361,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedBlockSparseVector{-1,Tv,Ti}
+mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractCompressedDensedSparseVector{-1,Tv,Ti}
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -387,38 +395,38 @@ DensedVLSparseVector(n::Integer = 0) = DensedVLSparseVector{Float64,Int}(n)
 
 
 
-"""
-The `DynamicDensedSparseVector` is alike the `SparseVector` but should have the almost all indices are consecuitive stored.
-The speed of `Broadcasting` on `DynamicDensedSparseVector` is almost the same as
-on the `Vector` excluding the cases where the indices are wide broaded and
-there is no consecuitive ranges of indices. The speed by direct index access is ten or
-more times slower then the for `Vector`'s one. The main purpose of this type is
-the construction of the `DynamicDensedSparseVector` vectors with further conversion to `DensedSparseVector`.
-$(TYPEDEF)
-Mutable struct fields:
-$(TYPEDFIELDS)
-"""
-mutable struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractSDictDensedSparseVector{L,Tv,Ti}
-    "Index of last used chunk"
-    lastused::ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}
-    "Storage for indices of the first element of non-zero chunks and corresponding chunks as `SortedDict(Int=>Vector)`"
-    nzchunks::SortedDict{Ti,Vector{Tv},FOrd}
-    "Vector length"
-    n::Ti
-    "Number of stored non-zero elements"
-    nnz::Int
-    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
-    zpbc::Bool
-
-    function DynamicDensedSparseVector{L,Tv,Ti}(n::Integer = 0) where {L,Tv,Ti}
-        nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Base.Order.Forward)
-        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
-    end
-
-    DynamicDensedSparseVector{L,Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
-        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0), false)
-
-end
+#"""
+#The `DynamicDensedSparseVector` is alike the `SparseVector` but should have the almost all indices are consecuitive stored.
+#The speed of `Broadcasting` on `DynamicDensedSparseVector` is almost the same as
+#on the `Vector` excluding the cases where the indices are wide broaded and
+#there is no consecuitive ranges of indices. The speed by direct index access is ten or
+#more times slower then the for `Vector`'s one. The main purpose of this type is
+#the construction of the `DynamicDensedSparseVector` vectors with further conversion to `DensedSparseVector`.
+#$(TYPEDEF)
+#Mutable struct fields:
+#$(TYPEDFIELDS)
+#"""
+#mutable struct DynamicDensedSparseVector{L,Tv,Ti} <: AbstractDynamicDensedSparseVector{L,Tv,Ti}
+#    "Index of last used chunk"
+#    lastused::ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}
+#    "Storage for indices of the first element of non-zero chunks and corresponding chunks as `SortedDict(Int=>Vector)`"
+#    nzchunks::SortedDict{Ti,Vector{Tv},FOrd}
+#    "Vector length"
+#    n::Ti
+#    "Number of stored non-zero elements"
+#    nnz::Int
+#    "Zero Preserve Broadcast, by default false. If true, then no new elements inserts are introduced during broadcast."
+#    zpbc::Bool
+#
+#    function DynamicDensedSparseVector{L,Tv,Ti}(n::Integer = 0) where {L,Tv,Ti}
+#        nzchunks = SortedDict{Ti,Vector{Tv},FOrd}(Base.Order.Forward)
+#        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, 0, false)
+#    end
+#
+#    DynamicDensedSparseVector{L,Tv,Ti}(n::Integer, nzchunks::SortedDict{K,V}) where {Tv,Ti,K,V<:AbstractVector} =
+#        new{Tv,Ti}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, n, foldl((s,c)->(s+length(c)), values(nzchunks); init=0), false)
+#
+#end
 
 #DynamicDensedSparseVector(n::Integer = 0) = DynamicDensedSparseVector{Float64,Int}(n)
 
@@ -791,29 +799,29 @@ end
 
 @inline firstnzchunk_index(V::SparseVector) = firstindex(V.nzind)
 @inline firstnzchunk_index(V::AbstractCompressedDensedSparseVector) = firstindex(V.nzranges)
-@inline firstnzchunk_index(V::AbstractSDictDensedSparseVector) = startof(V.nzchunks)
+@inline firstnzchunk_index(V::AbstractDynamicDensedSparseVector) = startof(V.nzchunks)
 @inline lastnzchunk_index(V::SparseVector) = lastindex(V.nzind)
 @inline lastnzchunk_index(V::AbstractCompressedDensedSparseVector) = lastindex(V.nzranges) # getfield(V, :n)
-@inline lastnzchunk_index(V::AbstractSDictDensedSparseVector) = lastindex(V.nzchunks)
+@inline lastnzchunk_index(V::AbstractDynamicDensedSparseVector) = lastindex(V.nzchunks)
 
 @inline beforestartnzchunk_index(V::SparseVector) = firstnzchunk_index(V) - 1
 @inline beforestartnzchunk_index(V::AbstractCompressedDensedSparseVector) = firstnzchunk_index(V) - 1
-@inline beforestartnzchunk_index(V::AbstractSDictDensedSparseVector) = beforestartsemitoken(V.nzchunks)
+@inline beforestartnzchunk_index(V::AbstractDynamicDensedSparseVector) = beforestartsemitoken(V.nzchunks)
 @inline pastendnzchunk_index(V::SparseVector) = lastnzchunk_index(V) + 1
 @inline pastendnzchunk_index(V::AbstractCompressedDensedSparseVector) = lastnzchunk_index(V) + 1
-@inline pastendnzchunk_index(V::AbstractSDictDensedSparseVector) = pastendsemitoken(V.nzchunks)
+@inline pastendnzchunk_index(V::AbstractDynamicDensedSparseVector) = pastendsemitoken(V.nzchunks)
 
 @inline returnzero(V::DensedSVSparseVector) = zero(eltype(eltype(V.nzchunks)))
 @inline returnzero(V::AbstractAllDensedSparseVector) = zero(eltype(V))
 
 @inline DataStructures.advance(::AbstractCompressedDensedSparseVector, state) = state + 1
-@inline DataStructures.advance(V::AbstractSDictDensedSparseVector, state) = advance((V.nzchunks, state))
+@inline DataStructures.advance(V::AbstractDynamicDensedSparseVector, state) = advance((V.nzchunks, state))
 @inline DataStructures.regress(::AbstractCompressedDensedSparseVector, state) = state - 1
-@inline DataStructures.regress(V::AbstractSDictDensedSparseVector, state) = regress((V.nzchunks, state))
+@inline DataStructures.regress(V::AbstractDynamicDensedSparseVector, state) = regress((V.nzchunks, state))
 
 "`searchsortedlast(V.nzranges, i)`"
 @inline searchsortedlast_ranges(V::AbstractCompressedDensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
-@inline searchsortedlast_ranges(V::AbstractSDictDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
+@inline searchsortedlast_ranges(V::AbstractDynamicDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
 
 """
 Returns nzchunk_index which on vector index `i`, or after `i`.
@@ -881,7 +889,7 @@ SparseArrays.findnz(V::AbstractAllDensedSparseVector) = (nonzeroinds(V), nonzero
 @inline findfirstnzindex(V::SparseVector) = nnz(V) > 0 ? V.nzind[1] : nothing
 @inline findfirstnzindex(V::AbstractCompressedDensedSparseVector{L,Tv,Ti}) where {L,Tv,Ti} =
     nnz(V) > 0 ? first(V.nzranges[1]) : nothing
-@inline findfirstnzindex(V::AbstractSDictDensedSparseVector{L,Tv,Ti}) where {L,Tv,Ti} =
+@inline findfirstnzindex(V::AbstractDynamicDensedSparseVector{L,Tv,Ti}) where {L,Tv,Ti} =
     nnz(V) > 0 ? Ti(deref_key((V.nzchunks, startof(V.nzchunks)))) : nothing
 function findfirstnzindex(V::SubArray{<:Any,<:Any,<:T})  where {T<:AbstractAllDensedSparseVector{L,Tv,Ti}} where {L,Tv,Ti}
     nnz(parent(V)) == 0 && return nothing
@@ -903,7 +911,7 @@ end
 @inline findlastnzindex(V::SparseVector) = nnz(V) > 0 ? V.nzind[end] : nothing
 @inline findlastnzindex(V::AbstractCompressedDensedSparseVector) =
     nnz(V) > 0 ? last(V.nzranges[end]) : nothing
-@inline function findlastnzindex(V::AbstractSDictDensedSparseVector)
+@inline function findlastnzindex(V::AbstractDynamicDensedSparseVector)
     if nnz(V) > 0
         lasttoken = lastindex(V.nzchunks)
         return deref_key((V.nzchunks, lasttoken)) + length(deref_value((V.nzchunks, lasttoken))) - 1
@@ -988,7 +996,7 @@ Base.@propagate_inbounds function iterate_nzchunks(V::AbstractCompressedDensedSp
         return nothing
     end
 end
-Base.@propagate_inbounds function iterate_nzchunks(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
+Base.@propagate_inbounds function iterate_nzchunks(V::AbstractDynamicDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
         return (state, state)
@@ -1006,7 +1014,7 @@ Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractCompressedDen
         return nothing
     end
 end
-Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractSDictDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
+Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractDynamicDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
         return (Pair(get_indices_and_nzchunk(V, state)...), state)
