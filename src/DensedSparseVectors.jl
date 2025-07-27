@@ -731,7 +731,8 @@ end
 @inline is_in_nzchunk(V::DynamicDensedSparseVector, itc, key) = ((ichunk, chunk) = deref((V.nzchunks, itc)); return (ichunk <= key < ichunk + length(chunk)))
 
 @inline firstnzchunk_index(V::SparseVector) = firstindex(V.nzind)
-@inline firstnzchunk_index(V::AbstractDensedSparseVector) = firstindex(V.nzranges)
+# @inline firstnzchunk_index(V::AbstractDensedSparseVector) = firstindex(V.nzranges)
+@inline firstnzchunk_index(V::AbstractDensedSparseVector) = firstindex(V.nzchunks)
 @inline firstnzchunk_index(V::AbstractDynamicDensedSparseVector) = startof(V.nzchunks)
 @inline lastnzchunk_index(V::SparseVector) = lastindex(V.nzind)
 @inline lastnzchunk_index(V::AbstractDensedSparseVector) = lastindex(V.nzranges) # getfield(V, :n)
@@ -753,7 +754,7 @@ end
 @inline DataStructures.regress(V::AbstractDynamicDensedSparseVector, state) = regress((V.nzchunks, state))
 
 "`searchsortedlast(V.nzranges, i)`"
-@inline searchsortedlast_ranges(V::AbstractDensedSparseVector, i) = searchsortedlast(V.nzranges, i, by=first)
+@inline searchsortedlast_ranges(V::AbstractDensedSparseVector, i) = searchsortedlast(V.nzchunks, i, by=firstindex)
 @inline searchsortedlast_ranges(V::AbstractDynamicDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
 
 """
