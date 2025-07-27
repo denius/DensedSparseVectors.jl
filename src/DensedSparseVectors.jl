@@ -1807,8 +1807,7 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
     if nnz(V) == 0
         push!(V.nzranges, UnitRange{Ti}(i,i))
         push!(V.nzchunks, [val])
-        V.nnz += 1
-        V.n = max(V.n, i)
+        V.n[] = max(V.n[], i)
         set_lastused!(V, 1)
         return V
     end
@@ -1822,7 +1821,6 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
             prependnzrangesat!(V.nzranges, 1)
             pushfirst!(V.nzchunks[1], val)
         end
-        V.nnz += 1
         set_lastused!(V, 1)
         return V
     end
@@ -1839,7 +1837,6 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
             appendnzrangesat!(V.nzranges, itc)
             push!(V.nzchunks[itc], val)
         end
-        V.nnz += 1
         V.n = max(V.n, i)
         set_lastused!(V, length(V.nzranges))
         return V
@@ -1869,7 +1866,6 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
         set_lastused!(V, stnext)
     end
 
-    V.nnz += 1
     return V
 
 end
