@@ -81,7 +81,7 @@ using .CompressedChunks
 # reexport CompressedChunks
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export field_ofs_type, compressedchunk
+export field_ptr_type, compressedchunk
 
 export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynamicDensedSparseVector
 export DensedSparseVector, DynamicDensedSparseVector
@@ -200,13 +200,13 @@ struct DensedSparseVector{L,Tv,Ti,TCC} <: AbstractDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
     "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
-    #nzchunks::Vector{CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}}
+    #nzchunks::Vector{CompressedChunk{L,Tv,Ti,field_ptr_type(Val(L))}}
     nzchunks::Vector{TCC}
     "Vector length. Avoid using this value, use `length` or `axes` instead."
     nn::Ref{Ti}
 
     function DensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
-        Tcc = CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}
+        Tcc = CompressedChunk{L,Tv,Ti,field_ptr_type(Val(L))}
         return new{L,Tv,Ti,Tcc}(lostused(Ti,Int), Vector{Tcc}(), Ref{Ti}(Ti(n)))
     end
 
@@ -228,13 +228,13 @@ struct DynamicDensedSparseVector{L,Tv,Ti,TCC} <: AbstractDynamicDensedSparseVect
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
     lastused::MVector{1,ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
     "Storage for indices of the first element of non-zero chunks and corresponding CompressedChunk as `SortedDict(Int=>CompressedChunk)`"
-    #nzchunks::SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))},FOrd}
+    #nzchunks::SortedDict{Ti,CompressedChunk{L,Tv,Ti,field_ptr_type(Val(L))},FOrd}
     nzchunks::SortedDict{Ti,TCC,FOrd}
     "Vector length. Avoid using this value, use `length` or `axes` instead."
     nn::Ref{Ti}
 
     function DynamicDensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
-        Tcc = CompressedChunk{L,Tv,Ti,field_ofs_type(Val(L))}
+        Tcc = CompressedChunk{L,Tv,Ti,field_ptr_type(Val(L))}
         nzchunks = SortedDict{Ti,Tcc,FOrd}(Base.Order.Forward)
         new{L,Tv,Ti,Tcc}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, Ref{Ti}(Ti(n)))
     end
