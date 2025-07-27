@@ -115,7 +115,7 @@ using OffsetArrays
 using Setfield
 using SparseArrays
 using StaticArrays
-import SparseArrays: indtype, nonzeroinds, nonzeros
+import SparseArrays: indtype, nonzeroinds, nonzeros, nnz
 using Random
 
 
@@ -261,7 +261,7 @@ function DensedSparseVector{L,Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, n
     V = DensedSparseVector{L,Tv,Ti}(n)
     for (ids, nzvls) in zip(nzranges, nzchunks)
         @assert length(ids) == length(nzvls)
-        append!(V.nzchunks, CompressedChunk{Tv,Ti}(Ti(first(ids)), Vector{Tv}(nzvls)) )
+        append!(V.nzchunks, CompressedChunk{L,Tv,Ti}(Ti(first(ids)), Vector{Tv}(nzvls)) )
     end
     V
 end
@@ -336,7 +336,7 @@ $(TYPEDEF)
 Mutable struct fields:
 $(TYPEDFIELDS)
 """
-mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedSparseVector{-1,Tv,Ti}
+mutable struct DensedVLSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{-1,Tv,Ti}
     "Index of last used chunk"
     lastused::ChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
@@ -355,14 +355,14 @@ mutable struct DensedVLSparseVector{Tv,Ti} <: AbstractDensedSparseVector{-1,Tv,T
     "Dummy for empty `getindex` returns"
     dummy::Vector{Tv}
 
-    DensedVLSparseVector{Tv,Ti}(n::Integer = 0) where {L,Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, false, Tv[])
+    DensedVLSparseVector{L,Tv,Ti}(n::Integer = 0) where {L,Tv,Ti} =
+        new{L,Tv,Ti}(lostused(Ti,Int), Vector{UnitRange{Ti}}(), Vector{Vector{Tv}}(), Vector{Vector{Int}}(), n, 0, false, Tv[])
 
-    DensedVLSparseVector{Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
+    DensedVLSparseVector{L,Tv,Ti}(n::Integer, nzranges::AbstractVector{TR}, nzchunks::AbstractVector, offsets::AbstractVector) where {TR<:UnitRange,L,Tv,Ti} =
+        new{L,Tv,Ti}(lostused(Ti,Int), nzranges, nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
 
-    DensedVLSparseVector{Tv,Ti}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {L,Tv,Ti} =
-        new{Tv,Ti}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],ifirsts[i]+(length(offsets[i])-1)-1) for i=1:length(ifirsts)],
+    DensedVLSparseVector{L,Tv,Ti}(n::Integer, ifirsts::AbstractVector, nzchunks::AbstractVector, offsets::AbstractVector) where {L,Tv,Ti} =
+        new{L,Tv,Ti}(lostused(Ti,Int), [UnitRange{Ti}(ifirsts[i],ifirsts[i]+(length(offsets[i])-1)-1) for i=1:length(ifirsts)],
                    nzchunks, offsets, n, foldl((s,c)->(s+length(c)-1), offsets; init=0), false, Tv[])
 end
 
@@ -431,8 +431,8 @@ Convert any particular `AbstractSparseVector`s to corresponding `AbstractDensedC
     DensedSparseVector(sv)
 
 """
-function (::Type{T})(V::AbstractSparseVector{Tv,Ti}) where {T<:AbstractDensedCompressedVector,Tv,Ti}
-    sv = T{Tv,Ti}(length(V))
+function (::Type{T})(V::AbstractSparseVector{Tv,Ti}) where {L,Tv,Ti,T<:AbstractDensedCompressedVector{L,Tv,Ti}}
+    sv = T{L,Tv,Ti}(length(V))
     for (i,d) in zip(nonzeroinds(V), nonzeros(V))
         sv[i] = d
     end
@@ -1804,7 +1804,7 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
         end
     end
 
-    if V.nnz == 0
+    if nnz(V) == 0
         push!(V.nzranges, UnitRange{Ti}(i,i))
         push!(V.nzchunks, [val])
         V.nnz += 1
@@ -1874,7 +1874,7 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
 
 end
 
-@inline Base.setindex!(V::DensedSparseVector{Tv}, value, i::Integer) where {Tv} = _setindex!(V, Tv(value), i)
+@inline Base.setindex!(V::DensedSparseVector{L,Tv}, value, i::Integer) where {L,Tv} = _setindex!(V, Tv(value), i)
 
 
 @inline function Base.setindex!(V::DensedSVSparseVector{L,Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {L,Tv,Ti}
@@ -1882,14 +1882,14 @@ end
     _setindex!(V, sv, i)
 end
 
-@inline function Base.setindex!(V::DensedSVSparseVector{Tv}, value, i::Integer, j::Integer) where {Tv}
+@inline function Base.setindex!(V::DensedSVSparseVector{L,Tv,Ti}, value, i::Integer, j::Integer) where {L,Tv,Ti}
     sv = getindex(V, i)
     sv = @set sv[j] = Tv(value)
     _setindex!(V, sv, i)
 end
 
 
-function Base.setindex!(V::DensedVLSparseVector{Tv,Ti}, vectorvalue, i::Integer) where {L,Tv,Ti}
+function Base.setindex!(V::DensedVLSparseVector{L,Tv,Ti}, vectorvalue, i::Integer) where {L,Tv,Ti}
 
     # fast check for cached chunk index
     if i in get_cached_indices(V)
@@ -2173,7 +2173,7 @@ end
     return V
 end
 
-@inline function SparseArrays.dropstored!(V::DensedVLSparseVector{Tv,Ti}, i::Integer) where {L,Tv,Ti}
+@inline function SparseArrays.dropstored!(V::DensedVLSparseVector{L,Tv,Ti}, i::Integer) where {L,Tv,Ti}
 
     V.nnz == 0 && return V
 
