@@ -81,7 +81,7 @@ using .CompressedChunks
 # reexport CompressedChunks
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export field_ofs_type
+export field_ofs_type, compressedchunk
 
 export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynamicDensedSparseVector
 export DensedSparseVector, DynamicDensedSparseVector
@@ -1805,9 +1805,9 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
     end
 
     if nnz(V) == 0
-        push!(V.nzranges, UnitRange{Ti}(i,i))
-        push!(V.nzchunks, [val])
-        V.n[] = max(V.n[], i)
+        #push!(V.nzchunks, eltype(V.nzchunks)(UnitRange{UInt}(i:i), [val])) # TODO: there is need to create RIGHT CompressedChunk according length(i:i) and length(val)
+        push!(V.nzchunks, compressedchunk(eltype(V.nzchunks), i, val))
+        V.nn[] = max(V.nn[], i)
         set_lastused!(V, 1)
         return V
     end
@@ -1837,7 +1837,7 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
             appendnzrangesat!(V.nzranges, itc)
             push!(V.nzchunks[itc], val)
         end
-        V.n = max(V.n, i)
+        V.nn[] = max(V.nn[], i)
         set_lastused!(V, length(V.nzranges))
         return V
     end
@@ -1870,15 +1870,17 @@ function _setindex!(V::AbstractDensedCompressedVector{L,Tv,Ti}, val, idx::Intege
 
 end
 
-@inline Base.setindex!(V::DensedSparseVector{L,Tv}, value, i::Integer) where {L,Tv} = _setindex!(V, Tv(value), i)
+@inline Base.setindex!(V::DensedSparseVector{0,Tv}, value, i::Integer) where {Tv} = _setindex!(V, Tv(value), i)
 
 
-@inline function Base.setindex!(V::DensedSVSparseVector{L,Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {L,Tv,Ti}
-    sv = basetype(eltype(eltype(V.nzchunks))){Tuple{L},Tv}(vectorvalue)
+@inline function Base.setindex!(V::DensedSparseVector{L,Tv,Ti}, vectorvalue::Union{AbstractVector,Tuple}, i::Integer) where {L,Tv,Ti}
+    # sv = basetype(eltype(eltype(V.nzchunks))){Tuple{L},Tv}(vectorvalue)
+    @assert length(vectorvalue) == L
+    sv = Vector{Tv}(vectorvalue)
     _setindex!(V, sv, i)
 end
 
-@inline function Base.setindex!(V::DensedSVSparseVector{L,Tv,Ti}, value, i::Integer, j::Integer) where {L,Tv,Ti}
+@inline function Base.setindex!(V::DensedSparseVector{L,Tv,Ti}, value, i::Integer, j::Integer) where {L,Tv,Ti}
     sv = getindex(V, i)
     sv = @set sv[j] = Tv(value)
     _setindex!(V, sv, i)

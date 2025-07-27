@@ -7,7 +7,7 @@ module CompressedChunks
 
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export field_ofs_type
+export field_ofs_type, compressedchunk
 
 
 import Base.Broadcast: BroadcastStyle
@@ -139,13 +139,13 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
         elseif L > 0
             CompressedChunk{L,eltype(vls),eltype(i),field_ofs_type(Val(L))}(range(i, length=div(length(vls), L)), vls)
         else # if L == -1
-            throw(MethodError(CompressedChunk{L}, (i, vls)))
+            throw(ArgumentError(LazyString("CompressedChunk{L}(i::Number, vls) where L: unreleased yet option of L = $(L)")))
         end
     end
 
     function CompressedChunk{L,Tv,Ti,TO}(r::UnitRange, vls) where {L,Tv,Ti,TO}
         if L < 0 || !isa(vls, Vector{Tv})
-            throw(MethodError(CompressedChunk{L,Tv,Ti,TO}, (r, vls)))
+            throw(ArgumentError(LazyString("CompressedChunk{L}(i::Number, vls) where L: unreleased yet option of L = $(L) and vls is not an Vector")))
         end
         if L == 0 || L == 1
             n = length(vls)
@@ -188,6 +188,47 @@ const CompressedChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
 const CompressedScalarChunk{L,Tv,Ti} = Union{CompressedChunk0{Tv,Ti}}
 const CompressedBlockChunk{L,Tv,Ti} = Union{CompressedChunk1{Tv,Ti}, CompressedChunkL{L,Tv,Ti}, CompressedChunkVL{Tv,Ti}}
 
+function compressedchunk(L, i::Integer, val)
+    Ti = eltype(i)
+    Tv = eltype(val)
+    if L == 0
+        return CompressedChunk{L}(UnitRange{Ti}(i:i), val)
+    elseif L == 1
+        if length(val) == 1
+            return CompressedChunk{L}(UnitRange{Ti}(i:i), Vector{Tv}([val[1]]))
+        else
+            return CompressedChunk{L}(UnitRange{Ti}(i:i), Vector{Tv}(val))
+        end
+    elseif L == -1
+        throw(ArgumentError(LazyString("compressedchunk(L, i::Integer, val): unreleased yet option of L = $(L)")))
+    else # if L > 1
+        if length(val) == L
+            return CompressedChunk{L}(UnitRange{Ti}(i:i), Vector{Tv}(val))
+        else
+            throw(ArgumentError(LazyString("length(val)=$(length(val)) is not equal L=$(L)")))
+        end
+    end
+end
+
+function compressedchunk(::Type{T}, i::Integer, val) where {L,Tv,Ti, T<:AbstractCompressedChunk{L,Tv,Ti}}
+    if L == 0
+        return T(UnitRange{Ti}(i:i), val)
+    elseif L == 1
+        if length(val) == 1
+            return T(UnitRange{Ti}(i:i), Vector{Tv}([val[1]]))
+        else
+            return T(UnitRange{Ti}(i:i), Vector{Tv}(val))
+        end
+    elseif L == -1
+        throw(ArgumentError(LazyString("compressedchunk(L, i::Integer, val): unreleased yet option of L = $(L)")))
+    else # if L > 1
+        if length(val) == L
+            return T(UnitRange{Ti}(i:i), Vector{Tv}(val))
+        else
+            throw(ArgumentError(LazyString("length(val)=$(length(val)) is not equal L=$(L)")))
+        end
+    end
+end
 
 function Base.similar(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
     idx = copy(cc.idx)
