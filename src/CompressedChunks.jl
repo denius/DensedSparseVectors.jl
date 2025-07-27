@@ -7,7 +7,7 @@ module CompressedChunks
 
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export field_ptr_type, compressedchunk
+export cc_field_ptr_type, compressedchunk
 export get_indices, get_chunk
 
 
@@ -39,7 +39,7 @@ abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
 
 
 " Evaluate type for `ptr` field of `struct CompressedChunk` during compilation"
-@inline function field_ptr_type(::Val{N}) where {N}
+@inline function cc_field_ptr_type(::Val{N}) where {N}
     if N == -1
         return Vector{Int}
     elseif N == 0
@@ -95,7 +95,7 @@ in `ptr` stored the starts of blocks in `vls`.
 `Tv` and `Ti` are the type of stored values and type of its indices.
 
 `TO` is the type for internal storage for offsets `ptr`. It is different for different `L`,
-and can't be evaluated at compilation time, thus it calculated by `field_ptr_type(Val(L))`
+and can't be evaluated at compilation time, thus it calculated by `cc_field_ptr_type(Val(L))`
 at creating.
 
 ## Internals
@@ -131,15 +131,15 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
     end
 
     CompressedChunk(i::Number, vls) = CompressedChunk(range(i, length=length(vls)), vls)
-    CompressedChunk(i::UnitRange, vls) = CompressedChunk{0,eltype(vls),eltype(i),field_ptr_type(Val(0))}(i, vls)
+    CompressedChunk(i::UnitRange, vls) = CompressedChunk{0,eltype(vls),eltype(i),cc_field_ptr_type(Val(0))}(i, vls)
 
-    CompressedChunk{L}(i, vls) where L = CompressedChunk{L,eltype(vls),eltype(i),field_ptr_type(Val(L))}(i, vls)
+    CompressedChunk{L}(i, vls) where L = CompressedChunk{L,eltype(vls),eltype(i),cc_field_ptr_type(Val(L))}(i, vls)
 
     function CompressedChunk{L}(i::Number, vls) where L
         if L == 0 || (L == -1 && length(vls) == 0)
-            CompressedChunk{L,eltype(vls),eltype(i),field_ptr_type(Val(L))}(range(i, length=length(vls)), vls)
+            CompressedChunk{L,eltype(vls),eltype(i),cc_field_ptr_type(Val(L))}(range(i, length=length(vls)), vls)
         elseif L > 0
-            CompressedChunk{L,eltype(vls),eltype(i),field_ptr_type(Val(L))}(range(i, length=div(length(vls), L)), vls)
+            CompressedChunk{L,eltype(vls),eltype(i),cc_field_ptr_type(Val(L))}(range(i, length=div(length(vls), L)), vls)
         else # if L == -1
             throw(ArgumentError(LazyString("CompressedChunk{L}(i::Number, vls) where L: unreleased yet option of L = $(L)")))
         end
@@ -274,6 +274,12 @@ end
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ptr) - 1
 Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk) = (length(cc), )
 Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc):lastindex(cc),)
+Base.@propagate_inbounds function axes(cc::AbstractCompressedChunk, d)
+    @inline
+    d::Integer <= 1 ? (firstindex(cc):lastindex(cc)) : OneTo(1)
+end
+Base.@propagate_inbounds Base.values(cc::AbstractCompressedChunk) = cc.vls
+
 
 SparseArrays.nnz(cc::AbstractCompressedChunk) = length(cc.vls)
 
