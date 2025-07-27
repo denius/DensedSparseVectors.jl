@@ -225,6 +225,8 @@ Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.of
 Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk) = (length(cc), )
 Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc):lastindex(cc),)
 
+SparseArrays.nnz(cc::AbstractCompressedChunk) = length(cc.vls)
+
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv}  = (length(cc), L)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunkL{L,Tv}) where {L,Tv} = (length(cc), L)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{-1,Tv}) where Tv     = (length(cc), size2(cc))

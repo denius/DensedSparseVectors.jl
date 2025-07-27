@@ -159,6 +159,11 @@ end
 #     itchunk::Tit                # nzchunk position state (Int or Semitoken) in nzchunks
 # end
 
+# TODO: Try https://github.com/JuliaArrays/StructArrays.jl for `nzchunks::Vector{TCC}` in
+# `DensedSparseVector` to have separate `idx` Vector (from CompressedChunk) for faster search
+# index operations.
+# Or even refactoring CompressedChunk to have two indices: `idx_begin` and `idx_end` instead of UnitRange.
+
 
 """
 The `DensedSparseVector` is alike the `Vector` but have the omits in stored indices/data.
@@ -468,7 +473,14 @@ Base.length(V::AbstractDensedCompressedVector) = V.nn[]
 Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} =
         foldl((s,c)->(s+Int(length(c))), nzchunks(V); init=Int(0))
 Base.@propagate_inbounds SparseArrays.nnz(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} = nnz(parent(V))
-SparseArrays.nnz(V::AbstractDensedCompressedVector) = getfield(V, :nnz)
+function SparseArrays.nnz(V::AbstractDensedCompressedVector)
+    nn = 0
+    for cc in V.nzchunks
+        nn += nnz(cc)
+    end
+    return nn
+end
+
 Base.isempty(V::AbstractDensedCompressedVector) = nnz(V) == 0
 Base.size(V::AbstractDensedCompressedVector) = (length(V),)
 Base.axes(V::AbstractDensedCompressedVector) = (Base.OneTo(length(V)),)

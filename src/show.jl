@@ -13,6 +13,18 @@ function quick_get_max_pad(V::AbstractDensedCompressedVector)
     pad
 end
 
+function Base.show(io::IO, ::MIME"text/plain", x::AbstractDensedCompressedVector)
+    xnnz = 0
+    for v in x.nzchunks
+        xnnz += length(v)
+    end
+    print(io, length(x), "-element ", typeof(x), " with ", xnnz,
+           " stored ", xnnz == 1 ? "entry" : "entries")
+    if xnnz != 0
+        println(io, ":")
+        show(IOContext(io, :typeinfo => eltype(x)), x)
+    end
+end
 function Base.show(io::IOContext, x::AbstractDensedCompressedVector)
     n = length(x)
     nzind = nonzeroinds(x)
