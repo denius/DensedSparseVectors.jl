@@ -101,12 +101,11 @@ export is_broadcast_zero_preserve
 export get_iterable
 
 
+# Some Base imports
 using Base.Order # there is also Base.Order.Forward
-
 const FOrd = Base.Order.ForwardOrdering
 
-import Base.Broadcast: BroadcastStyle
-using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
+# Import packages
 using DocStringExtensions
 using DataStructures
 #using FillArrays
@@ -942,7 +941,7 @@ end
 "`iterate_nzchunkspairs(V::AbstractVector)` iterates over non-zero chunks and returns indices of elements in chunk, and chunk"
 Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractDensedSparseVector, state = 0)
     state += 1
-    if state <= length(V.nzranges)
+    if state <= length(V.nzchunks)
         return (Pair(get_indices_and_nzchunk(V, state)...), state)
     else
         return nothing

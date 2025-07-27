@@ -8,6 +8,7 @@ module CompressedChunks
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
 export field_ofs_type, compressedchunk
+export get_indices, get_chunk
 
 
 import Base.Broadcast: BroadcastStyle
@@ -54,7 +55,7 @@ end
 """
 The _Compressed Chunk_ types are the structs like the `OffsetVector`
 with continuously stored blocks (or scalars as blocks with L=1),
-but the `getindex` and another operations are for the blocks.
+but the `getindex` and another operations are for the values/blocks.
 
 I.e. CompressedChunk is the OffsetVector of Vectors structure.
 
@@ -99,7 +100,7 @@ at creating.
 
 ## Internals
 
-`idx` is the UnitRange{Ti} with the first and last indices of blocks in current chunk:
+`idx` is the UnitRange{Ti} with the first and last indices of values/blocks in current chunk:
 `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
 `idx` can be considered as offset axes.
 It is useful for fast access to the blocks indices without the math and the length evaluations.
@@ -114,13 +115,13 @@ Struct fields:
 $(TYPEDFIELDS)
 """
 struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
-    "the indices of first block and last block in chunk:
+    "the indices of first value/block and last value/block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
-    "`ofs` refers to start positions of each block in `vls`. And in the last position store after the last index of `vls`"
+    "`ofs` refers to start positions of each value/block in `vls`. And in the last position store after the last index of `vls`"
     #ofs::UnitRange{Int}
     ofs::TO
-    "the blocks are stored continuously in `vls`"
+    "the values/blocks are stored continuously in `vls`"
     vls::Vector{Tv}
 
     function CompressedChunk{L,Tv,Ti,TO}(idx::UnitRange{Ti}, ofs::TO, vls::Vector{Tv}) where {L,Tv,Ti,TO}
@@ -229,6 +230,13 @@ function compressedchunk(::Type{T}, i::Integer, val) where {L,Tv,Ti, T<:Abstract
         end
     end
 end
+
+#function get_indices(cc::AbstractCompressedChunk)
+#    return cc.idx
+#end
+#function get_chunk(cc::AbstractCompressedChunk)
+#    return cc.vls
+#end
 
 function Base.similar(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
     idx = copy(cc.idx)
