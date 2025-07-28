@@ -656,7 +656,7 @@ end
 end
 
 @inline get_nzchunk_indices(V::Vector, i) = UnitRange{Int}(1, length(V))
-@inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {L,Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
+@inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
 @inline get_nzchunk_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} = @inbounds axes(V.nzchunks[itc], 1)
 @inline function get_nzchunk_offsets(V::AbstractDensedSparseVector{L,Tv,Ti}, itc, i) where {L,Tv,Ti}
     ifirst = @inbounds first(V.nzranges[itc])
@@ -693,7 +693,7 @@ end
      return (key, chunk))
 
 @inline get_key_and_nzchunk(V::Vector) = (1, eltype(V)[])
-@inline get_key_and_nzchunk(::SparseVector{Tv,Ti}) where {L,Tv,Ti} = (Ti(1), Tv[])
+@inline get_key_and_nzchunk(::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
 @inline get_key_and_nzchunk(::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} = (Ti(1), Tv[])
 
 @inline get_indices_and_nzchunk(V::Vector, i) = (i:i, V)
@@ -705,7 +705,7 @@ end
      return (UnitRange{Ti}(key, key+length(chunk)-1), chunk))
 
 @inline get_indices_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), eltype(V)[])
-@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {L,Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
+@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 @inline get_indices_and_nzchunk(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
     (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 
@@ -1432,7 +1432,7 @@ end
 
 #from_rawindex(V::SparseVector{Tv,Ti}, idx::Pair) where {L,Tv,Ti} = Ti(first(idx))
 #function from_rawindex(V::AbstractDensedCompressedVector{L,Tv,Ti}, idx::Pair) where {L,Tv,Ti}
-function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {L,Tv,Ti}
+function from_rawindex(V::AbstractSparseVector{Tv,Ti}, idx::Pair) where {Tv,Ti}
     if first(idx) != pastendnzchunk_index(V)
         return Ti(get_nzchunk_key(V, first(idx))) + Ti(last(idx)) - Ti(1)
     else
