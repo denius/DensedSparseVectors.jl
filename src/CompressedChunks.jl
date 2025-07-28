@@ -109,7 +109,13 @@ It is useful for fast access to the blocks indices without the math and the leng
 
 `ptr` is the same as the `colptr` in `SparseMatrixCSC`. `ptr` is the unified interface for
 all AbstractCompressedChunk to have the `Int` indices for fast access
-to the start positions of blocks in the storage `nzval`. 
+to the start positions of blocks in the storage `nzval`. For scalar values (L=0 or L=1)
+the `ptr` is just UnitRange. For block values (L>1) the `ptr` is StepRangeLen.
+For variable blocks (L=1) ptr ia Vector as `colptr` in SparseMatrixCSC.
+The function `nzrange` specialized for CompressedChunks like for SparseMatrixCSC,
+and applied to access the positions in `nzcval`, obtained by `values(cc)`,
+`r = nzrange(cc, idx)`, where `idx` is an index within `axis` range.
+For any `L` `nzrange(cc,idx) = UnitRange(cc.ptr[idx-axis[1]+1], cc.ptr[idx-axis[1]+2]-1)`.
 
 `nzval` is the Vector{Tv} which continuously stored all block/scalar values.
 
@@ -277,7 +283,16 @@ end
 Base.@propagate_inbounds Base.values(cc::AbstractCompressedChunk) = cc.nzval
 
 
-SparseArrays.nnz(cc::AbstractCompressedChunk) = length(cc.nzval)
+Base.@propagate_inbounds SparseArrays.nnz(cc::AbstractCompressedChunk) = length(cc.nzval)
+
+"The function `nzrange` specialized for CompressedChunks like for SparseMatrixCSC,
+and applied to access the positions in `nzcval`, obtained by `values(cc)`,
+`r = nzrange(cc, idx)`, where `idx` is an index within `axis` range."
+Base.@propagate_inbounds function SparseArrays.nzrange(cc::AbstractCompressedChunk, idx::Integer)
+    @boundscheck in(idx, cc.axis)
+    idx0 = firstindex(cc) - 1
+    UnitRange(cc.ptr[idx-idx0], cc.ptr[idx-idx0+1]-1)
+end
 
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv}  = (length(cc), L)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv} = (length(cc), L)
