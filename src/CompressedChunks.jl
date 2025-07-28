@@ -102,9 +102,9 @@ at creating.
 
 ## Internals
 
-`idx` is the UnitRange{Ti} with the first and last indices of values/blocks in current chunk:
-`firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`.
-`idx` can be considered as offset axes.
+`axis` is the UnitRange{Ti} with the first and last indices of values/blocks in current chunk:
+`firstindex(cc) = first(cc.axis)` and `lastindex(cc) = last(cc.axis)`.
+`axis` can be considered as offset axes.
 It is useful for fast access to the blocks indices without the math and the length evaluations.
 
 `ptr` is the same as the `colptr` in `SparseMatrixCSC`. `ptr` is the unified interface for
@@ -119,8 +119,8 @@ $(TYPEDFIELDS)
 """
 struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}
     "the indices of first value/block and last value/block in chunk:
-     `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
-    idx::UnitRange{Ti}
+     `firstindex(cc) = first(cc.axis)` and `lastindex(cc) = last(cc.axis)`"
+    axis::UnitRange{Ti}
     "`ptr` refers to start positions of each value/block in `nzval`. And in the last position store after the last index of `nzval`"
     #ptr::UnitRange{Int}
     ptr::Tp
@@ -128,7 +128,7 @@ struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}
     nzval::Vector{Tv}
 
     function CompressedChunk{L,Tv,Ti,Tp}(idx::UnitRange{Ti}, ptr::Tp, nzval::Vector{Tv}) where {L,Tv,Ti,Tp}
-        # TODO: checks sizes via asserts. Check alignment of idx, ptr and nzval.
+        # TODO: checks sizes via asserts. Check alignment of axis, ptr and nzval.
         return new{L,Tv,Ti,Tp}(idx, ptr, nzval)
     end
 
@@ -236,17 +236,17 @@ end
 
 
 function Base.similar(cc::CompressedChunk{L,Tv,Ti,Tp}) where {L,Tv,Ti,Tp}
-    idx = copy(cc.idx)
+    axis = copy(cc.axis)
     ptr = copy(cc.ptr)
     nzval = similar(cc.nzval)
-    return CompressedChunk{L,Tv,Ti,Tp}(idx, ptr, nzval)
+    return CompressedChunk{L,Tv,Ti,Tp}(axis, ptr, nzval)
 end
 
 function Base.copy(cc::CompressedChunk{L,Tv,Ti,Tp}) where {L,Tv,Ti,Tp}
-    idx = copy(cc.idx)
+    axis = copy(cc.axis)
     ptr = copy(cc.ptr)
     nzval = copy(cc.nzval)
-    return CompressedChunk{L,Tv,Ti,Tp}(idx, ptr, nzval)
+    return CompressedChunk{L,Tv,Ti,Tp}(axis, ptr, nzval)
 end
 
 #
@@ -266,7 +266,7 @@ end
 #     l
 # end
 
-@inline Base.in(i::Integer, cc::AbstractCompressedChunk) = in(i, cc.idx)
+@inline Base.in(i::Integer, cc::AbstractCompressedChunk) = in(i, cc.axis)
 Base.@propagate_inbounds Base.length(cc::AbstractCompressedChunk) = length(cc.ptr) - 1
 Base.@propagate_inbounds Base.size(cc::AbstractCompressedChunk) = (length(cc), )
 Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (firstindex(cc):lastindex(cc),)
@@ -292,16 +292,16 @@ Base.@propagate_inbounds Base.iterate(cc::CompressedChunk{0}, state) = state <= 
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk) = length(cc) > 0 ? (cc[firstindex(cc)], firstindex(cc)+1) : nothing
 Base.@propagate_inbounds Base.iterate(cc::AbstractCompressedChunk, state) = state <= lastindex(cc) ? (cc[state], state+1) : nothing
 
-@inline Base.firstindex(cc::AbstractCompressedChunk) = first(cc.idx)
-@inline Base.lastindex(cc::AbstractCompressedChunk) = last(cc.idx)
+@inline Base.firstindex(cc::AbstractCompressedChunk) = first(cc.axis)
+@inline Base.lastindex(cc::AbstractCompressedChunk) = last(cc.axis)
 # @inline Base.eachindex(cc::AbstractCompressedChunk) = firstindex(cc):lastindex(cc)
 
 Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer, j::Integer)
-    @boundscheck in(i, cc.idx)
+    @boundscheck in(i, cc.axis)
     _getindex(cc, i, j)
 end
 Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::Integer)
-    @boundscheck in(i, cc.idx)
+    @boundscheck in(i, cc.axis)
     _getindex(cc, i)
 end
 
@@ -652,7 +652,7 @@ end
 function splitat!(cc::T, idx::Integer) where {T<:AbstractCompressedChunk}
     nzval = cc.nzval
     ptr = cc.ptr
-    pos = Int(idx - first(nzval.idx) + 1)
+    pos = Int(idx - first(nzval.axis) + 1)
     vls2 = nzval[ptr[pos+1]:end]
     resize!(nzval, ptr[pos]-1)
     return (T(firstindex(cc), nzval), T(idx+1, vls2))
@@ -660,7 +660,7 @@ end
 function splitat!(cc::T, idx::Integer) where {Tv,Ti,T<:AbstractCompressedChunk{-1,Tv,Ti}}
     nzval = cc.nzval
     ptr = cc.ptr
-    pos = Int(idx - first(nzval.idx) + 1)
+    pos = Int(idx - first(nzval.axis) + 1)
     vls2 = nzval[ptr[pos+1]:end]
     ptr2 = ptr[pos+1:end]
     i0 = first(ptr2) - 1
@@ -679,7 +679,7 @@ end
 
 # function Base.show(io::IO, ::MIME"text/plain", x::CompressedChunk{0,Tv}) where Tv
 #     # print(io, length(x), "-element ", typeof(x))
-#     print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
+#     print(io, length(x), "-element ", typeof(x), " with indices ", x.axis)
 #     if length(x) != 0
 #         println(io, ":")
 #         show(IOContext(io, :typeinfo => eltype(x)), x)
@@ -713,7 +713,7 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", x::AbstractCompressedChunk)
     # print(io, length(x), "-element ", typeof(x))
-    print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
+    print(io, length(x), "-element ", typeof(x), " with indices ", x.axis)
     if length(x) != 0
         println(io, ":")
         # show(IOContext(io, :typeinfo => eltype(x)), x)
