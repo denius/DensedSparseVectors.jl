@@ -15,8 +15,8 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", x::AbstractDensedCompressedVector)
     xnnz = 0
-    for cc in x.nzchunks
-        xnnz += length(cc)
+    for chunk in x.nzchunks
+        xnnz += length(chunk)
     end
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
@@ -58,8 +58,8 @@ end
 # function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
 function Base.show(io::IO, ::MIME"text/plain", x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where L
     xnnz = 0
-    for cc in x.nzchunks
-        xnnz += length(cc)
+    for chunk in x.nzchunks
+        xnnz += length(chunk)
     end
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
@@ -78,8 +78,8 @@ function Base.show(io::IOContext, x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where 
     if L == 0
 
         nzval = Vector{eltype(eltype(x.nzchunks))}()
-        for cc in x.nzchunks
-            append!(nzval, values(cc))
+        for chunk in x.nzchunks
+            append!(nzval, values(chunk))
         end
         limit = get(io, :limit, false)::Bool
         half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
@@ -105,8 +105,8 @@ function Base.show(io::IOContext, x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where 
     else # L > 0
 
         nzval = Vector{eltype(eltype(x.nzchunks))}()
-        for cc in x.nzchunks
-            append!(nzval, values(cc))
+        for chunk in x.nzchunks
+            append!(nzval, values(chunk))
         end
         limit = get(io, :limit, false)::Bool
         half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
@@ -118,9 +118,9 @@ function Base.show(io::IOContext, x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where 
         for k = eachindex(nzind)
             if k < half_screen_rows || k > length(nzind) - half_screen_rows
                 print(io, "  ", '[', rpad(nzind[k], pad), "]  =  [")
-                for cc in x.nzchunks
-                    nzval = values(cc)
-                    ptr = cc.ptr
+                for chunk in x.nzchunks
+                    nzval = values(chunk)
+                    ptr = chunk.ptr
                     for r in map(i -> i:i+step(ptr)-1, ptr[1:end-1])
                         println(@view(nzval[r]))
                     end
@@ -147,8 +147,8 @@ end
 #        return show(io, MIME("text/plain"), x)
 #    end
 #    nzval = Vector{eltype(eltype(x.nzchunks))}()
-#    for cc in x.nzchunks
-#        append!(nzval, values(cc))
+#    for chunk in x.nzchunks
+#        append!(nzval, values(chunk))
 #    end
 #    limit = get(io, :limit, false)::Bool
 #    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)

@@ -474,8 +474,8 @@ Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T
 Base.@propagate_inbounds SparseArrays.nnz(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} = nnz(parent(V))
 function SparseArrays.nnz(V::AbstractDensedCompressedVector)
     nn = 0
-    for cc in V.nzchunks
-        nn += nnz(cc)
+    for chunk in V.nzchunks
+        nn += nnz(chunk)
     end
     return nn
 end
