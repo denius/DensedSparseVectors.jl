@@ -6,7 +6,7 @@ i.e. CompressedChunk is the continuous non-zeros data between "sparse holes".
 module CompressedChunks
 
 export AbstractCompressedChunk
-export CompressedChunk, CChunk0, CChunk1, CChunk, CChunkVL
+export CompressedChunk, NZChunk0, NZChunk1, NZChunk, NZChunkVL
 export compressedchunk, compressedchunk_type
 
 
@@ -184,13 +184,13 @@ end
 
 
 
-const CChunk0{L,Tv,Ti}  = CompressedChunk{0,Tv,Ti,UnitRange{Int}}
-const CChunk1{L,Tv,Ti}  = CompressedChunk{1,Tv,Ti,UnitRange{Int}}
-const CChunk{L,Tv,Ti}   = CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}
-const CChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
+const NZChunk0{L,Tv,Ti}  = CompressedChunk{0,Tv,Ti,UnitRange{Int}}
+const NZChunk1{L,Tv,Ti}  = CompressedChunk{1,Tv,Ti,UnitRange{Int}}
+const NZChunk{L,Tv,Ti}   = CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}
+const NZChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
 
-const CompressedScalarChunk{L,Tv,Ti} = Union{CChunk0{Tv,Ti}}
-const CompressedBlockChunk{L,Tv,Ti} = Union{CChunk1{Tv,Ti}, CChunk{L,Tv,Ti}, CChunkVL{Tv,Ti}}
+const CompressedScalarChunk{L,Tv,Ti} = Union{NZChunk0{Tv,Ti}}
+const CompressedBlockChunk{L,Tv,Ti} = Union{NZChunk1{Tv,Ti}, NZChunk{L,Tv,Ti}, NZChunkVL{Tv,Ti}}
 
 function compressedchunk(L, i::Integer, val)
     Ti = eltype(i)

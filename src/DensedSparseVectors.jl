@@ -80,7 +80,7 @@ include("CompressedChunks.jl")
 using .CompressedChunks
 # reexport CompressedChunks
 export AbstractCompressedChunk
-export CompressedChunk, CChunk0, CChunk1, CChunk, CChunkVL
+export CompressedChunk, NZChunk0, NZChunk1, NZChunk, NZChunkVL
 export compressedchunk, compressedchunk_type
 
 export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynamicDensedSparseVector
