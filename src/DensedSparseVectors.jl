@@ -87,7 +87,7 @@ export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynam
 export DensedSparseVector, DynamicDensedSparseVector
 export DensedSVSparseVector, DensedVLSparseVector
 export DSV_0, DSV_1, DSV_L, DSV_VL, DDSV_0, DDSV_1, DDSV_L, DDSV_VL
-export ChunkLastUsed
+export NZChunkLastUsed
 
 export nzpairs, nzpairsview, nzblocks, nzvalues, nzvaluesview, nzindices, nzchunks, nzchunkspairs
 export startindex
@@ -144,11 +144,11 @@ abstract type AbstractDynamicDensedSparseVector{L,Tv,Ti} <: AbstractDensedCompre
 
 
 
-# struct ChunkLastUsed{Ti,Td}
+# struct NZChunkLastUsed{Ti,Td}
 #     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
 #     chunk::Td              # current chunk is the view into nzchunk
 # end
-struct ChunkLastUsed{Ti,Tit}
+struct NZChunkLastUsed{Ti,Tit}
     indices::UnitRange{Ti} # the indices of first and last elements in current chunk
     itchunk::Tit          # nzchunk position state (Int or Semitoken) in nzchunks
 end
@@ -198,7 +198,7 @@ $(TYPEDFIELDS)
 """
 struct DensedSparseVector{L,Tv,Ti,TCC} <: AbstractDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
-    lastused::MVector{1,ChunkLastUsed{Ti,Int}} # IS IT NEED???
+    lastused::MVector{1,NZChunkLastUsed{Ti,Int}} # IS IT NEED???
     "Storage for chunks of non-zero values as `Vector` of `CompressedChunk`s"
     #nzchunks::Vector{CompressedChunk{L,Tv,Ti,cc_field_ptr_type(Val(L))}}
     nzchunks::Vector{TCC}
@@ -226,7 +226,7 @@ $(TYPEDFIELDS)
 """
 struct DynamicDensedSparseVector{L,Tv,Ti,TCC} <: AbstractDynamicDensedSparseVector{L,Tv,Ti}
     "Cache of the index of last used chunk. It is stored in `MVector` with length 1."
-    lastused::MVector{1,ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
+    lastused::MVector{1,NZChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}} # IS IT NEED???
     "Storage for indices of the first element of non-zero chunks and corresponding CompressedChunk as `SortedDict(Int=>CompressedChunk)`"
     #nzchunks::SortedDict{Ti,CompressedChunk{L,Tv,Ti,cc_field_ptr_type(Val(L))},FOrd}
     nzchunks::SortedDict{Ti,TCC,FOrd}
@@ -302,7 +302,7 @@ $(TYPEDFIELDS)
 """
 mutable struct DensedSVSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{L,Tv,Ti} # TODO: is it should be AbstractSimple...
     "Index of last used chunk"
-    lastused::ChunkLastUsed{Ti,Int}
+    lastused::NZChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
     nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s
@@ -337,7 +337,7 @@ $(TYPEDFIELDS)
 """
 mutable struct DensedVLSparseVector{L,Tv,Ti} <: AbstractDensedSparseVector{-1,Tv,Ti}
     "Index of last used chunk"
-    lastused::ChunkLastUsed{Ti,Int}
+    lastused::NZChunkLastUsed{Ti,Int}
     "Storage for indices of the first element of non-zero chunks"
     nzranges::Vector{UnitRange{Ti}}  # Vector of chunk's first indices
     "Storage for chunks of non-zero values as `Vector` of `Vector`s
@@ -382,36 +382,36 @@ end
 
 #=
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
-    ChunkLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, itc)...)
+    NZChunkLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, itc)...)
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, indices, chunk) where {L,Tv,Ti} =
-    ChunkLastUsed{Ti,Vector{Tv}}(indices, chunk)
+    NZChunkLastUsed{Ti,Vector{Tv}}(indices, chunk)
 @inline lostused(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
-    ChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
+    NZChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
 @inline lostused(::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
-    ChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
+    NZChunkLastUsed{Ti,Vector{Tv}}(UnitRange{Ti}(Ti(1),Ti(0)), Tv[])
 =#
 
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc::Tit) where {L,Tv,Ti,Tit} =
-    ChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc)
+    NZChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc)
 @inline lastused(::AbstractDensedCompressedVector{L,Tv,Ti}, indices::UnitRange, itc::Tit) where {L,Tv,Ti,Tit} =
-    ChunkLastUsed{Ti,Tit}(indices, itc)
+    NZChunkLastUsed{Ti,Tit}(indices, itc)
 @inline lostused(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
-    @MVector([ChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))])
+    @MVector([NZChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))])
 @inline lostused(V::DynamicDensedSparseVector{L,Tv,Ti}) where {L,Tv,Ti} =
-    @MVector([ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))])
+    @MVector([NZChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V))])
 @inline lostused(::Type{Ti}, ::Type{Tit}) where {Ti,Tit<:Integer} =
-    @MVector([ChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), 0)])
+    @MVector([NZChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), 0)])
 @inline lostused(::Type{Ti}, itc::Tit) where {Ti,Tit<:DataStructures.Tokens.IntSemiToken} =
-    @MVector([ChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), itc)])
+    @MVector([NZChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), itc)])
 
 @inline set_lastused!(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc::Tit) where {L,Tv,Ti,Tit} =
-    (V.lastused[1] = ChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc); return nothing)
+    (V.lastused[1] = NZChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc); return nothing)
 @inline set_lastused!(V::AbstractDensedCompressedVector{L,Tv,Ti}, indices::UnitRange, itc::Tit) where {L,Tv,Ti,Tit} =
-    (V.lastused[1] = ChunkLastUsed{Ti,Tit}(indices, itc); return nothing)
+    (V.lastused[1] = NZChunkLastUsed{Ti,Tit}(indices, itc); return nothing)
 @inline set_lostused!(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
-    (V.lastused[1] = ChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V)); return nothing)
+    (V.lastused[1] = NZChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V)); return nothing)
 @inline set_lostused!(V::DynamicDensedSparseVector{L,Tv,Ti}) where {L,Tv,Ti} =
-    (V.lastused[1] = ChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V)); return nothing)
+    (V.lastused[1] = NZChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V)); return nothing)
 
 # @inline lastused(V::DensedVLSparseVector{Tv,Ti}, itc::Tit, i = 1) where {Tv,Ti,Tit} =
 #     BlockChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), get_nzchunk_offsets(V, itc, i), itc)
