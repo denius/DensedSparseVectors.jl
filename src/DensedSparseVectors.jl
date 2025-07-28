@@ -422,7 +422,13 @@ end
 # @inline blocklostused(::Type{Ti}, ::Type{Tit}) where {Ti,Tit<:Integer} =
 #     BlockChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), UnitRange{Tit}(1,0), 0)
 
-
+# Auxiliary struct to convert Int(i) into firstindex(i)
+struct FIndex{T}
+    i::T
+    FIndex{T}(idx::T) where T = new{T}(idx)
+end
+Base.firstindex(idx::FIndex) = idx.i
+findex(idx::T) where T = FIndex{T}(idx)
 
 """
 Convert any particular `AbstractSparseVector`s to corresponding `AbstractDensedCompressedVector`:
@@ -753,7 +759,7 @@ end
 @inline DataStructures.regress(V::AbstractDynamicDensedSparseVector, state) = regress((V.nzchunks, state))
 
 "`searchsortedlast(V.nzranges, i)`"
-@inline searchsortedlast_ranges(V::AbstractDensedSparseVector, i) = searchsortedlast(V.nzchunks, i, by=firstindex)
+@inline searchsortedlast_ranges(V::AbstractDensedSparseVector, i) = searchsortedlast(V.nzchunks, findex(i), by=firstindex)
 @inline searchsortedlast_ranges(V::AbstractDynamicDensedSparseVector, i) = searchsortedlast(V.nzchunks, i)
 
 """

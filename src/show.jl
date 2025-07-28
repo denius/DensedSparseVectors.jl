@@ -115,6 +115,7 @@ function Base.show(io::IOContext, x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where 
         if !haskey(io, :compact)
             io = IOContext(io, :compact => true)
         end
+
         for k = eachindex(nzind)
             if k < half_screen_rows || k > length(nzind) - half_screen_rows
                 print(io, "  ", '[', rpad(nzind[k], pad), "]  =  [")
