@@ -290,8 +290,8 @@ and applied to access the positions of i-th block of values in `nzval` (obtained
 `r = nzrange(cc, i)`, where `i` is an index within `axis` range."
 Base.@propagate_inbounds function SparseArrays.nzrange(cc::AbstractCompressedChunk, idx::Integer)
     @boundscheck in(idx, cc.axis)
-    idx0 = firstindex(cc) - 1
-    UnitRange(cc.ptr[idx-idx0], cc.ptr[idx-idx0+1]-1)
+    i = idx - firstindex(cc) + 1
+    UnitRange(cc.ptr[i], cc.ptr[i+1]-1)
 end
 
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv}  = (length(cc), L)
@@ -328,8 +328,14 @@ end
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{L,Tv}, i::Integer) where {L,Tv}             = @view(cc.nzval[1+(i-1)*L:i*L])
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{-1}, i::Integer)                               = @view(cc.nzval[cc.ptr[i]:cc.ptr[i+1]-1])
 
-Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.nzval[cc.ptr[i]+j-1])
-Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer) = (i=idx-firstindex(cc)+1; @view(cc.nzval[cc.ptr[i]:cc.ptr[i+1]-1]))
+Base.@propagate_inbounds function _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer)
+    # i = idx - firstindex(cc) + 1
+    # cc.nzval[cc.ptr[i]+j-1]
+    cc.nzval[nzrange(cc, idx)[j]]
+end
+Base.@propagate_inbounds function _getindex(cc::AbstractCompressedChunk, idx::Integer)
+    @view(cc.nzval[nzrange(cc, idx)])
+end
 
 Base.@propagate_inbounds function Base.setindex!(cc::AbstractCompressedChunk, item, i::Integer, j::Integer)
     @boundscheck in(i, cc)

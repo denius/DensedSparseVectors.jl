@@ -185,9 +185,9 @@ IS IT NEED separate `L = 1` if there is exist `L = 0` for scalars???
 
 To create new DensedSparseVector use empty constructor,
 for example, next command will create empty DensedSparseVector with length 10000:
-
+```
     DensedSparseVector{3,Float64,UInt}(undef, 10000)
-
+```
 The DensedSparseVector created, consisting of blocks by 3 `Float64` elements, and
 `UInt` indices. In this vector can be stored 3*10000 = 30000 Float64 elements total,
 but created vector is empty.
@@ -752,6 +752,7 @@ end
 
 @inline returnzero(V::DensedSVSparseVector) = zero(eltype(eltype(V.nzchunks)))
 @inline returnzero(V::AbstractDensedCompressedVector) = zero(eltype(V))
+@inline returnzeroview(V::AbstractDensedCompressedVector) = view(Vector{eltype(V)}(), 1:0)
 
 @inline DataStructures.advance(::AbstractDensedSparseVector, state) = state + 1
 @inline DataStructures.advance(V::AbstractDynamicDensedSparseVector, state) = advance((V.nzchunks, state))
@@ -1714,25 +1715,19 @@ end
     # fast check for cached chunk index
     indices, itc = get_cached(V)
     if i in indices
-        return get_nzchunk(V, itc)[i - first(indices) + oneunit(Ti)]
+        return get_nzchunk(V, itc)[i]
     end
     # cached chunk index miss or index is not stored
     itc = searchsortedlast_ranges(V, i)
     if itc != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        # ifirst, chunk, len = get_key_and_nzchunk_and_length(V, itc)
-        # if i < ifirst + len  # is the index `i` inside of data chunk indices range
-        #     set_lastused!(V, itc)
-        #     return chunk[i - ifirst + oneunit(Ti)]
-        # end
-        #indices = get_indices(V, itc)
         indices = get_nzchunk_indices(V, itc)
         if i <= last(indices)  # is the index `i` inside of data chunk indices range
             set_lastused!(V, itc)
-            return get_nzchunk(V, itc)[i - first(indices) + oneunit(Ti)]
+            return get_nzchunk(V, itc)[i]
         end
     end
     set_lostused!(V)
-    return returnzero(V)
+    return returnzeroview(V)
 end
 
 
