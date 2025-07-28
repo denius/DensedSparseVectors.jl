@@ -6,7 +6,7 @@ i.e. CompressedChunk is the continuous non-zeros data between "sparse holes".
 module CompressedChunks
 
 export AbstractCompressedChunk
-export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
+export CompressedChunk, CChunk0, CChunk1, CChunk, CChunkVL
 export compressedchunk, compressedchunk_type
 
 
@@ -149,7 +149,7 @@ struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}
 
     function CompressedChunk{L,Tv,Ti,Tp}(r::UnitRange, nzval) where {L,Tv,Ti,Tp}
         if L < 0 || !isa(nzval, Vector{Tv})
-            throw(ArgumentError(LazyString("CompressedChunk{L}(i::Number, nzval) where L: unreleased yet option of L = $(L) and nzval is not an Vector")))
+            throw(ArgumentError(LazyString("CompressedChunk{L,Tv,Ti,Tp}(r::UnitRange, nzval) where {L,Tv,Ti,Tp}: unreleased yet option of L = $(L) and nzval is not an Vector")))
         end
         if L == 0 || L == 1
             n = length(nzval)
@@ -175,7 +175,7 @@ struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}
         #    if nzval isa Vector{Tv} && ptr isa Vector{Int}
         #        new{-1,Tv,Ti}(UnitRange{Ti}(r), ptr, nzval)
         #    else
-        #        throw(MethodError(CompressedChunkVL{-1,Tv,Ti}, (UnitRange{Ti}(r), ptr, nzval)))
+        #        throw(ArgumentError(LazyString("CompressedChunk{-1}(r::UnitRange, nzval): ...")))
         #    end
         end
     end
@@ -184,13 +184,13 @@ end
 
 
 
-const CompressedChunk0{L,Tv,Ti} = CompressedChunk{0,Tv,Ti,UnitRange{Int}}
-const CompressedChunk1{L,Tv,Ti} = CompressedChunk{1,Tv,Ti,UnitRange{Int}}
-const CompressedChunkL{L,Tv,Ti} = CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}
-const CompressedChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
+const CChunk0{L,Tv,Ti}  = CompressedChunk{0,Tv,Ti,UnitRange{Int}}
+const CChunk1{L,Tv,Ti}  = CompressedChunk{1,Tv,Ti,UnitRange{Int}}
+const CChunk{L,Tv,Ti}   = CompressedChunk{L,Tv,Ti,StepRangeLen{Int,Int,Int,Int}}
+const CChunkVL{L,Tv,Ti} = CompressedChunk{-1,Tv,Ti,Vector{Int}}
 
-const CompressedScalarChunk{L,Tv,Ti} = Union{CompressedChunk0{Tv,Ti}}
-const CompressedBlockChunk{L,Tv,Ti} = Union{CompressedChunk1{Tv,Ti}, CompressedChunkL{L,Tv,Ti}, CompressedChunkVL{Tv,Ti}}
+const CompressedScalarChunk{L,Tv,Ti} = Union{CChunk0{Tv,Ti}}
+const CompressedBlockChunk{L,Tv,Ti} = Union{CChunk1{Tv,Ti}, CChunk{L,Tv,Ti}, CChunkVL{Tv,Ti}}
 
 function compressedchunk(L, i::Integer, val)
     Ti = eltype(i)
@@ -250,14 +250,14 @@ function Base.copy(cc::CompressedChunk{L,Tv,Ti,Tp}) where {L,Tv,Ti,Tp}
 end
 
 #
-# TODO: Refactor all code below as the CompressedChunk{0} and CompressedChunk1 are the distinct types
+# TODO: Refactor all code below as the CompressedChunk{0} and CompressedChunk{1} are the distinct types
 # and thus there is no reason for separate functions -- all functions should be AbstractCompressedChunk only!
 #
 
 # # size2(cc::CompressedChunk{0,Tv}) where {Tv}   = 1
 # # size2(_::CompressedChunk{L,Tv}) where {L,Tv}  = L
 # size2(cc::CompressedChunk{0})                   = 1
-# size2(_::CompressedChunkL{L,Tv}) where {L,Tv} = L
+# size2(_::CompressedChunk{L,Tv}) where {L,Tv} = L
 # function size2(cc::AbstractCompressedChunk)
 #     l = 0
 #     for i = 1:length(cc)
@@ -280,7 +280,7 @@ Base.@propagate_inbounds Base.values(cc::AbstractCompressedChunk) = cc.nzval
 SparseArrays.nnz(cc::AbstractCompressedChunk) = length(cc.nzval)
 
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv}  = (length(cc), L)
-# Base.@propagate_inbounds Base.size(cc::CompressedChunkL{L,Tv}) where {L,Tv} = (length(cc), L)
+# Base.@propagate_inbounds Base.size(cc::CompressedChunk{L,Tv}) where {L,Tv} = (length(cc), L)
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{-1,Tv}) where Tv     = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.size(cc::CompressedChunk{-1})                   = (length(cc), size2(cc))
 # Base.@propagate_inbounds Base.axes(cc::AbstractCompressedChunk) = (Base.OneTo(length(cc)), Base.OneTo(size2(cc)))
@@ -306,11 +306,11 @@ Base.@propagate_inbounds function Base.getindex(cc::AbstractCompressedChunk, i::
 end
 
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{0}, i::Integer, j::Integer)                    = cc.nzval[i]
-# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{L,Tv}, i::Integer, j::Integer) where {L,Tv} = cc.nzval[(i-1)*L + j]
+# Base.@propagate_inbounds _getindex(cc::CompressedChunk{L,Tv}, i::Integer, j::Integer) where {L,Tv} = cc.nzval[(i-1)*L + j]
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{-1}, i::Integer, j::Integer)                   = cc.nzval[cc.ptr[i]+j-1]
 #
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{0}, i::Integer)                                = @view(cc.nzval[i:i])
-# Base.@propagate_inbounds _getindex(cc::CompressedChunkL{L,Tv}, i::Integer) where {L,Tv}             = @view(cc.nzval[1+(i-1)*L:i*L])
+# Base.@propagate_inbounds _getindex(cc::CompressedChunk{L,Tv}, i::Integer) where {L,Tv}             = @view(cc.nzval[1+(i-1)*L:i*L])
 # Base.@propagate_inbounds _getindex(cc::CompressedChunk{-1}, i::Integer)                               = @view(cc.nzval[cc.ptr[i]:cc.ptr[i+1]-1])
 
 Base.@propagate_inbounds _getindex(cc::AbstractCompressedChunk, idx::Integer, j::Integer) = (i=idx-firstindex(cc)+1; cc.nzval[cc.ptr[i]+j-1])
@@ -577,7 +577,7 @@ function Base.prepend!(cc::T, items::Union{AbstractVector,Tuple}) where {Tv,T<:C
     prepend!(nzval, items)
     return T(firstindex(cc)-length(items), nzval)
 end
-function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {L,Tv,T<:CompressedChunkL{L,Tv},C<:Union{AbstractVector,Tuple}}
+function Base.prepend!(cc::T, items::Union{AbstractVector{C},Tuple{C}}) where {L,Tv,T<:CompressedChunk{L,Tv},C<:Union{AbstractVector,Tuple}}
     nzval = cc.nzval
     len = 0
     for item in items
@@ -677,7 +677,7 @@ end
 # resize! -- not need
 
 
-# function Base.show(io::IO, ::MIME"text/plain", x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
+# function Base.show(io::IO, ::MIME"text/plain", x::CompressedChunk{0,Tv}) where Tv
 #     # print(io, length(x), "-element ", typeof(x))
 #     print(io, length(x), "-element ", typeof(x), " with indices ", x.idx)
 #     if length(x) != 0
@@ -685,7 +685,7 @@ end
 #         show(IOContext(io, :typeinfo => eltype(x)), x)
 #     end
 # end
-# function Base.show(io::IOContext, x::Union{CompressedChunk0{Tv},CompressedChunk{Tv,0}}) where Tv
+# function Base.show(io::IOContext, x::CompressedChunk{0,Tv}) where Tv
 #     if isempty(x)
 #         return show(io, MIME("text/plain"), x)
 #     end
