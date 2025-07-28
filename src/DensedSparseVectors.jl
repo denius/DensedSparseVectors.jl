@@ -13,14 +13,14 @@
 #
 # * Test https://github.com/JuliaSIMD/StrideArrays.jl instead of StaticArrays.
 #
-# * May be all iterators should returns `view(chunk, :)`?
+# * May be all iterators should returns `view(nzchunk, :)`?
 #
 # * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
 #   Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
 # * Add SDSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
 #   May be stack of few SDSVIteratorState of previous assesses ranged by access frequency
-#   or size of chunk?
+#   or size of nzchunk?
 #
 # * Add pastendnzchunk_index in all AbstractDensedCompressedVector
 #   to have the fast iteration stop checking.
@@ -1699,7 +1699,7 @@ function checkbounds(V, i::Pair)
     return nothing
 end
 
-# Potential type piracy!
+# POTENTIAL TYPE PIRACY!
 @inline Base.getindex(V::SparseVector, i::Pair) = V[first(i)]
 
 @inline function Base.getindex(V::AbstractDensedCompressedVector, i::Pair)
@@ -1731,7 +1731,7 @@ end
 end
 
 
-@inline Base.getindex(V::DensedSVSparseVector, i::Integer, j::Integer) = getindex(V, i)[j]
+@inline Base.getindex(V::AbstractDensedCompressedVector, i::Integer, j::Integer) = getindex(V, i)[j]
 
 
 @inline function Base.getindex(V::DensedVLSparseVector, i::Integer)
