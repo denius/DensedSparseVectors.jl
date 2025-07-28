@@ -7,12 +7,9 @@ module CompressedChunks
 
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export cc_field_ptr_type, compressedchunk
-export get_indices, get_chunk
+export compressedchunk, compressedchunk_type
 
 
-import Base.Broadcast: BroadcastStyle
-using Base.Broadcast: AbstractArrayStyle, Broadcasted, DefaultArrayStyle
 using DocStringExtensions
 using DataStructures
 #using FillArrays
@@ -39,16 +36,21 @@ abstract type AbstractCompressedChunk{L,Tv,Ti} <: AbstractVector{Tv} end
 
 
 " Evaluate type for `ptr` field of `struct CompressedChunk` during compilation"
-@inline function cc_field_ptr_type(::Val{N}) where {N}
-    if N == -1
+@inline function cc_field_ptr_type(::Val{L}) where {L}
+    if L == -1
         return Vector{Int}
-    elseif N == 0
+    elseif L == 0
         return UnitRange{Int}
-    elseif N == 1
+    elseif L == 1
         return UnitRange{Int}
     else
         return StepRangeLen{Int, Int, Int, Int}
     end
+end
+
+" Evaluate type for `struct CompressedChunk`"
+@inline function compressedchunk_type(L,Tv,Ti)
+    return CompressedChunk{L,Tv,Ti,cc_field_ptr_type(Val(L))}
 end
 
 
@@ -65,7 +67,7 @@ _second_index_ position. The behavior of `setindex!` is similar.
 
 The iterator will return the view on blocks.
 
-`struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}`
+`struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}`
 is an universal struct which properties are determined by type parameters.
 
 ## Parameterized type storage:
@@ -94,7 +96,7 @@ in `ptr` stored the starts of blocks in `vls`.
 
 `Tv` and `Ti` are the type of stored values and type of its indices.
 
-`TO` is the type for internal storage for offsets `ptr`. It is different for different `L`,
+`Tp` is the type for internal storage for offsets `ptr`. It is different for different `L`,
 and can't be evaluated at compilation time, thus it calculated by `cc_field_ptr_type(Val(L))`
 at creating.
 
@@ -115,19 +117,19 @@ $(TYPEDEF)
 Struct fields:
 $(TYPEDFIELDS)
 """
-struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
+struct CompressedChunk{L,Tv,Ti,Tp} <: AbstractCompressedChunk{L,Tv,Ti}
     "the indices of first value/block and last value/block in chunk:
      `firstindex(cc) = first(cc.idx)` and `lastindex(cc) = last(cc.idx)`"
     idx::UnitRange{Ti}
     "`ptr` refers to start positions of each value/block in `vls`. And in the last position store after the last index of `vls`"
     #ptr::UnitRange{Int}
-    ptr::TO
+    ptr::Tp
     "the values/blocks are stored continuously in `vls`"
     vls::Vector{Tv}
 
-    function CompressedChunk{L,Tv,Ti,TO}(idx::UnitRange{Ti}, ptr::TO, vls::Vector{Tv}) where {L,Tv,Ti,TO}
+    function CompressedChunk{L,Tv,Ti,Tp}(idx::UnitRange{Ti}, ptr::Tp, vls::Vector{Tv}) where {L,Tv,Ti,Tp}
         # TODO: checks sizes via asserts. Check alignment of idx, ptr and vls.
-        return new{L,Tv,Ti,TO}(idx, ptr, vls)
+        return new{L,Tv,Ti,Tp}(idx, ptr, vls)
     end
 
     CompressedChunk(i::Number, vls) = CompressedChunk(range(i, length=length(vls)), vls)
@@ -145,7 +147,7 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
         end
     end
 
-    function CompressedChunk{L,Tv,Ti,TO}(r::UnitRange, vls) where {L,Tv,Ti,TO}
+    function CompressedChunk{L,Tv,Ti,Tp}(r::UnitRange, vls) where {L,Tv,Ti,Tp}
         if L < 0 || !isa(vls, Vector{Tv})
             throw(ArgumentError(LazyString("CompressedChunk{L}(i::Number, vls) where L: unreleased yet option of L = $(L) and vls is not an Vector")))
         end
@@ -153,18 +155,18 @@ struct CompressedChunk{L,Tv,Ti,TO} <: AbstractCompressedChunk{L,Tv,Ti}
             n = length(vls)
             @assert length(r) == n
             ur = range(1, n+1)
-            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), ur, vls)
+            return new{L,Tv,Ti,Tp}(UnitRange{Ti}(r), ur, vls)
         elseif L > 0
             @assert mod(length(vls), L) == 0
             lenv = length(vls)
             n = div(lenv, L)
             @assert length(r) == n
             srl = StepRangeLen{Int,Int,Int,Int}(1,L,n+1)
-            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), srl, vls)
+            return new{L,Tv,Ti,Tp}(UnitRange{Ti}(r), srl, vls)
         else#if L == -1
             # create empty CompressedChunk{-1}
             @assert length(r) == 0 && length(vls) == 0
-            return new{L,Tv,Ti,TO}(UnitRange{Ti}(r), Int[1], vls)
+            return new{L,Tv,Ti,Tp}(UnitRange{Ti}(r), Int[1], vls)
         #else#if L == -1
         #    @assert first(ptr) == 1 && last(ptr) - 1 == length(vls)
         #    @assert issorted(ptr)
@@ -232,25 +234,19 @@ function compressedchunk(::Type{T}, i::Integer, val) where {L,Tv,Ti, T<:Abstract
     end
 end
 
-#function get_indices(cc::AbstractCompressedChunk)
-#    return cc.idx
-#end
-#function get_chunk(cc::AbstractCompressedChunk)
-#    return cc.vls
-#end
 
-function Base.similar(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
+function Base.similar(cc::CompressedChunk{L,Tv,Ti,Tp}) where {L,Tv,Ti,Tp}
     idx = copy(cc.idx)
     ptr = copy(cc.ptr)
     vls = similar(cc.vls)
-    return CompressedChunk{L,Tv,Ti,TO}(idx, ptr, vls)
+    return CompressedChunk{L,Tv,Ti,Tp}(idx, ptr, vls)
 end
 
-function Base.copy(cc::CompressedChunk{L,Tv,Ti,TO}) where {L,Tv,Ti,TO}
+function Base.copy(cc::CompressedChunk{L,Tv,Ti,Tp}) where {L,Tv,Ti,Tp}
     idx = copy(cc.idx)
     ptr = copy(cc.ptr)
     vls = copy(cc.vls)
-    return CompressedChunk{L,Tv,Ti,TO}(idx, ptr, vls)
+    return CompressedChunk{L,Tv,Ti,Tp}(idx, ptr, vls)
 end
 
 #

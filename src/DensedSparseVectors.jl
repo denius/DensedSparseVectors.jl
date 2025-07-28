@@ -81,7 +81,7 @@ using .CompressedChunks
 # reexport CompressedChunks
 export AbstractCompressedChunk
 export CompressedChunk, CompressedChunk0, CompressedChunk1, CompressedChunkL, CompressedChunkVL
-export cc_field_ptr_type, compressedchunk
+export compressedchunk, compressedchunk_type
 
 export AbstractDensedCompressedVector, AbstractDensedSparseVector, AbstractDynamicDensedSparseVector
 export DensedSparseVector, DynamicDensedSparseVector
@@ -206,7 +206,7 @@ struct DensedSparseVector{L,Tv,Ti,TCC} <: AbstractDensedSparseVector{L,Tv,Ti}
     nn::Ref{Ti}
 
     function DensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
-        Tcc = CompressedChunk{L,Tv,Ti,cc_field_ptr_type(Val(L))}
+        Tcc = compressedchunk_type(L,Tv,Ti)
         return new{L,Tv,Ti,Tcc}(lostused(Ti,Int), Vector{Tcc}(), Ref{Ti}(Ti(n)))
     end
 
@@ -234,7 +234,7 @@ struct DynamicDensedSparseVector{L,Tv,Ti,TCC} <: AbstractDynamicDensedSparseVect
     nn::Ref{Ti}
 
     function DynamicDensedSparseVector{L,Tv,Ti}(::UndefInitializer, n::Integer = 0) where {L,Tv,Ti}
-        Tcc = CompressedChunk{L,Tv,Ti,cc_field_ptr_type(Val(L))}
+        Tcc = compressedchunk_type(L,Tv,Ti)
         nzchunks = SortedDict{Ti,Tcc,FOrd}(Base.Order.Forward)
         new{L,Tv,Ti,Tcc}(lostused(Ti,beforestartsemitoken(nzchunks)), nzchunks, Ref{Ti}(Ti(n)))
     end
@@ -657,7 +657,7 @@ end
 
 @inline get_nzchunk_indices(V::Vector, i) = UnitRange{Int}(1, length(V))
 @inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {L,Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
-@inline get_nzchunk_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} = @inbounds V.nzranges[itc]
+@inline get_nzchunk_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} = @inbounds axes(V.nzchunks[itc], 1)
 @inline function get_nzchunk_offsets(V::AbstractDensedSparseVector{L,Tv,Ti}, itc, i) where {L,Tv,Ti}
     ifirst = @inbounds first(V.nzranges[itc])
     @inbounds V.offsets[itc][i-ifirst+1]:V.offsets[itc][i-ifirst+1+1]-1
@@ -709,12 +709,12 @@ end
 @inline get_indices_and_nzchunk(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
     (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 
-@inline get_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
+#=@inline get_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
     @inbounds V.nzranges[itc]
 @inline get_indices(V::DynamicDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, itc));
     return UnitRange{Ti}(key, key+length(chunk)-1))
-
+=#
 @inline get_key_and_nzchunk_and_length(V::Vector, i) = (i, V, length(V))
 @inline get_key_and_nzchunk_and_length(V::SparseVector, i) = (V.nzind[i], view(V.nzchunks, i:i), 1)
 @inline get_key_and_nzchunk_and_length(V::AbstractDensedSparseVector, itc) = @inbounds (first(V.nzranges[itc]), V.nzchunks[itc], length(V.nzranges[itc]))
@@ -1485,8 +1485,31 @@ end
 
 
 
-#
-#  Iterators
+"""
+# Iterators
+
+* `nzchunks(V::AbstractDensedCompressedVector)` is the `Iterator` over chunks of nonzeros and
+  returns tuple of start index and chunk vector.
+
+* `nzchunkspairs(V::AbstractDensedCompressedVector)` is the `Iterator` over non-zero chunks,
+  returns `Pair` of `UnitRange` first-last indices and view to vector of non-zero values.
+
+* `nzblocks(V::AbstractVector)` is the `Iterator` over non-zero values of `V`.
+
+* `nzindices(V::AbstractVector)` is the `Iterator` over non-zero indices of vector `V`.
+
+* `nzvalues(V::AbstractVector)` is the `Iterator` over non-zero values of `V`.
+
+* `nzvaluesview(V::AbstractVector)` is the `Iterator` over non-zero values of `V`,
+  returns the `view(V, idx:idx)` of iterated values.
+
+* `nzpairs(V::AbstractVector)` is the `Iterator` over nonzeros of `V`, returns pair of index and value.
+
+* `nzpairsview(V::AbstractVector)` is the `Iterator` over nonzeros of `V`,
+  returns pair of index and view `view(V, idx:idx)` on value to be mutable.
+
+"""
+
 #
 # TODO: Try IterTools.@ifsomething
 
@@ -1595,7 +1618,7 @@ struct NZValuesView{It}
     itr::It
 end
 """
-`NZValuesView(V::AbstractVector)` is the `Iterator` over non-zero values of `V`,
+`nzvaluesview(V::AbstractVector)` is the `Iterator` over non-zero values of `V`,
 returns the `view(V, idx:idx)` of iterated values.
 """
 nzvaluesview(itr) = NZValuesView(itr)
@@ -1695,7 +1718,8 @@ end
         #     set_lastused!(V, itc)
         #     return chunk[i - ifirst + oneunit(Ti)]
         # end
-        indices = get_indices(V, itc)
+        #indices = get_indices(V, itc)
+        indices = get_nzchunk_indices(V, itc)
         if i <= last(indices)  # is the index `i` inside of data chunk indices range
             set_lastused!(V, itc)
             return get_nzchunk(V, itc)[i - first(indices) + oneunit(Ti)]

@@ -15,8 +15,8 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", x::AbstractDensedCompressedVector)
     xnnz = 0
-    for v in x.nzchunks
-        xnnz += length(v)
+    for cc in x.nzchunks
+        xnnz += length(cc)
     end
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
@@ -55,10 +55,11 @@ function Base.show(io::IOContext, x::AbstractDensedCompressedVector)
 end
 
 
-function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
+# function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
+function Base.show(io::IO, ::MIME"text/plain", x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where L
     xnnz = 0
-    for v in x.nzchunks
-        xnnz += length(v)
+    for cc in x.nzchunks
+        xnnz += length(cc)
     end
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
@@ -67,39 +68,110 @@ function Base.show(io::IO, ::MIME"text/plain", x::DensedSVSparseVector)
         show(IOContext(io, :typeinfo => eltype(x)), x)
     end
 end
-function Base.show(io::IOContext, x::DensedSVSparseVector)
-    n = length(x)
+function Base.show(io::IOContext, x::Union{DSV_0{L}, DSV_1{L}, DSV_L{L}}) where L
+    # n = length(x)
     nzind = nonzeroinds(x)
-    nzval = Vector{eltype(eltype(x.nzchunks))}()
-    for v in x.nzchunks
-        for u in v
-            push!(nzval, u)
-        end
-    end
     if isempty(nzind)
         return show(io, MIME("text/plain"), x)
     end
-    limit = get(io, :limit, false)::Bool
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    #pad = ndigits(n)
-    pad = quick_get_max_pad(x)
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
-    end
-    for k = eachindex(nzind)
-        if k < half_screen_rows || k > length(nzind) - half_screen_rows
-            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
-            if isassigned(nzval, Int(k))
-                show(io, nzval[k])
-            else
-                print(io, Base.undef_ref_str)
+
+    if L == 0
+
+        nzval = Vector{eltype(eltype(x.nzchunks))}()
+        for cc in x.nzchunks
+            append!(nzval, values(cc))
+        end
+        limit = get(io, :limit, false)::Bool
+        half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+        #pad = ndigits(n)
+        pad = quick_get_max_pad(x)
+        if !haskey(io, :compact)
+            io = IOContext(io, :compact => true)
+        end
+        for k = eachindex(nzind)
+            if k < half_screen_rows || k > length(nzind) - half_screen_rows
+                print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+                if isassigned(nzval, Int(k))
+                    show(io, nzval[k])
+                else
+                    print(io, Base.undef_ref_str)
+                end
+                k != length(nzind) && println(io)
+            elseif k == half_screen_rows
+                println(io, "   ", " "^pad, "   \u22ee")
             end
-            k != length(nzind) && println(io)
-        elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+        end
+
+    else # L > 0
+
+        nzval = Vector{eltype(eltype(x.nzchunks))}()
+        for cc in x.nzchunks
+            append!(nzval, values(cc))
+        end
+        limit = get(io, :limit, false)::Bool
+        half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+        #pad = ndigits(n)
+        pad = quick_get_max_pad(x)
+        if !haskey(io, :compact)
+            io = IOContext(io, :compact => true)
+        end
+        for k = eachindex(nzind)
+            if k < half_screen_rows || k > length(nzind) - half_screen_rows
+                print(io, "  ", '[', rpad(nzind[k], pad), "]  =  [")
+                for cc in x.nzchunks
+                    nzval = values(cc)
+                    ptr = cc.ptr
+                    for r in map(i -> i:i+step(ptr)-1, ptr[1:end-1])
+                        println(@view(nzval[r]))
+                    end
+                    for l in axes(nzval,1)
+                        if isassigned(nzval, Int(l))
+                            show(io, nzval[l])
+                        else
+                            print(io, Base.undef_ref_str)
+                        end
+                    end
+                end
+                k != length(nzind) && println(io,"]")
+            elseif k == half_screen_rows
+                println(io, "   ", " "^pad, "   \u22ee")
+            end
         end
     end
 end
+# function Base.show(io::IOContext, x::DensedSVSparseVector)
+#function Base.show(io::IOContext, x::DSV_L)
+#    n = length(x)
+#    nzind = nonzeroinds(x)
+#    if isempty(nzind)
+#        return show(io, MIME("text/plain"), x)
+#    end
+#    nzval = Vector{eltype(eltype(x.nzchunks))}()
+#    for cc in x.nzchunks
+#        append!(nzval, values(cc))
+#    end
+#    limit = get(io, :limit, false)::Bool
+#    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+#    #pad = ndigits(n)
+#    pad = quick_get_max_pad(x)
+#    if !haskey(io, :compact)
+#        io = IOContext(io, :compact => true)
+#    end
+#    for k = eachindex(nzind)
+#        if k < half_screen_rows || k > length(nzind) - half_screen_rows
+#            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+#            if isassigned(nzval, Int(k))
+#                show(io, nzval[k])
+#            else
+#                print(io, Base.undef_ref_str)
+#            end
+#            k != length(nzind) && println(io)
+#        elseif k == half_screen_rows
+#            println(io, "   ", " "^pad, "   \u22ee")
+#        end
+#    end
+#end
+
 
 function Base.show(io::IO, ::MIME"text/plain", x::DensedVLSparseVector)
     xnnz = 0
