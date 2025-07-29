@@ -1,17 +1,24 @@
 
 # TODO:
+#
+# * Rename everywhere `chunk` to distinguish:
+#     cchunk (CompressedChunk -- struct),
+#     nzchunk (data) -- may be just "nzval" like SparseVector and SparseMatrix,
+#     block in nzchunk (view on part of data) -- may be "nzblock" and "nzvalue",
+#
 # * Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
 #   to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
 #   Or may be do `@inbounds` do this?
 #
-# * Introduce offsets fields to all types to have indexable iterator
+# * ~~Introduce offsets fields to all types to have indexable iterator
 #   nonzeros(::AbstractDensedCompressedVector): getindex(it::NZValues, i) and
-#   fast `_are_same_sparse_indices()`
+#   fast `_are_same_sparse_indices()`~~
+#   Introduce fast Offset Axes, may be with OffsetArrays, to have zero-based indexing.
+#   Note: for Ti = UInt there is the bug <https://github.com/JuliaArrays/OffsetArrays.jl/issues/320>.
+#   Thus for UInt it is impossible have zero-based DSV! (Zero-based DSV is need for root_id=0)
 #
 # * Introduce ChainIndex: ((chain_index, element_index), LinearIndex) like CartesianIndex
 #   for fast AbstractDensedCompressedVector access without searchsortedlast and so on.
-#
-# * Test https://github.com/JuliaSIMD/StrideArrays.jl instead of StaticArrays.
 #
 # * May be all iterators should returns `view(nzchunk, :)`?
 #
@@ -30,7 +37,7 @@
 #   Then there are may be type stable even for Tuple/Vector of iterators.
 #
 # * Try "An adaptive packed-memory array." algorithm used in https://github.com/atoptima/DynamicSparseArrays.jl.
-#   See also https://github.com/j-fu/ExtendableSparse.jl.
+#   See also https://github.com/j-fu/ExtendableSparse.jl which have Dict-based SparseMatrix among others.
 #
 #
 #
@@ -480,8 +487,8 @@ Base.@propagate_inbounds SparseArrays.nnz(V::SubArray{<:Any,<:Any,<:T}) where {T
 Base.@propagate_inbounds SparseArrays.nnz(V::OffsetArray{<:Any,<:Any,<:T}) where {T<:AbstractDensedCompressedVector} = nnz(parent(V))
 function SparseArrays.nnz(V::AbstractDensedCompressedVector)
     nn = 0
-    for chunk in V.nzchunks
-        nn += nnz(chunk)
+    for cchunk in V.nzchunks
+        nn += nnz(cchunk)
     end
     return nn
 end
