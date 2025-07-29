@@ -6,6 +6,9 @@
 #     nzchunk (data) -- may be just "nzval" like SparseVector and SparseMatrix,
 #     block in nzchunk (view on part of data) -- may be "nzblock" and "nzvalue",
 #
+# * Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
+#   because it is axes(V,1)
+#
 # * Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
 #   to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
 #   Or may be do `@inbounds` do this?
@@ -36,8 +39,11 @@
 #   `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
 #   Then there are may be type stable even for Tuple/Vector of iterators.
 #
-# * Try "An adaptive packed-memory array." algorithm used in https://github.com/atoptima/DynamicSparseArrays.jl.
-#   See also https://github.com/j-fu/ExtendableSparse.jl which have Dict-based SparseMatrix among others.
+# * Try implement algorithm "An adaptive packed-memory array." which should release
+#   chip memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
+#   The search speed the same because the binary search.
+#   Was implemented in <https://github.com/atoptima/DynamicSparseArrays.jl>.
+#   See also https://github.com/j-fu/ExtendableSparse.jl which have testiable Dict-based SparseMatrix among others.
 #
 #
 #
@@ -132,6 +138,8 @@ using Random
 #
 
 # https://github.com/JuliaLang/julia/issues/39952
+# https://github.com/JuliaLang/julia/issues/35543
+# https://docs.julialang.org/en/v1/manual/methods/#Building-a-similar-type-with-a-different-type-parameter
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 
 # Abstract like in SparseArrays:
