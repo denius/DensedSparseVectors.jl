@@ -1,89 +1,89 @@
 
 # TODO:
 #
-# * Rename everywhere `chunk` to distinguish:
-#     cchunk (CompressedChunk -- struct),
-#     nzchunk (data) -- may be just "nzval" like SparseVector and SparseMatrix,
-#     block in nzchunk (view on part of data) -- may be "nzblock" and "nzvalue",
+# - [ ] Rename everywhere `chunk` to distinguish:
+#       cchunk (CompressedChunk -- struct),
+#       nzchunk (data) -- may be just "nzval" like SparseVector and SparseMatrix,
+#       block in nzchunk (view on part of data) -- may be "nzblock" and "nzvalue",
 #
-# * Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
-#   because it is axes(V,1)
+# - [ ] Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
+#       because it is axes(V,1)
 #
-# * Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
-#   to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
-#   Or may be do `@inbounds` do this?
+# - [ ] Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
+#       to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
+#       Or may be do `@inbounds` do this?
 #
-# * ~~Introduce offsets fields to all types to have indexable iterator
-#   nonzeros(::AbstractDensedCompressedVector): getindex(it::NZValues, i) and
-#   fast `_are_same_sparse_indices()`~~
-#   Introduce fast Offset Axes, may be with OffsetArrays, to have zero-based indexing.
-#   Note: for Ti = UInt there is the bug <https://github.com/JuliaArrays/OffsetArrays.jl/issues/320>.
-#   Thus for UInt it is impossible have zero-based DSV! (Zero-based DSV is need for root_id=0)
+# - [X] ~~Introduce offsets fields to all types to have indexable iterator
+#       nonzeros(::AbstractDensedCompressedVector): getindex(it::NZValues, i) and
+#       fast `_are_same_sparse_indices()`~~
+#       Introduce fast Offset Axes, may be with OffsetArrays, to have zero-based indexing.
+#       Note: for Ti = UInt there is the bug <https://github.com/JuliaArrays/OffsetArrays.jl/issues/320>.
+#       Thus for UInt it is impossible have zero-based DSV! (Zero-based DSV is need for root_id=0)
 #
-# * Introduce ChainIndex: ((chain_index, element_index), LinearIndex) like CartesianIndex
-#   for fast AbstractDensedCompressedVector access without searchsortedlast and so on.
+# - [ ] Introduce ChainIndex: ((chain_index, element_index), LinearIndex) like CartesianIndex
+#       for fast AbstractDensedCompressedVector access without searchsortedlast and so on.
 #
-# * May be all iterators should returns `view(nzchunk, :)`?
+# - [ ] May be all iterators should returns `view(nzchunk, :)`?
 #
-# * Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
-#   Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
+# - [ ] Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
+#       Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
-# * Add DSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
-#   May be stack of few DSVIteratorState of previous assesses ranged by access frequency
-#   or size of nzchunk?
+# - [ ] Add DSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
+#       May be stack of few DSVIteratorState of previous assesses ranged by access frequency
+#       or size of nzchunk?
 #
-# * Add pastendnzchunk_index in all AbstractDensedCompressedVector
-#   to have the fast iteration stop checking.
+# - [ ] Add pastendnzchunk_index in all AbstractDensedCompressedVector
+#       to have the fast iteration stop checking.
 #
-# * Add iterators like for MethodSpecializations in base/reflection.jl with
-#   `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
-#   Then there are may be type stable even for Tuple/Vector of iterators.
+# - [ ] Add iterators like for MethodSpecializations in base/reflection.jl with
+#       `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
+#       Then there are may be type stable even for Tuple/Vector of iterators.
 #
-# * Try implement algorithm "An adaptive packed-memory array." which should release
-#   chip memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
-#   The search speed the same because the binary search.
-#   Was implemented in <https://github.com/atoptima/DynamicSparseArrays.jl>.
-#   See also https://github.com/j-fu/ExtendableSparse.jl which have testiable Dict-based SparseMatrix among others.
+# - [ ] Try implement algorithm "An adaptive packed-memory array." which should release
+#       chip memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
+#       The search speed the same because the binary search.
+#       Was implemented in <https://github.com/atoptima/DynamicSparseArrays.jl>.
+#       See also https://github.com/j-fu/ExtendableSparse.jl which have testiable Dict-based SparseMatrix among others.
 #
 #
 #
 # Notes:
 #
-# * `map[!]` for SparseVector work different from DenseVector:
-#   1-length Vector and scalars are allowed, but 1-length SparseVector is not allowed.
+# - [ ] `map[!]` for SparseVector work different from DenseVector:
+#       1-length Vector and scalars are allowed, but 1-length SparseVector is not allowed.
 #
 #
-# * Broadcast is more fragile than `map`. `map` should be more agile in terms of vectors dimensions and
-#   other differences in argumens. Broadcast allows scalars and zero-dimensions/one-length arrays as arguments.
-#   In broadcast axes should be same, sparse indices are not should be same! There should be two branches
-#   for same indices and not.
-#   The `map` try to calculate anyway: in complex cases map will `convert()` to Vector and apply function.
-#   ```julia
-#   julia> map(+, (2,3,4), [1,2])
-#   2-element Vector{Int64}:
-#    3
-#    5
-#   ```
-#   In both cases the `firstindex(v)` should be same. In broadcast length should be same.
+# - [ ] Broadcast is more fragile than `map`. `map` should be more agile in terms of vectors dimensions and
+#       other differences in argumens. Broadcast allows scalars and zero-dimensions/one-length arrays as arguments.
+#       In broadcast axes should be same, sparse indices are not should be same! There should be two branches
+#       for same indices and not.
+#       The `map` try to calculate anyway: in complex cases map will `convert()` to Vector and apply function.
+#       ```julia
+#       julia> map(+, (2,3,4), [1,2])
+#       2-element Vector{Int64}:
+#        3
+#        5
+#       ```
+#       In both cases the `firstindex(v)` should be same. In broadcast length should be same.
 #
-#   From official help:
-#     `map`: Transform collection c by applying f to each element. For multiple
-#     collection arguments, apply f elementwise, and stop when when any of them is
-#     exhausted.
-#     When acting on multi-dimensional arrays of the same ndims, they must all
-#     have the same axes, and the answer will too.
-#     See also broadcast, which allows mismatched sizes.
+#       From official help:
+#         `map`: Transform collection c by applying f to each element. For multiple
+#         collection arguments, apply f elementwise, and stop when when any of them is
+#         exhausted.
+#         When acting on multi-dimensional arrays of the same ndims, they must all
+#         have the same axes, and the answer will too.
+#         See also broadcast, which allows mismatched sizes.
 #
-#     Broadcast the function f over the arrays, tuples, collections, Refs and/or
-#     scalars As.
-#     Broadcasting applies the function f over the elements of the container
-#     arguments and the scalars themselves in As. Singleton and missing dimensions
-#     are expanded to match the extents of the other arguments by virtually
-#     repeating the value.
+#         Broadcast the function f over the arrays, tuples, collections, Refs and/or
+#         scalars As.
+#         Broadcasting applies the function f over the elements of the container
+#         arguments and the scalars themselves in As. Singleton and missing dimensions
+#         are expanded to match the extents of the other arguments by virtually
+#         repeating the value.
 
 
 #
-# * Shape is an like (2,3) in tuple in `reshape(V, (2,3))` and same operations.
+# [ ] Shape is an like (2,3) in tuple in `reshape(V, (2,3))` and same operations.
 #
 
 
@@ -131,10 +131,11 @@ import SparseArrays: indtype, nonzeroinds, nonzeros, nnz
 using Random
 
 
-## TODO: use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
-## IT'S IMPOSSIBE!!!
-# Only one scenario is the save .zpbc props from DSVs from broadcast expression, store .zpbc=true and run expression.
-# Afterwards returns the saved .zpbc property values.
+# TODO:
+# - [ ] use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
+#       IT'S IMPOSSIBE!!!
+# - [ ] Only one scenario is the save .zpbc props from DSVs from broadcast expression, store .zpbc=true and run expression.
+#       Afterwards returns the saved .zpbc property values.
 #
 
 # https://github.com/JuliaLang/julia/issues/39952
@@ -173,10 +174,11 @@ end
 #     itchunk::Tit                # nzchunk position state (Int or Semitoken) in nzchunks
 # end
 
-# TODO: Try https://github.com/JuliaArrays/StructArrays.jl for `nzchunks::Vector{TCC}` in
-# `DensedSparseVector` to have separate `idx` Vector (from CompressedChunk) for faster search
-# index operations.
-# Or even refactoring CompressedChunk to have two indices: `idx_begin` and `idx_end` instead of UnitRange.
+# TODO:
+# - [ ] Try https://github.com/JuliaArrays/StructArrays.jl for `nzchunks::Vector{TCC}` in
+#       `DensedSparseVector` to have separate `idx` Vector (from CompressedChunk) for faster search
+#       index operations.
+#       Or even refactoring CompressedChunk to have two indices: `idx_begin` and `idx_end` instead of UnitRange.
 
 
 """
@@ -1221,7 +1223,8 @@ function startindex(V, i)
     end
 end
 
-# TODO: FIXME: Add simple :iterate
+# TODO:
+# - [ ] FIXME: Add simple :iterate
 for (fn, ret1, ret2) in
     ((:iterate_nzpairs     ,  :((indices[itblock] => chunk[itblock], nzit))                 , :(nothing)              ),
      (:iterate_nzpairsview ,  :((indices[itblock] => view(chunk, itblock:itblock), nzit))   , :(nothing)              ),
@@ -1535,7 +1538,8 @@ end
 """
 
 #
-# TODO: Try IterTools.@ifsomething
+# TODO:
+# - [ ] Try IterTools.@ifsomething
 
 """
     get_iterable(it) = getfield(it, 1)
@@ -1587,8 +1591,9 @@ Base.size(it::NZChunksPairs) = (nnzchunks(it.itr),)
 #Iterators.reverse(it::NZChunksPairs) = NZChunksPairs(Iterators.reverse(it.itr))
 
 
-# FIXME: Release this function!
-# Also need `nzblockpairs` to iterate over Pairs of range of indices and blocks.
+# FIXME:
+# - [ ] Release this function!
+# - [ ] Also need `nzblockpairs` to iterate over Pairs of range of indices and blocks.
 struct NZBlocks{It}
     itr::It
 end
