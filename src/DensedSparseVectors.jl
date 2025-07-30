@@ -9,11 +9,14 @@
 # - [ ] Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
 #       because it is axes(V,1)
 #
+# - [X] use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
+#       IT'S IMPOSSIBE!!!
+#
 # - [ ] Introduce two macros: `@inzeros` and `@zeroscheck` like `@inbounds` and `@boundscheck`
 #       to ommit sparse similarity checking and fixing. Then .zpbc field is not need.
 #       Or may be do `@inbounds` do this?
 #
-# - [X] ~~Introduce offsets fields to all types to have indexable iterator
+# - [ ] ~~Introduce offsets fields to all types to have indexable iterator
 #       nonzeros(::AbstractDensedCompressedVector): getindex(it::NZValues, i) and
 #       fast `_are_same_sparse_indices()`~~
 #       Introduce fast Offset Axes, may be with OffsetArrays, to have zero-based indexing.
@@ -28,7 +31,7 @@
 # - [ ] Introducing ArrayInterface.jl allows automatic broadcast by FastBroadcast.jl. Isn't it?
 #       Try to implement `MatrixIndex` from ArrayInterface.jl -- is it unusefull?
 #
-# - [ ] Add DSVIteratorState instead of .lastusedchunkindex to improve cached data locality. DONE!
+# - [X] Add DSVIteratorState instead of .lastusedchunkindex to improve cached data locality.
 #       May be stack of few DSVIteratorState of previous assesses ranged by access frequency
 #       or size of nzchunk?
 #
@@ -39,11 +42,17 @@
 #       `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
 #       Then there are may be type stable even for Tuple/Vector of iterators.
 #
-# - [ ] Try implement algorithm "An adaptive packed-memory array." which should release
-#       chip memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
+# - [ ] Try https://github.com/JuliaArrays/StructArrays.jl for `nzchunks::Vector{TCC}` in
+#       `DensedSparseVector` to have separate `idx` Vector (from CompressedChunk) for faster search
+#       index operations.
+#       Or even refactoring CompressedChunk to have two indices: `idx_begin` and `idx_end` instead of UnitRange.
+#
+# - [ ] Try to integrate the algorithm "An adaptive packed-memory array." which should release
+#       cheap memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
 #       The search speed the same because the binary search.
 #       Was implemented in <https://github.com/atoptima/DynamicSparseArrays.jl>.
-#       See also https://github.com/j-fu/ExtendableSparse.jl which have testiable Dict-based SparseMatrix among others.
+#       See also <https://github.com/j-fu/ExtendableSparse.jl>
+#       which have testiable Dict-based SparseMatrix among others.
 #
 #
 #
@@ -131,12 +140,6 @@ import SparseArrays: indtype, nonzeroinds, nonzeros, nnz
 using Random
 
 
-# TODO:
-# - [ ] use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
-#       IT'S IMPOSSIBE!!!
-# - [ ] Only one scenario is the save .zpbc props from DSVs from broadcast expression, store .zpbc=true and run expression.
-#       Afterwards returns the saved .zpbc property values.
-#
 
 # https://github.com/JuliaLang/julia/issues/39952
 # https://github.com/JuliaLang/julia/issues/35543
@@ -174,11 +177,6 @@ end
 #     itchunk::Tit                # nzchunk position state (Int or Semitoken) in nzchunks
 # end
 
-# TODO:
-# - [ ] Try https://github.com/JuliaArrays/StructArrays.jl for `nzchunks::Vector{TCC}` in
-#       `DensedSparseVector` to have separate `idx` Vector (from CompressedChunk) for faster search
-#       index operations.
-#       Or even refactoring CompressedChunk to have two indices: `idx_begin` and `idx_end` instead of UnitRange.
 
 
 """
