@@ -6,7 +6,7 @@
 #       nzchunk (data) -- may be just "nzval" like SparseVector and SparseMatrix,
 #       block in nzchunk (view on part of data) -- may be "nzblock" and "nzvalue",
 #
-# - [ ] Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
+# - [X] Rename `indices::UnitRange{Ti}` in structs to `axis::UnitRange{Ti}`
 #       because it is axes(V,1)
 #
 # - [X] use Espresso.jl and MacroTools.jl packages. And maybe FastBroadcast.jl as the base for @zeropresbc macro.
@@ -1186,7 +1186,7 @@ struct DSVBlockIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
     "position of current element in current block (for scalar DSV it is always 1 of 1)"
     i::Int
     "the indices of first and last elements of the block in current chunk, i.e. `.offsets[itblock]:.offsets[itblock+1]-1`"
-    blockindices::UnitRange{Int}
+    blockaxis::UnitRange{Int}
     "current chunk is the view into nzchunk"
     chunk::Td
     "nzchunk iterator state (Int or Semitoken) in nzchunks"
@@ -1270,18 +1270,18 @@ for (fn, ret1, ret2) in
 
     @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
                                                 {T<:DensedVLSparseVector{Tv,Ti}} where {Ti,Tv}
-        itblock, axis, i, blockindices, chunk, itchunk = fieldvalues(state)
+        itblock, axis, i, blockaxis, chunk, itchunk = fieldvalues(state)
         itblock += 1
         # if itblock <= length(axis)
         if itblock <= V.offsets[itchunk][length(axis)+1]-1
             nzit = nziteratorstate(typeof(V), itblock, axis, chunk, itchunk)
-            iposition = i+first(blockindices)-1
+            iposition = i+first(blockaxis)-1
             return $ret1
         elseif (st = iterate_nzchunkspairs(V, itchunk)) !== nothing
             ((axis, chunk), itchunk) = st
             itblock = 1
             nzit = nziteratorstate(typeof(V), itblock, axis, chunk, itchunk)
-            iposition = i+first(blockindices)-1
+            iposition = i+first(blockaxis)-1
             return $ret1
         else
             return $ret2
