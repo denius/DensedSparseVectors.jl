@@ -38,6 +38,33 @@
 # - [ ] Add pastendnzchunk_index in all AbstractDensedCompressedVector
 #       to have the fast iteration stop checking.
 #
+# - [ ] Maybe should create iterators like in DataStructures.jl:
+#       ```
+#       struct SAIterationState
+#           next::Int
+#           final::Int
+#       end
+#       ```
+#       see <https://github.com/JuliaCollections/DataStructures.jl/blob/93ec6359c3d1d30851df4239ba6a43c7c66aab64/src/sorted_container_iteration.jl#L661>
+#       Then the `Base.iterate` will be as in
+#       <https://github.com/JuliaCollections/DataStructures.jl/blob/93ec6359c3d1d30851df4239ba6a43c7c66aab64/src/sorted_container_iteration.jl#L1017>:
+#       ```
+#       function Base.iterate(s::SortedContainerIterable, state = iteration_init(s))
+#           if state.next == state.final
+#               return nothing
+#           else
+#               return (get_item(s, state), next(s, state))
+#           end
+#       end
+#       ```
+# - [ ] Only the most minimal set of iterators is needed:
+#       `nzindices`, `nzvalues`, `nzpairs`, `nzblocks`, `nzblockpairs`.
+#       Blocks iterators will emmit the `view`s on blocks.
+#       Is it `nzchunks` needed?
+#
+# - [ ] Release custom `zip(nzindices(V::DSV), nzblocks(V::DSV))` and so on
+#       as the pretty interface for `nzblockpairs` and other custom iterators.
+#
 # - [ ] Add iterators like for MethodSpecializations in base/reflection.jl with
 #       `iterate(specs::MethodSpecializations, ::Nothing) = nothing`
 #       Then there are may be type stable even for Tuple/Vector of iterators.
@@ -51,6 +78,7 @@
 #       cheap memory allocation in "ln(N)+sqrt(N)" time versus "N" time with `Vector`.
 #       The search speed the same because the binary search.
 #       Was implemented in <https://github.com/atoptima/DynamicSparseArrays.jl>.
+#       Also attempt was in <https://github.com/JuliaCollections/DataStructures.jl/pull/241>.
 #       See also <https://github.com/j-fu/ExtendableSparse.jl>
 #       which have testiable Dict-based SparseMatrix among others.
 #
@@ -146,7 +174,7 @@ using Random
 # https://docs.julialang.org/en/v1/manual/methods/#Building-a-similar-type-with-a-different-type-parameter
 basetype(::Type{T}) where T = Base.typename(T).wrapper
 
-# Abstract like in SparseArrays:
+# Abstract types are like in SparseArrays Abstract types:
 #
 #   SparseArrays.AbstractCompressedVector <: AbstractSparseVector
 #   SparseVector <: SparseArrays.AbstractCompressedVector
@@ -397,7 +425,7 @@ end
 
 #=
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
-    NZChunkLastUsed{Ti,Vector{Tv}}(get_indices_and_nzchunk(V, itc)...)
+    NZChunkLastUsed{Ti,Vector{Tv}}(get_axis_and_nzchunk(V, itc)...)
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, axis, chunk) where {L,Tv,Ti} =
     NZChunkLastUsed{Ti,Vector{Tv}}(axis, chunk)
 @inline lostused(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
@@ -407,7 +435,7 @@ end
 =#
 
 @inline lastused(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc::Tit) where {L,Tv,Ti,Tit} =
-    NZChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc)
+    NZChunkLastUsed{Ti,Tit}(get_nzchunk_axis(V, itc), itc)
 @inline lastused(::AbstractDensedCompressedVector{L,Tv,Ti}, axis::UnitRange, itc::Tit) where {L,Tv,Ti,Tit} =
     NZChunkLastUsed{Ti,Tit}(axis, itc)
 @inline lostused(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
@@ -420,7 +448,7 @@ end
     @MVector([NZChunkLastUsed{Ti,Tit}(UnitRange{Ti}(Ti(1),Ti(0)), itc)])
 
 @inline set_lastused!(V::AbstractDensedCompressedVector{L,Tv,Ti}, itc::Tit) where {L,Tv,Ti,Tit} =
-    (V.lastused[1] = NZChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), itc); return nothing)
+    (V.lastused[1] = NZChunkLastUsed{Ti,Tit}(get_nzchunk_axis(V, itc), itc); return nothing)
 @inline set_lastused!(V::AbstractDensedCompressedVector{L,Tv,Ti}, axis::UnitRange, itc::Tit) where {L,Tv,Ti,Tit} =
     (V.lastused[1] = NZChunkLastUsed{Ti,Tit}(axis, itc); return nothing)
 @inline set_lostused!(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
@@ -429,7 +457,7 @@ end
     (V.lastused[1] = NZChunkLastUsed{Ti,DataStructures.Tokens.IntSemiToken}(UnitRange{Ti}(Ti(1),Ti(0)), beforestartnzchunk_index(V)); return nothing)
 
 # @inline lastused(V::DensedVLSparseVector{Tv,Ti}, itc::Tit, i = 1) where {Tv,Ti,Tit} =
-#     BlockChunkLastUsed{Ti,Tit}(get_nzchunk_indices(V, itc), get_nzchunk_offsets(V, itc, i), itc)
+#     BlockChunkLastUsed{Ti,Tit}(get_nzchunk_axis(V, itc), get_nzchunk_offsets(V, itc, i), itc)
 # @inline lostused(V::DensedVLSparseVector{Tv,Ti}) where {L,Tv,Ti} =
 #     BlockChunkLastUsed{Ti,Int}(UnitRange{Ti}(Ti(1),Ti(0)), UnitRange{Int}(1,0), beforestartnzchunk_index(V))
 # @inline blocklostused(::Type{DensedVLSparseVector{Tv,Ti}}) where {L,Tv,Ti} =
@@ -648,7 +676,7 @@ end
 @inline function get_nzchunk(V::SubArray{<:Any,<:Any,<:T}, itc) where {L,Tv,Ti,T<:AbstractDensedCompressedVector{L,Tv,Ti}}
     idx1 = first(parentindices(V)[1])
     idx2 = last(parentindices(V)[1])
-    axis, chunk = get_indices_and_nzchunk(parent(V), itc)
+    axis, chunk = get_axis_and_nzchunk(parent(V), itc)
     index1 = first(axis)
     index2 = last(axis)
     if checkindex(Bool, axis, idx1) && checkindex(Bool, axis, idx2)
@@ -668,7 +696,7 @@ end
 @inline get_nzchunk_key(V::AbstractDensedSparseVector, itc) = first(V.nzranges[itc])
 @inline get_nzchunk_key(V::DynamicDensedSparseVector, itc) = deref_key((V.nzchunks, itc))
 @inline function get_nzchunk_key(V::SubArray{<:Any,<:Any,<:T}, itc) where {T<:AbstractDensedCompressedVector}
-    axis = get_nzchunk_indices(parent(V), itc)
+    axis = get_nzchunk_axis(parent(V), itc)
     if checkindex(Bool, axis, first(parentindices(V)[1]))
         return first(parentindices(V)[1])
     else
@@ -676,20 +704,20 @@ end
     end
 end
 
-@inline get_nzchunk_indices(V::Vector, i) = UnitRange{Int}(1, length(V))
-@inline get_nzchunk_indices(V::SparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
-@inline get_nzchunk_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} = @inbounds axes(V.nzchunks[itc], 1)
+@inline get_nzchunk_axis(V::Vector, i) = UnitRange{Int}(1, length(V))
+@inline get_nzchunk_axis(V::SparseVector{Tv,Ti}, i) where {Tv,Ti} = @inbounds UnitRange{Ti}(V.nzind[i], V.nzind[i]) # FIXME:
+@inline get_nzchunk_axis(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} = @inbounds axes(V.nzchunks[itc], 1)
 @inline function get_nzchunk_offsets(V::AbstractDensedSparseVector{L,Tv,Ti}, itc, i) where {L,Tv,Ti}
     ifirst = @inbounds first(V.nzranges[itc])
     @inbounds V.offsets[itc][i-ifirst+1]:V.offsets[itc][i-ifirst+1+1]-1
 end
-@inline get_nzchunk_indices(V::DynamicDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
+@inline get_nzchunk_axis(V::DynamicDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, itc));
      return UnitRange{Ti}(key, key+length(chunk)-1))
-@inline function get_nzchunk_indices(V::SubArray{<:Any,<:Any,<:T}, itc) where {L,Tv,Ti,T<:AbstractDensedCompressedVector{L,Tv,Ti}}
+@inline function get_nzchunk_axis(V::SubArray{<:Any,<:Any,<:T}, itc) where {L,Tv,Ti,T<:AbstractDensedCompressedVector{L,Tv,Ti}}
     idx1 = first(parentindices(V)[1])
     idx2 = last(parentindices(V)[1])
-    axis = get_nzchunk_indices(parent(V), itc)
+    axis = get_nzchunk_axis(parent(V), itc)
     index1 = first(axis)
     index2 = last(axis)
     if checkindex(Bool, axis, idx1) && checkindex(Bool, axis, idx2)
@@ -717,17 +745,17 @@ end
 @inline get_key_and_nzchunk(::SparseVector{Tv,Ti}) where {Tv,Ti} = (Ti(1), Tv[])
 @inline get_key_and_nzchunk(::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} = (Ti(1), Tv[])
 
-@inline get_indices_and_nzchunk(V::Vector, i) = (i:i, V)
-@inline get_indices_and_nzchunk(V::SparseVector, i) = @inbounds (V.nzind[i]:V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
-@inline get_indices_and_nzchunk(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
+@inline get_axis_and_nzchunk(V::Vector, i) = (i:i, V)
+@inline get_axis_and_nzchunk(V::SparseVector, i) = @inbounds (V.nzind[i]:V.nzind[i], view(V.nzchunks, i:i)) # FIXME:
+@inline get_axis_and_nzchunk(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
     @inbounds ( axes(V.nzchunks[itc],1), values(V.nzchunks[itc]) )
-@inline get_indices_and_nzchunk(V::DynamicDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
+@inline get_axis_and_nzchunk(V::DynamicDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
     ((key, chunk) = deref((V.nzchunks, itc));
      return (UnitRange{Ti}(key, key+length(chunk)-1), chunk))
 
-@inline get_indices_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), eltype(V)[])
-@inline get_indices_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
-@inline get_indices_and_nzchunk(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
+@inline get_axis_and_nzchunk(V::Vector) = (UnitRange(length(V)+1,length(V)), eltype(V)[])
+@inline get_axis_and_nzchunk(V::SparseVector{Tv,Ti}) where {Tv,Ti} = (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
+@inline get_axis_and_nzchunk(V::AbstractDensedCompressedVector{L,Tv,Ti}) where {L,Tv,Ti} =
     (UnitRange{Ti}(length(V)+1,length(V)), Tv[])
 
 #=@inline get_indices(V::AbstractDensedSparseVector{L,Tv,Ti}, itc) where {L,Tv,Ti} =
@@ -768,6 +796,10 @@ end
 @inline returnzero(V::AbstractDensedCompressedVector) = zero(eltype(V))
 @inline returnzeroview(V::AbstractDensedCompressedVector) = view(Vector{eltype(V)}(), 1:0)
 
+@inline next_nzchunk_index(::AbstractDensedSparseVector, idx) = idx + 1
+@inline next_nzchunk_index(V::AbstractDynamicDensedSparseVector, idx) = advance((V.nzchunks, idx))
+@inline prev_ptr(::AbstractDensedSparseVector, idx) = idx - 1
+@inline prev_ptr(V::AbstractDynamicDensedSparseVector, idx) = regress((V.nzchunks, idx))
 @inline DataStructures.advance(::AbstractDensedSparseVector, state) = state + 1
 @inline DataStructures.advance(V::AbstractDynamicDensedSparseVector, state) = advance((V.nzchunks, state))
 @inline DataStructures.regress(::AbstractDensedSparseVector, state) = state - 1
@@ -963,7 +995,7 @@ end
 Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractDensedSparseVector, state = 0)
     state += 1
     if state <= length(V.nzchunks)
-        return (Pair(get_indices_and_nzchunk(V, state)...), state)
+        return (Pair(get_axis_and_nzchunk(V, state)...), state)
     else
         return nothing
     end
@@ -971,7 +1003,7 @@ end
 Base.@propagate_inbounds function iterate_nzchunkspairs(V::AbstractDynamicDensedSparseVector, state = beforestartsemitoken(V.nzchunks))
     state = advance((V.nzchunks, state))
     if state != pastendsemitoken(V.nzchunks)
-        return (Pair(get_indices_and_nzchunk(V, state)...), state)
+        return (Pair(get_axis_and_nzchunk(V, state)...), state)
     else
         return nothing
     end
@@ -985,9 +1017,9 @@ end
 Base.@propagate_inbounds function iterate_nzchunkspairs(V::SubArray{<:Any,<:Any,<:T}, state) where {T<:AbstractDensedCompressedVector}
     state = advance(parent(V), state)
     if state != pastendnzchunk_index(parent(V))
-        axis = get_nzchunk_indices(parent(V), state)
+        axis = get_nzchunk_axis(parent(V), state)
         if first(axis) <= last(parentindices(V)[1])
-            return (Pair(get_nzchunk_indices(V, state), get_nzchunk(V, state)), state)
+            return (Pair(get_nzchunk_axis(V, state), get_nzchunk(V, state)), state)
         else
             return nothing
         end
@@ -1043,7 +1075,7 @@ Base.@propagate_inbounds function iterate_nzblockspairs(V::DensedVLSparseVector,
 
 
 
-        return (Pair(get_indices_and_nzchunk(V, state)...), state)
+        return (Pair(get_axis_and_nzchunk(V, state)...), state)
     else
         return nothing
     end
@@ -1156,16 +1188,52 @@ Base.@propagate_inbounds function iterate_nzindices(V::Vector, state = 0)
         return nothing
     end
 end
-Base.@propagate_inbounds iterate_nzindices(V::Number, state = 0) = (state+1, state+1)
+Base.@propagate_inbounds iterate_nzindices(_::Number, state = 0) = (state+1, state+1)
 
 #
 # `AbstractDensedCompressedVector` iteration functions
 #
 
-abstract type AbstractDSVIteratorState{Ti,Td,Tit} end
+abstract type AbstractDSVIteratorState{L,Tit,Ti,Td} end
 
-"Scalar DSV Iterator"
-struct DSVIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
+"By each _Block_ DSV Iterator"
+struct DSVNextIteratorState{L,Tit,Ti,Td} <: AbstractDSVIteratorState{L,Tit,Ti,Td}
+    "Position of _next_ ptr(Chunk) in _.nzchunks_"
+    next_chunk::Tit
+    "Past last ptr(Chunk) position in _.nzchunks_"
+    final_chunk::Tit
+    "Position of current block"
+    next_block::Int
+    "Position of past last block"
+    final_block::Int
+    "the indices (firstindex:lastindex) of blocks in current nzchunk,
+     used for fast access without chunk lookup"
+    #axis::UnitRange{Ti}
+end
+
+"By each _Scalar Element_ within _Blocks_ DSV Iterator"
+struct DSVNextIteratorState_0{L,Tit,Ti,Td} <: AbstractDSVIteratorState{L,Tit,Ti,Td}
+    "Position of _next_ ptr(Chunk) in _.nzchunks_"
+    # next::Tuple{Tit,Int,Int}
+    next_chunk::Tit
+    "Past last ptr(Chunk) position in _.nzchunks_"
+    # final::Tuple{Tit,Int,Int}
+    final_chunk::Tit
+    "Position of current block"
+    next_block::Int
+    "Position of past last block"
+    final_block::Int
+    "Position of current value"
+    next_value::Int
+    "Position of past last block"
+    final_value::Int
+    "the indices (firstindex:lastindex) of blocks in current nzchunk,
+     used for fast access without chunk lookup"
+    #axis::UnitRange{Ti}
+end
+
+"By _Block_ DSV Iterator"
+struct DSVIteratorState{L,Tit,Ti,Td} <: AbstractDSVIteratorState{L,Tit,Ti,Td}
     "position of current scalar/block element in the current nzchunk"
     itblock::Int
     "the indices of first and last elements in current nzchunk"
@@ -1177,8 +1245,8 @@ struct DSVIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
 end
 
 # FIXME: Release me!
-"Block DSV Iterator"
-struct DSVBlockIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
+"By _Scalar Element_ DSV Iterator. Will be used in `nzpairs` and so on non-block iterators"
+struct DSVIteratorState_0{L,Tit,Ti,Td} <: AbstractDSVIteratorState{L,Tit,Ti,Td}
     "position of current scalar/block element in the current chunk"
     itblock::Int
     "the indices of first and last elements in current chunk"
@@ -1194,8 +1262,109 @@ struct DSVBlockIteratorState{Ti,Td,Tit} <: AbstractDSVIteratorState{Ti,Td,Tit}
 end
 
 
-SparseArrays.indtype(it::AbstractDSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = Ti
-Base.eltype(it::AbstractDSVIteratorState{Ti,Td,Tit}) where {Ti,Td,Tit} = eltype(Td)
+SparseArrays.indtype(_::AbstractDSVIteratorState{L,Tit,Ti,Td}) where {L,Tit,Ti,Td} = Ti
+Base.eltype(_::AbstractDSVIteratorState{L,Tit,Ti,Td}) where {L,Tit,Ti,Td} = eltype(Td)
+
+
+"Get view on block in nzchunks pointed by DSVNextIteratorState"
+get_block_view(V, s::DSVNextIteratorState) = getindex(V.nzchunks, s.next_chunk)[s.next_block]
+
+"Get firstindex of block in nzchunks pointed by DSVNextIteratorState"
+get_block_firstindex(V, s::DSVNextIteratorState{L,Tit,Ti,Td}) where {L,Tit,Ti,Td} =
+    firstindex(getindex(V.nzchunks, s.next_chunk)) + Ti(s.next_block - 1)
+
+"Get firstindex of block and it view in nzchunks pointed by DSVNextIteratorState"
+function get_block_firstindex_and_view(V, s::DSVNextIteratorState{L,Tit,Ti,Td}) where {L,Tit,Ti,Td}
+    nzchunk = getindex(V.nzchunks, s.next_chunk)
+    return (firstindex(nzchunk) + Ti(s.next_block - 1), getindex(nzchunk, s.next_block))
+end
+
+
+@inline function nznextiteratorstate(V::Union{T,SubArray{<:Any,<:Any,<:T}}, itblock, axis, itchunk::Tit) where
+                                          {T<:AbstractDensedSparseVector{L,Tv,Ti},Tit} where {L,Tv,Ti}
+    final_chunk = pastendnzchunk_index(V)
+    DSVNextIteratorState{L,Tit,Ti,Tv}(itchunk, final_chunk, itblock)
+end
+@inline function nznextiteratorstate_0(V::Union{T,SubArray{<:Any,<:Any,<:T}}, itblock, axis, itchunk::Tit) where
+                                          {T<:AbstractDensedSparseVector{L,Tv,Ti},Tit} where {L,Tv,Ti}
+    final_chunk = pastendnzchunk_index(V)
+    DSVNextIteratorState_0{L,Tit,Ti,Tv}(itchunk, final_chunk, itblock, 1)
+end
+
+# Start iterations from `i` index, i.e. `i` is `firstindex(V)`. That's option for `SubArray` and restarts.
+iteration_init(V) = iteration_init(parent(V), first(parentindices(V)[1]))
+function iteration_init(V::T, i) where T
+    itchunk = searchsortedlast_nzchunk(V, i)
+    if itchunk != pastendnzchunk_index(V)
+        axis, chunk = get_axis_and_nzchunk(V, itchunk)
+        if checkindex(Bool, axis, i) #key <= i < key + length(chunk)
+            return nznextiteratorstate(V, Int(i - first(axis)), axis, itchunk)
+        else
+            return nznextiteratorstate(V, 0, axis, itchunk)
+        end
+    else
+        axis, chunk = get_axis_and_nzchunk(V)
+        return nznextiteratorstate(V, 0, axis, itchunk)
+    end
+end
+
+"Advance by one step state::DSVNextIteratorState"
+Base.@propagate_inbounds function next(V::AbstractDensedCompressedVector, state::DSVNextIteratorState{L,Tit,Ti,Td}) where {L,Tit,Ti,Td}
+    @boundscheck state.next_chunk != state.final_chunk
+    state_next_chunk = state.next_chunk
+    state_next_block = state.next_block
+    axis = state.axis
+    if state_next_block < length(axis)
+        return DSVNextIteratorState{L,Tit,Ti,Td}((state_next_chunk, state_next_block+1), state.final_chunk, axis)
+    else
+        return DSVNextIteratorState{L,Tit,Ti,Td}(next_nzchunk_index(V, state_next_chunk), 1, state.final_chunk, axis)
+    end
+end
+
+Base.@propagate_inbounds function next(V::AbstractDensedCompressedVector, state::DSVNextIteratorState_0{L,Tit,Ti,Td}) where {L,Tit,Ti,Td}
+    @boundscheck state.next_chunk != state.final_chunk
+    # state_next_chunk = state.next_chunk
+    # state_next_block = state.next_block
+    # state_next_value = state.next_value
+    if state.next_value < L
+        @boundscheck state.next_block <= length(state.axis)
+        return DSVNextIteratorState_0{L,Tit,Ti,Td}(state.next_chunk, state.next_block, state.next_value+1, state.final_chunk, state.axis)
+    elseif state.next_block < length(state.axis)
+        return DSVNextIteratorState_0{L,Tit,Ti,Td}(state.next_chunk, state.next_block+1, 1, state.final_chunk, state.axis)
+    else
+        return DSVNextIteratorState_0{L,Tit,Ti,Td}(next_nzchunk_index(V, state.next_chunk), 1, 1, state.final_chunk, state.axis)
+    end
+end
+
+Base.@propagate_inbounds function iterate_nzblocks(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = iteration_init(V)) where
+                                                      {T<:AbstractDensedCompressedVector{L,Tv,Ti}} where {L,Ti,Tv}
+    if state.next_chunk != state.final_chunk
+        return (get_block_view(V, state), next(V, state))
+    else
+        return nothing
+    end
+end
+
+Base.@propagate_inbounds function iterate_nzblockspairs(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = iteration_init(V)) where
+                                                           {T<:AbstractDensedCompressedVector{L,Tv,Ti}} where {L,Ti,Tv}
+    if state.next_chunk != state.final_chunk
+        ## fi = get_block_firstindex(s, state)
+        ## bv = get_block_view(s, state)
+        ## return (fi => bv, next(s, state))
+        #return (Pair(get_block_firstindex_and_view(V, state)...), next(V, state))
+        nzchunk = getindex(V.nzchunks, state.next_chunk)
+        return (Pair(firstindex(nzchunk) + Ti(state.next_block - 1), getindex(nzchunk, state.next_block)), next(V, state))
+    else
+        return nothing
+    end
+end
+
+
+
+
+
+
+
 
 
 @inline function nziteratorstate(::Union{Type{T},Type{SubArray{<:Any,<:Any,<:T}}}, itblock, axis, chunk::Tvv, it::Tit) where
@@ -1209,25 +1378,30 @@ startindex(V) = startindex(parent(V), first(parentindices(V)[1]))
 function startindex(V, i)
     itchunk = searchsortedlast_nzchunk(V, i)
     if itchunk != pastendnzchunk_index(V)
-        axis, chunk = get_indices_and_nzchunk(V, itchunk)
+        axis, chunk = get_axis_and_nzchunk(V, itchunk)
         if checkindex(Bool, axis, i) #key <= i < key + length(chunk)
             return nziteratorstate(typeof(V), Int(i - first(axis)), axis, chunk, itchunk)
         else
             return nziteratorstate(typeof(V), 0, axis, chunk, itchunk)
         end
     else
-        axis, chunk = get_indices_and_nzchunk(V)
+        axis, chunk = get_axis_and_nzchunk(V)
         return nziteratorstate(typeof(V), 0, axis, chunk, itchunk)
     end
 end
 
 # TODO:
 # - [ ] FIXME: Add simple :iterate
+#
+# By _blocks_ iterators.
 for (fn, ret1, ret2) in
     ((:iterate_nzpairs     ,  :((axis[itblock] => chunk[itblock], nzit))                 , :(nothing)              ),
      (:iterate_nzpairsview ,  :((axis[itblock] => view(chunk, itblock:itblock), nzit))   , :(nothing)              ),
         (:iterate_nzpairsref  ,  :((axis[itblock] => Ref(chunk, itblock, nzit)))             , :(nothing)              ),
-    (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, axis[itblock])), nzit)), :(nothing)     ),
+
+     ## (:iterate_nzblocks    ,  :((view(chunk, get_nzchunk_offsets(V, itchunk, axis[itblock])), nzit)), :(nothing)     ),
+     # (:iterate_nzblocks    ,  :(get_block_view(s, state), next(s, state))                   , :(nothing)              ),
+
      (:iterate_nzvalues    ,  :((chunk[itblock], nzit))                                     , :(nothing)              ),
      (:iterate_nzvaluesview,  :((view(chunk, itblock:itblock), nzit))                       , :(nothing)              ),
      (:iterate_nzvaluesref ,  :((Ref(chunk, itblock), nzit))                                , :(nothing)              ),
@@ -1237,6 +1411,7 @@ for (fn, ret1, ret2) in
 
     @eval Base.@propagate_inbounds function $fn(V::Union{T,SubArray{<:Any,<:Any,<:T}}, state = startindex(V)) where
                                                 {T<:AbstractDensedCompressedVector{L,Tv,Ti}} where {L,Ti,Tv}
+        println("\n", $fn, ":")
         @show state
         itblock, axis, chunk, itchunk = fieldvalues(state)
         @show itblock, axis, chunk, itchunk
@@ -1256,6 +1431,7 @@ for (fn, ret1, ret2) in
 end
 
 
+# By _elements_ iterators.
 for (fn, ret1, ret2) in
     (#(:iterate_nzpairs     ,  :((axis[itblock] => chunk[itblock], nzit))                  , :(nothing)              ),
      #(:iterate_nzpairsview ,  :((axis[itblock] => view(chunk, itblock:itblock), nzit))    , :(nothing)              ),
@@ -1297,7 +1473,7 @@ function nziterator_advance(V::AbstractDensedCompressedVector, nzit::DSVIterator
     if nzit.itblock < length(nzit.axis)
         return nziteratorstate(typeof(V), nzit.itblock + 1, nzit.axis, nzit.chunk, nzit.itchunk)
     elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
-        return nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk)
+        return nziteratorstate(typeof(V), 1, get_axis_and_nzchunk(V, itchunk)..., itchunk)
     else
         return pastendnziterator(V)
     end
@@ -1311,9 +1487,9 @@ function nziterator_advance(V::AbstractDensedCompressedVector, nzit::DSVIterator
             return nziteratorstate(typeof(V), nzit.itblock+step, nzit.axis, nzit.chunk, nzit.itchunk)
     elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
         if step + nzit.itblock == 1 + Int(length(nzit.axis))
-            return nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk)
+            return nziteratorstate(typeof(V), 1, get_axis_and_nzchunk(V, itchunk)..., itchunk)
         else
-            return nziterator_advance(V, nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk),
+            return nziterator_advance(V, nziteratorstate(typeof(V), 1, get_axis_and_nzchunk(V, itchunk)..., itchunk),
                                       max(0, Int(step - (length(nzit.axis)-nzit.itblock) - 1)) )
         end
     else
@@ -1326,7 +1502,7 @@ function nziterator_possible_advance(V, nzit::DSVIteratorState)
         if nzit.itblock <= length(nzit.axis)
             return Int(length(nzit.axis)) - nzit.itblock + 1
         elseif (itchunk = advance(V, nzit.itchunk)) != pastendnzchunk_index(V)
-            return Int(length(get_nzchunk_indices(V, itchunk)))
+            return Int(length(get_nzchunk_axis(V, itchunk)))
         else
             return 0
         end
@@ -1365,7 +1541,7 @@ TODO: RawIndex must contain index of accessed cell of array to checking for vect
 function rawindex(V, i)
     itchunk = searchsortedlast_nzchunk(V, i)
     if itchunk != pastendnzchunk_index(V)
-        axis = get_nzchunk_indices(V, itchunk)
+        axis = get_nzchunk_axis(V, itchunk)
         if checkindex(Bool, axis, i) #key <= i < key + length(chunk)
             return Pair(itchunk, Int(i - first(axis) + 1))
         end
@@ -1379,7 +1555,7 @@ end
 @inline function lastrawindex(V::AbstractVector)
     if nnz(V) > 0
         li = lastnzchunk_index(V)
-        return Pair(li, length(get_nzchunk_indices(V, li)))
+        return Pair(li, length(get_nzchunk_axis(V, li)))
     else
         return pastendrawindex(V)
     end
@@ -1401,7 +1577,7 @@ rawindex_advance(V::AbstractDensedCompressedVector) = firstrawindex(V)
 
 function rawindex_advance(V::AbstractDensedCompressedVector, i::Pair)
     if last(i) != 0
-        axis = get_nzchunk_indices(V, first(i))
+        axis = get_nzchunk_axis(V, first(i))
         if last(i) < length(axis)
             return Pair(first(i), last(i)+1)
         elseif (itc = advance(V, first(i))) != pastendnzchunk_index(V)
@@ -1418,7 +1594,7 @@ function rawindex_advance(V::AbstractDensedCompressedVector, i::Pair, step)
     @boundscheck step >= 0 || throw(ArgumentError(LazyString("step", step, " must be non-negative")))
     step == 0 && return i
     if last(i) != 0
-        axis = get_nzchunk_indices(V, first(i))
+        axis = get_nzchunk_axis(V, first(i))
         if last(i) < length(axis)
             if step + last(i) <= length(axis)
                 return Pair(first(i), last(i)+step)
@@ -1438,11 +1614,11 @@ end
 
 function rawindex_possible_advance(V, i::Pair)
     if last(i) != 0
-        axis = get_nzchunk_indices(V, first(i))
+        axis = get_nzchunk_axis(V, first(i))
         if last(i) <= length(axis)
             return Int(length(axis) - last(i) + 1)
         elseif (itc = advance(V, first(i))) != pastendnzchunk_index(V)
-            return Int(length(get_nzchunk_indices(V, itc)))
+            return Int(length(get_nzchunk_axis(V, itc)))
         else
             return 0
         end
@@ -1473,7 +1649,7 @@ end
 function nziterator(V, i)
     itchunk = searchsortedlast_nzchunk(V, i)
     if itchunk != pastendnzchunk_index(V)
-        axis = get_nzchunk_indices(V, itchunk)
+        axis = get_nzchunk_axis(V, itchunk)
         if checkindex(Bool, axis, i) #key <= i < key + length(chunk)
             return nziteratorstate(typeof(V), Int(i - first(axis) + 1), axis, get_nzchunk(V, itchunk), itchunk)
         end
@@ -1484,12 +1660,12 @@ end
 function firstnziterator(V::AbstractVector)
     if nnz(V) > 0
         itchunk = firstnzchunk_index(V)
-        nziteratorstate(typeof(V), 1, get_indices_and_nzchunk(V, itchunk)..., itchunk)
+        nziteratorstate(typeof(V), 1, get_axis_and_nzchunk(V, itchunk)..., itchunk)
     else
         pastendnziterator(V)
     end
 end
-pastendnziterator(V::AbstractVector) = nziteratorstate(typeof(V), 0, get_indices_and_nzchunk(V)..., pastendnzchunk_index(V))
+pastendnziterator(V::AbstractVector) = nziteratorstate(typeof(V), 0, get_axis_and_nzchunk(V)..., pastendnzchunk_index(V))
 
 Base.@propagate_inbounds function Base.to_index(nzit::DSVIteratorState)
     if nzit.itblock != 0
@@ -1519,7 +1695,8 @@ end
 * `nzchunkspairs(V::AbstractDensedCompressedVector)` is the `Iterator` over non-zero chunks,
   returns `Pair` of `UnitRange` first-last indices and view to vector of non-zero values.
 
-* `nzblocks(V::AbstractVector)` is the `Iterator` over non-zero values of `V`.
+* `nzblocks(V::AbstractVector)` is the `Iterator` over non-zero block-values of `V`; returns the view on block-values.
+* `nzblockspairs(V::AbstractVector)` is the `Iterator` over non-zero block-values of `V`; returns pair of axis and view on block-values.
 
 * `nzindices(V::AbstractVector)` is the `Iterator` over non-zero indices of vector `V`.
 
@@ -1607,6 +1784,22 @@ Base.length(it::NZBlocks) = nnz(it.itr)
 Base.size(it::NZBlocks) = (nnz(it.itr),)
 #Base.getindex(it::NZBlocks, i) = TODO
 #Iterators.reverse(it::NZBlocks) = NZBlocks(Iterators.reverse(it.itr))
+
+struct NZBlocksPairs{It}
+    itr::It
+end
+"`nzblocks(V::AbstractVector)` is the `Iterator` over non-zero values of `V`."
+nzblockspairs(itr) = NZBlocksPairs(itr)
+@inline Base.iterate(it::NZBlocksPairs, state...) = iterate_nzblockspairs(it.itr, state...)
+SparseArrays.indtype(it::NZBlocksPairs) = SparseArrays.indtype(it.itr)
+Base.eltype(::Type{NZBlocksPairs{It}}) where {It} = eltype(It)
+Base.IteratorEltype(::Type{NZBlocksPairs{It}}) where {It} = Base.IteratorEltype(It)
+Base.IteratorSize(::Type{<:NZBlocksPairs}) = Base.HasShape{1}()
+Base.ndims(::Type{<:NZBlocksPairs}) = 1
+Base.length(it::NZBlocksPairs) = nnz(it.itr)
+Base.size(it::NZBlocksPairs) = (nnz(it.itr),)
+#Base.getindex(it::NZBlocksPairs, i) = TODO
+#Iterators.reverse(it::NZBlocksPairs) = NZBlocksPairs(Iterators.reverse(it.itr))
 
 
 struct NZIndices{It}
@@ -1716,7 +1909,7 @@ end
 function checkbounds(V, i::Pair)
     (idxcompare(V, first(i), beforestartnzchunk_index(V)) > 0 &&
      idxcompare(V, first(i), pastendnzchunk_index(V)) < 0) || throw(BoundsError(V, i))
-    axis = get_nzchunk_indices(V, first(i))
+    axis = get_nzchunk_axis(V, first(i))
     last(i) > length(axis) && throw(BoundsError(V, i))
     return nothing
 end
@@ -1742,7 +1935,7 @@ end
     # cached chunk index miss or index is not stored
     itc = searchsortedlast_ranges(V, i)
     if itc != beforestartnzchunk_index(V)  # the index `i` is not before the first index
-        axis = get_nzchunk_indices(V, itc)
+        axis = get_nzchunk_axis(V, itc)
         if i <= last(axis)  # is the index `i` inside of data chunk indices range
             set_lastused!(V, itc)
             return get_nzchunk(V, itc)[i]
